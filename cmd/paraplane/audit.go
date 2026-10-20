@@ -1,0 +1,72 @@
+package main
+
+import (
+	"fmt"
+	"io"
+
+	"paraplane/internal/config"
+	"paraplane/internal/gitx"
+	"paraplane/internal/hooks"
+	"paraplane/internal/plan"
+	"paraplane/internal/rules"
+	"paraplane/internal/textx"
+)
+
+// maxWave caps the runes of a wave id echoed from the arguments.
+const maxWave = 64
+
+func runAudit(args []string, stdout, stderr io.Writer, cwd string) int {
+	if len(args) != 2 {
+		fmt.Fprint(stderr, usage)
+		return 2
+	}
+	root := config.FindRoot(cwd)
+	env := loadEnv(stdout, root)
+	p, rel, err := loadValidPlan(args[0], cwd, env)
+	if err != nil {
+		printErr(stdout, err)
+		return 1
+	}
+	changed, err := gitx.Changed(root)
+	if err != nil {
+		printErr(stdout, err)
+		return 1
+	}
+	findings, err := rules.Audit(p, args[1], changed, rel, env.Config.AuditIgnore)
+	if err != nil {
+		printErr(stdout, err)
+		return 1
+	}
+	wave := textx.Line(args[1], maxWave)
+	for _, f := range findings {
+		fmt.Fprintln(stdout, textx.Line(f.String(), maxLine))
+	}
+	if len(findings) > 0 {
+		fmt.Fprintf(stdout, "audit failed: %d file(s) outside %s\n", len(findings), wave)
+		return 1
+	}
+	fmt.Fprintf(stdout, "audit ok: %s, %d changed file(s)\n", wave, len(changed))
+	return 0
+}
+
+// loadValidPlan reads the plan file name and checks it; a plan with errors
+// (E0–E7) is an error. rel is the plan path from the root with "/".
+func loadValidPlan(name, cwd string, env hooks.Env) (*plan.Plan, string, error) {
+	md, rel, err := readPlanFile(name, cwd, env.Root)
+	if err != nil {
+		return nil, "", err
+	}
+	r := rules.Check(md, cliOptions(env))
+	if n := r.Errors(); n > 0 || r.Plan == nil {
+		first := ""
+		for _, f := range r.Findings {
+			if f.Severity == rules.Error {
+				first = f.String()
+				break
+			}
+		}
+		return nil, "", fmt.Errorf("%s is not a valid plan (%d error(s), first: %s); run paraplane check %s",
+			textx.Line(name, maxName), n, first, textx.Line(name, maxName))
+	}
+	return r.Plan, rel, nil
+}

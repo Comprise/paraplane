@@ -1,3 +1,13 @@
+# paraplane
+Плагин Claude Code на Go: проверяет, что план реализации пригоден для параллельного исполнения субагентами (блок `paraplane`, владение файлами `owns`, волны, gate).
+
+- `cmd/paraplane/` — бинарник (check, audit, progress, hook, version)
+- `internal/` — ядро: `config`, `plan`, `pathset`, `rules` (E0–E7, W1–W5, аудит A1), `layout`, `gitx`, `progress`, `hooks`, `textx`, `plugintest`
+- `hooks/`, `skills/`, `agents/`, `bin/`, `.claude-plugin/` — упаковка плагина; `Makefile`, `.github/workflows/` — сборка, CI, релиз
+- `docs/superpowers/` — спецификация и план (источник правды по поведению)
+
+Подробно: docs/superpowers/specs/2026-10-20-paraplane-design.md
+
 <!-- code-review-graph MCP tools -->
 ## MCP Tools: code-review-graph
 
