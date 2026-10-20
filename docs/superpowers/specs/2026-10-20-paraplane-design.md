@@ -176,8 +176,15 @@ E6 — главное правило «следующий этап не лома
   отказ `error: the repository config defines filter drivers; paraplane audit does not run git status here`
   (код 1); фильтры из `global` (пользовательского конфига, например git-lfs) — доверенная настройка; системный конфиг не читается; «фильтров нет» —
   только код выхода 1 без вывода, любая другая ошибка — отказ;
-  git старше 2.26 (нет `--show-scope`): запасной путь — запросы `--local --includes` и `--worktree --includes`,
-  любое совпадение — отказ;
+  git старше 2.26 (нет `--show-scope`): запасной путь — запросы `--local --includes` и `--worktree --includes`
+  (последний — если хоть одно значение `extensions.worktreeConfig` в локальном конфиге, прочитанное без и с include, не `false`; иначе git файл `config.worktree` не читает),
+  любое совпадение — отказ; аудит проверен с git 2.18;
+- git, который не знает `GIT_NO_LAZY_FETCH` (всё, кроме 2.46+ и исправлений 2.45.1, 2.44.1, 2.43.4, 2.42.2,
+  2.41.1, 2.40.2, 2.39.4; версия, которую не удалось разобрать, — тоже), — отказ
+  `error: … partial clone …`, если `extensions.partialClone` или `remote.*.promisor` задан в любой области
+  (включая `global`: частичный клон на таком git может скачать объекты через любой транспорт репозитория)
+  или конфиг репозитория задаёт `remote.*.uploadpack`; обычные репозитории работают и на старом git;
+- вывод git ограничен 16 MiB: больше (например, огромное дерево неотслеживаемых файлов) — отказ `git output too large`;
 - git запускается с `GIT_NO_LAZY_FETCH=1` (частичный клон не скачивает объекты через команды `remote.*`/`core.sshCommand`),
   `GIT_OPTIONAL_LOCKS=0` (индекс не пишется — хуки индекса не срабатывают), `-c core.fsmonitor=false`, без `GIT_DIR`,
   `GIT_CONFIG` и прочих переменных репозитория; `status` — с `--no-renames` и `--ignore-submodules=all`.
@@ -237,6 +244,7 @@ paraplane version
 (gate прошёл); первая не `done` — `running`; остальные — `waiting`. Коммит волны, стоящей после `running`, —
 строка `warning: wave <id> was committed before <running id>`; коммит волны, которой нет в плане, —
 `warning: commit for unknown wave <id>`. Значения трейлеров, не подходящие под шаблон id, отбрасываются.
+Трейлеры читаются через `%(trailers:key=…)`, поэтому `progress` требует git 2.22+ (на более старом — явная ошибка).
 
 Пример (синтетический план `example.md`, 5 волн, 17 задач, выполнены W1 и W2):
 
@@ -314,9 +322,9 @@ PostToolUse не должен шуметь, пока план пишется и 
 | `mode` | `block` | `block` или `warn`: блокируют ли хуки (`ExitPlanMode`, PostToolUse) или только сообщают |
 | `plan_paths` | `docs/plans/**/*.md`, `docs/superpowers/plans/**/*.md`, `.paraplane/plans/**/*.md` | какие файлы — планы |
 | `hot_files` | `go.mod`, `go.sum`, `**/package.json`, `**/package-lock.json`, `**/pnpm-lock.yaml`, `**/yarn.lock`, `**/Cargo.toml`, `**/Cargo.lock`, `**/pyproject.toml`, `**/uv.lock`, `**/poetry.lock`, `**/migrations/**` | горячие файлы |
-| `default_gate` | `""` | gate по умолчанию |
+| `default_gate` | `""` | gate по умолчанию; одна строка не длиннее лимита, без управляющих символов (включая TAB, NUL, ESC, DEL), U+2028/U+2029 и невидимых форматирующих символов (категория Cf); иначе значение игнорируется с сообщением |
 | `max_parallel` | `6` | порог W2, 1…32 |
-| `plans_dir` | `docs/plans` | куда `/paraplane:create` сохраняет планы |
+| `plans_dir` | `docs/plans` | куда `/paraplane:create` сохраняет планы; относительный путь без `..` и без символов глобов `* ? [ ] { }`, иначе игнорируется с сообщением |
 | `audit_ignore` | `[]` | шаблоны файлов, которые аудит не учитывает (генерируемое, кеши) |
 
 ## 10. Skills и агент
