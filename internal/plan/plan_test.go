@@ -302,3 +302,45 @@ func TestLoadErrors(t *testing.T) {
 		t.Errorf("err = %v, want *SchemaError", err)
 	}
 }
+
+func TestExtractBOM(t *testing.T) {
+	md := []byte("\xef\xbb\xbf```paraplane\nversion: 1\n```\n")
+	b, err := Extract(md)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b.Body) != "version: 1\n" {
+		t.Errorf("Body = %q", b.Body)
+	}
+	if b.Start != 3 || string(md[b.Start:b.End]) != "```paraplane\nversion: 1\n```" {
+		t.Errorf("Start/End = %d/%d, slice %q", b.Start, b.End, md[b.Start:b.End])
+	}
+	if _, err := Load(md); err != nil {
+		t.Errorf("Load: %v", err)
+	}
+}
+
+func TestParseVersionZero(t *testing.T) {
+	var se *SchemaError
+	_, err := Parse([]byte("version: 0\nwaves: []\n"))
+	if !errors.As(err, &se) || !strings.Contains(err.Error(), "unsupported version 0 (only 1 is supported)") {
+		t.Errorf("version 0: err = %#v", err)
+	}
+	for _, in := range []string{"waves: []\n", "version: null\nwaves: []\n", "version: ~\nwaves: []\n", "version:\nwaves: []\n"} {
+		if _, err := Parse([]byte(in)); err != nil {
+			t.Errorf("absent/null version %q: %v", in, err)
+		}
+	}
+}
+
+func TestParseLimitBeforeVersion(t *testing.T) {
+	var sb strings.Builder
+	sb.WriteString("version: 0\nwaves:\n  - id: W1\n    tasks:\n")
+	for i := 0; i <= MaxTasks; i++ {
+		fmt.Fprintf(&sb, "      - id: T%d\n", i)
+	}
+	var le *LimitError
+	if _, err := Parse([]byte(sb.String())); !errors.As(err, &le) {
+		t.Errorf("err = %#v, want *LimitError", err)
+	}
+}

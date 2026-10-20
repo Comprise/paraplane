@@ -1,7 +1,7 @@
 VERSION ?= dev
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
-.PHONY: test dist
+.PHONY: test dist tree
 
 test:
 	go test ./...
@@ -13,3 +13,14 @@ dist:
 		echo "building $$GOOS/$$GOARCH"; \
 		CGO_ENABLED=0 GOOS=$$GOOS GOARCH=$$GOARCH go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o libexec/paraplane-$$GOOS-$$GOARCH$$EXT ./cmd/paraplane || exit 1; \
 	done
+
+# tree DIR=<dir>: copies what ships (ship.txt, the single list CI and the
+# release read too) into DIR; libexec is skipped when it was not built.
+tree:
+	@if [ -z "$(DIR)" ]; then echo "usage: make tree DIR=<dir>" >&2; exit 2; fi
+	@mkdir -p "$(DIR)"
+	@while read -r p; do \
+		[ -n "$$p" ] || continue; \
+		if [ "$$p" = libexec ] && [ ! -e libexec ]; then continue; fi; \
+		cp -R "$$p" "$(DIR)/" || exit 1; \
+	done < ship.txt

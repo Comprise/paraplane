@@ -90,11 +90,20 @@ func Parse(body []byte) (*Plan, error) {
 	} else if !errors.Is(err, io.EOF) {
 		return nil, decodeError(err)
 	}
+	if err := checkLimits(&p); err != nil {
+		return nil, err
+	}
 	if p.Version != 0 && p.Version != 1 {
 		return nil, &SchemaError{Msg: fmt.Sprintf("unsupported version %d (only 1 is supported)", p.Version)}
 	}
-	if err := checkLimits(&p); err != nil {
-		return nil, err
+	// An explicit "version: 0" decodes to the same int as an absent key.
+	if p.Version == 0 {
+		var probe struct {
+			Version *int `yaml:"version"`
+		}
+		if err := yaml.Unmarshal(body, &probe); err == nil && probe.Version != nil {
+			return nil, &SchemaError{Msg: "unsupported version 0 (only 1 is supported)"}
+		}
 	}
 	return &p, nil
 }

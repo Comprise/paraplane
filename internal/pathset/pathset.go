@@ -13,10 +13,14 @@ import (
 )
 
 const (
-	// MaxPatternLen is the maximum length of a path or pattern, in bytes.
+	// MaxPatternLen is the maximum length of a path or pattern, in runes.
 	MaxPatternLen = 256
 	// MaxBraceGroups is the maximum number of `{` groups in a pattern.
 	MaxBraceGroups = 8
+	// maxExpansion bounds the brace expansion of a pattern: one
+	// doublestar.Match on more alternatives can take tens of seconds and
+	// cannot be interrupted by a deadline.
+	maxExpansion = 256
 )
 
 // Clean validates a plan path or glob pattern and returns it normalized by
@@ -24,12 +28,13 @@ const (
 // of a pattern without `**`, and without a `*` next to `{`, `,` or `}`, matches
 // exactly one path segment, which Overlap relies on. Brace expansion can
 // splice a globstar (`{*,a}*` matches `p/q`), so such patterns may span
-// several segments; Overlap treats them like `**`.
+// several segments; Overlap treats them like `**`. The brace expansion of
+// a pattern (the number of brace-free patterns it stands for) is at most 256.
 func Clean(p string) (string, error) {
 	switch {
 	case p == "":
 		return "", errors.New("empty path")
-	case len(p) > MaxPatternLen:
+	case utf8.RuneCountInString(p) > MaxPatternLen:
 		return "", fmt.Errorf("path longer than %d characters", MaxPatternLen)
 	case strings.Contains(p, `\`):
 		return "", errors.New(`path contains '\'; use '/' as the separator`)
@@ -49,6 +54,9 @@ func Clean(p string) (string, error) {
 	}
 	if err := checkGroups(p); err != nil {
 		return "", err
+	}
+	if expansion(p) > maxExpansion {
+		return "", fmt.Errorf("pattern expands to more than %d alternatives", maxExpansion)
 	}
 	c := path.Clean(p)
 	if c == "." {
@@ -104,6 +112,40 @@ func checkGroups(p string) error {
 	return nil
 }
 
+// expansion returns the number of brace-free patterns p expands to, capped
+// at maxExpansion+1: a group counts the sum of its alternatives, a sequence
+// the product of its parts. Commas outside groups and the contents of
+// classes are literal. Every partial count only grows into the total, so
+// capping early is exact for the comparison with maxExpansion.
+func expansion(p string) int {
+	capped := func(n int) int { return min(n, maxExpansion+1) }
+	type group struct{ sum, cur int }
+	stack := []group{{cur: 1}} // stack[0] is the pattern outside any group
+	for i := 0; i < len(p); i++ {
+		top := &stack[len(stack)-1]
+		switch p[i] {
+		case '[':
+			if end := strings.IndexByte(p[i+1:], ']'); end >= 0 {
+				i += 1 + end
+			}
+		case '{':
+			stack = append(stack, group{cur: 1})
+		case ',':
+			if len(stack) > 1 {
+				top.sum, top.cur = capped(top.sum+top.cur), 1
+			}
+		case '}':
+			if len(stack) > 1 {
+				n := capped(top.sum + top.cur)
+				stack = stack[:len(stack)-1]
+				parent := &stack[len(stack)-1]
+				parent.cur = capped(parent.cur * n)
+			}
+		}
+	}
+	return stack[0].cur
+}
+
 // checkClass checks the class starting at p[start] == '[' and returns the
 // index of its closing ']'. Ranges are parsed the way doublestar parses them.
 func checkClass(p string, start int) (int, error) {
@@ -145,46 +187,116 @@ func Match(pattern, name string) bool {
 }
 
 // Overlap reports whether patterns a and b (both passed Clean) may describe
-// the same file. False positives are allowed, misses are not: if a path
-// matches both, Overlap returns true.
+// the same file (spec 4.1). False positives are allowed, misses are not: if
+// a path matches both, Overlap returns true. It is
+// Compile(a).Overlaps(Compile(b)).
 func Overlap(a, b string) bool {
-	litA, litB := !HasMeta(a), !HasMeta(b)
-	switch {
-	case litA && litB:
-		return a == b
-	case litA:
-		return Match(b, a)
-	case litB:
-		return Match(a, b)
+	return Compile(a).Overlaps(Compile(b))
+}
+
+// Compiled is a pattern prepared once for repeated Overlaps checks.
+type Compiled struct {
+	s      string
+	lit    bool // no metacharacters: a literal path
+	span   bool // a segment may match several path segments (rule 2)
+	segs   []string
+	meta   []bool   // segment has a metacharacter
+	star   []string // the lit of a `*lit` segment
+	isStar []bool   // segment has the form `*lit`, lit without metacharacters
+	prefix int      // number of leading segments without metacharacters
+}
+
+// Compile prepares p (passed Clean) for Overlaps.
+func Compile(p string) Compiled {
+	segs := strings.Split(p, "/")
+	c := Compiled{
+		s:      p,
+		lit:    !HasMeta(p),
+		span:   SpansSegments(p),
+		segs:   segs,
+		meta:   make([]bool, len(segs)),
+		star:   make([]string, len(segs)),
+		isStar: make([]bool, len(segs)),
+		prefix: len(segs),
 	}
-	sa, sb := strings.Split(a, "/"), strings.Split(b, "/")
-	if spansSegments(a) || spansSegments(b) {
-		pa, pb := staticPrefix(sa), staticPrefix(sb)
-		if len(pa) > len(pb) {
-			pa, pb = pb, pa
+	for i, g := range segs {
+		c.meta[i] = HasMeta(g)
+		if c.meta[i] && c.prefix == len(segs) {
+			c.prefix = i
 		}
-		for i := range pa {
-			if pa[i] != pb[i] {
+		if len(g) > 0 && g[0] == '*' && !HasMeta(g[1:]) {
+			c.star[i], c.isStar[i] = g[1:], true
+		}
+	}
+	return c
+}
+
+// Overlaps reports whether a and b may describe the same file (spec 4.1);
+// see Overlap.
+func (a Compiled) Overlaps(b Compiled) bool {
+	// Segments before the first metacharacter of either pattern are
+	// literal in both and aligned; a difference there rules out every rule.
+	// A literal path is compared only on its own segments, so `a` vs `a/**`
+	// still reaches Match.
+	for i := range min(a.prefix, b.prefix) {
+		if a.segs[i] != b.segs[i] {
+			return false
+		}
+	}
+	switch {
+	case a.lit && b.lit:
+		return a.s == b.s
+	case a.lit:
+		return matchesLiteral(&b, &a)
+	case b.lit:
+		return matchesLiteral(&a, &b)
+	case a.span || b.span:
+		return true // static prefixes agree on the shorter one (checked above)
+	case len(a.segs) != len(b.segs):
+		return false
+	}
+	// Rule 3; the cheap segment pairs first, the result is a conjunction.
+	for i := range a.segs {
+		switch {
+		case !a.meta[i] && !b.meta[i]:
+			if a.segs[i] != b.segs[i] {
+				return false
+			}
+		case a.isStar[i] && b.isStar[i]:
+			if !strings.HasSuffix(a.star[i], b.star[i]) && !strings.HasSuffix(b.star[i], a.star[i]) {
 				return false
 			}
 		}
-		return true
 	}
-	if len(sa) != len(sb) {
-		return false
-	}
-	for i := range sa {
-		if !segmentsMayMeet(sa[i], sb[i]) {
-			return false
+	for i := range a.segs {
+		switch {
+		case a.meta[i] && !b.meta[i]:
+			if !Match(a.segs[i], b.segs[i]) {
+				return false
+			}
+		case !a.meta[i] && b.meta[i]:
+			if !Match(b.segs[i], a.segs[i]) {
+				return false
+			}
 		}
 	}
 	return true
 }
 
-// spansSegments reports whether a segment of p may match several path
+// matchesLiteral is Match(p, l) for a literal l. Without spanning, every
+// segment of p matches exactly one path segment (Clean), so the segment
+// counts must agree.
+func matchesLiteral(p, l *Compiled) bool {
+	if !p.span && len(p.segs) != len(l.segs) {
+		return false
+	}
+	return Match(p.s, l.s)
+}
+
+// SpansSegments reports whether a segment of p may match several path
 // segments: p contains `**`, or a `*` next to `{`, `,` or `}`, which brace
 // expansion can splice into a globstar.
-func spansSegments(p string) bool {
+func SpansSegments(p string) bool {
 	if strings.Contains(p, "**") {
 		return true
 	}
@@ -194,42 +306,6 @@ func spansSegments(p string) bool {
 		}
 	}
 	return false
-}
-
-// staticPrefix returns the segments before the first one with a metacharacter.
-func staticPrefix(segs []string) []string {
-	for i, s := range segs {
-		if HasMeta(s) {
-			return segs[:i]
-		}
-	}
-	return segs
-}
-
-// segmentsMayMeet reports whether two single-segment patterns may match a
-// common string.
-func segmentsMayMeet(s, t string) bool {
-	switch {
-	case !HasMeta(s):
-		return Match(t, s)
-	case !HasMeta(t):
-		return Match(s, t)
-	}
-	ls, okS := starLiteral(s)
-	lt, okT := starLiteral(t)
-	if okS && okT {
-		return strings.HasSuffix(ls, lt) || strings.HasSuffix(lt, ls)
-	}
-	return true
-}
-
-// starLiteral returns lit for a segment of the form `*lit`, lit without
-// metacharacters.
-func starLiteral(s string) (string, bool) {
-	if len(s) > 0 && s[0] == '*' && !HasMeta(s[1:]) {
-		return s[1:], true
-	}
-	return "", false
 }
 
 // Touches reports whether a task owning owns touches the hot pattern hot

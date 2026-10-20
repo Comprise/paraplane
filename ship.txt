@@ -1,0 +1,12 @@
+.claude-plugin
+.codex-plugin
+.agents
+.gitattributes
+hooks
+skills
+agents
+bin
+libexec
+README.md
+README.ru.md
+LICENSE

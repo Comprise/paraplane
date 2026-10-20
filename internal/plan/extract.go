@@ -93,7 +93,7 @@ func Extract(md []byte) (Block, error) {
 		inside bool
 		bodyAt int // offset just after the current opening fence line
 	)
-	for pos := 0; pos < len(md); {
+	for pos := bomLen(md); pos < len(md); { // a leading UTF-8 BOM is skipped; offsets stay absolute
 		start := pos
 		end := len(md) // end of line content, terminator excluded
 		next := len(md)
@@ -137,4 +137,12 @@ func Extract(md []byte) (Block, error) {
 		blk.Body, blk.End = md[bodyAt:], len(md)
 	}
 	return blk, nil
+}
+
+// bomLen is the length of a leading UTF-8 byte order mark in md, or 0.
+func bomLen(md []byte) int {
+	if bytes.HasPrefix(md, []byte("\xef\xbb\xbf")) {
+		return 3
+	}
+	return 0
 }

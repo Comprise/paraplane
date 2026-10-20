@@ -5,8 +5,8 @@ on:
     branches: [main]
     paths-ignore: &docs
       # Docs only: nothing to build or test. Skills are Markdown too but are
-      # validated by the plugin job, so they are not listed here.
-      - 'docs/**'
+      # validated by the plugin job, so they are not listed here; docs/ is not
+      # listed either, the tests read the spec and the plan examples.
       - '**/CLAUDE.md'
       - 'CLAUDE.md'
       - 'README.md'
@@ -49,6 +49,17 @@ jobs:
         shell: bash
         run: sh -n bin/paraplane
 
+  race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+      - run: go test -race ./...
+
   plugin:
     runs-on: ubuntu-latest
     steps:
@@ -63,9 +74,9 @@ jobs:
         # The repo root warns about its dev CLAUDE.md and the version the release
         # stamps; the tree users get must pass with no warning at all.
         run: |
+          # ship.txt is the one list of what ships (libexec is not built here).
           tree="$RUNNER_TEMP/tree"
-          mkdir -p "$tree"
-          cp -r .claude-plugin .codex-plugin .agents hooks skills agents bin README.md README.ru.md LICENSE "$tree/"
+          make tree DIR="$tree"
           jq '.version="0.0.0-ci"' .claude-plugin/plugin.json > "$tree/.claude-plugin/plugin.json"
           jq '.version="0.0.0-ci"' .codex-plugin/plugin.json > "$tree/.codex-plugin/plugin.json"
           cd "$tree" && npx --yes @anthropic-ai/claude-code@2.1.304 plugin validate --strict .

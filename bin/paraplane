@@ -14,11 +14,29 @@ case "$(uname -m)" in
 esac
 bin="$(dirname "$0")/../libexec/paraplane-$os-$arch$ext"
 if [ -e "$bin" ]; then problem="is not executable"; else problem="was not found"; fi
+# project_root: like the binary, the nearest dir up from the project dir with
+# .git or .paraplane/config.yaml (never climbing into $HOME from below it);
+# without a marker, the project dir itself.
+project_root() {
+  start=${CLAUDE_PROJECT_DIR:-$PWD}
+  cur=$start
+  while :; do
+    if [ -n "$HOME" ] && [ "$cur" = "$HOME" ] && [ "$cur" != "$start" ]; then break; fi
+    if [ -e "$cur/.git" ] || [ -e "$cur/.paraplane/config.yaml" ]; then
+      printf '%s\n' "$cur"
+      return
+    fi
+    parent=$(dirname "$cur")
+    [ "$parent" = "$cur" ] && break
+    cur=$parent
+  done
+  printf '%s\n' "$start"
+}
 if [ ! -x "$bin" ]; then
   # Hooks must never fail the session.
   if [ "$1" = hook ]; then
     # Say why nothing happens, once per session, unless the project disabled the plugin.
-    if [ "$2" = session-start ] && ! grep -q '^enabled:[[:space:]]*false' "${CLAUDE_PROJECT_DIR:-.}/.paraplane/config.yaml" 2>/dev/null; then
+    if [ "$2" = session-start ] && ! grep -q '^enabled:[[:space:]]*false' "$(project_root)/.paraplane/config.yaml" 2>/dev/null; then
       msg=$(printf '%s' "paraplane: the binary for $os/$arch $problem ($bin), plan checks are off. Reinstall the plugin (it installs from the release branch)." | sed 's/\\/\\\\/g; s/"/\\"/g')
       printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart"}}\n' "$msg"
     fi
@@ -30,14 +48,11 @@ fi
 if [ "$1" = hook ]; then
   # No exec: a crash the binary cannot recover from (a Go fatal error exits 2,
   # which Claude Code treats as blocking) must not block the prompt or the turn.
-  if [ "$2" = session-start ]; then
-    # Buffered, so a crash prints nothing instead of a partial answer.
-    out=$("$bin" "$@")
-    rc=$?
-    [ "$rc" -eq 0 ] && [ -n "$out" ] && printf '%s\n' "$out"
-  else
-    "$bin" "$@"
-  fi
+  # Buffered for every hook, so a crash prints nothing instead of a partial
+  # answer (a truncated deny or context JSON).
+  out=$("$bin" "$@")
+  rc=$?
+  [ "$rc" -eq 0 ] && [ -n "$out" ] && printf '%s\n' "$out"
   exit 0
 fi
 exec "$bin" "$@"

@@ -84,7 +84,7 @@ W1 holds every leaf; `rules` and `config` follow the packages they import; `hook
 
 ### Task F1: gitx
 
-- Every git call (`runCode`): add `-c log.showSignature=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false -c core.hooksPath=` + `os.DevNull` (spec §5.1). `WaveCommits`: also `--no-show-signature`. Keep `GIT_CONFIG_NOSYSTEM=1`, update the comment (system config is never read; only global filters are trusted).
+- ✅ Every git call (`runCode`): add `-c log.showSignature=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false -c core.hooksPath=` + `os.DevNull` (spec §5.1). `WaveCommits`: also `--no-show-signature`. Keep `GIT_CONFIG_NOSYSTEM=1`, update the comment (system config is never read; only global filters are trusted).
 - Regression test `TestWaveCommitsNoSignatureProgram`: forged `gpgsig` commit (`git hash-object -t commit -w`), local `log.showSignature=true`, `gpg.program=<script creating a marker>` → `WaveCommits` works and the marker is absent; positive control: plain `git log --show-signature` in the same repo creates the marker, else `t.Skip`.
 - `TestChangedNoLazyFetch`: add the positive control (plain `git status` creates the marker, else skip).
 - Hermetic tests: `TestMain` sets `HOME`, `XDG_CONFIG_HOME`, `GIT_CONFIG_GLOBAL` to a temp dir and `GIT_CEILING_DIRECTORIES` for not-a-repo tests; not-a-repo tests assert the error text mentions "not a git repository"; use `os.DevNull` instead of `"/dev/null"`.
@@ -93,7 +93,7 @@ W1 holds every leaf; `rules` and `config` follow the packages they import; `hook
 
 ### Task F2: pathset + layout
 
-- `pathset.Clean`: reject a pattern whose brace expansion count (product of alternatives over all groups, nested groups multiply) exceeds 256 (error "pattern expands to more than 256 alternatives"); length limit counts runes (`utf8.RuneCountInString`), message unchanged ("characters").
+- ✅ `pathset.Clean`: reject a pattern whose brace expansion count (product of alternatives over all groups, nested groups multiply) exceeds 256 (error "pattern expands to more than 256 alternatives"); length limit counts runes (`utf8.RuneCountInString`), message unchanged ("characters").
 - One implementation: move layout's compiled-pattern overlap into pathset (`type Compiled`, `func Compile(p string) Compiled`, `func (Compiled) Overlaps(Compiled) bool`); `pathset.Overlap(a,b)` = `Compile(a).Overlaps(Compile(b))`; export `SpansSegments` once; layout uses `pathset.Compile`. Keep the differential test (now compiled vs brute force) in pathset.
 - Remove `layout.Suggest` and `layout.Conflicts` (tests call `SuggestWith(p, ConflictsWithin(p, hot, time.Time{}))`).
 - `layout.Render`: a gate that is empty after `strings.TrimSpace` counts as unset.
@@ -102,7 +102,7 @@ W1 holds every leaf; `rules` and `config` follow the packages they import; `hook
 
 ### Task F3: plan
 
-- `Extract`: skip a leading UTF-8 BOM (offsets of `Block.Start/End` stay relative to the original bytes).
+- ✅ `Extract`: skip a leading UTF-8 BOM (offsets of `Block.Start/End` stay relative to the original bytes).
 - `Plan.Version` becomes `*int`: absent = ok, explicit `0` → `*SchemaError` ("version must be 1").
 - `Parse`: limit checks run before the version check (E0 wins over E1).
 - Tests: `TestExtractBOM`, `TestParseVersionZero`, `TestParseLimitBeforeVersion`.
@@ -110,19 +110,19 @@ W1 holds every leaf; `rules` and `config` follow the packages they import; `hook
 
 ### Task F4: fsx
 
-- New package `internal/fsx`: `const MaxFile = 1 << 20`; `func OpenRegular(name string) (*os.File, os.FileInfo, error)` — Lstat must be a regular file (not symlink/FIFO/device/dir), open, `f.Stat` + `os.SameFile` with the Lstat result; `ErrNotRegular`; `func ReadRegular(name string, max int64) ([]byte, error)` — OpenRegular + read through `io.LimitReader(max+1)`, `ErrTooLarge` when over. On unix open with `O_NONBLOCK` (build-tagged helper) so a swapped-in FIFO cannot block.
+- ✅ New package `internal/fsx`: `const MaxFile = 1 << 20`; `func OpenRegular(name string) (*os.File, os.FileInfo, error)` — Lstat must be a regular file (not symlink/FIFO/device/dir), open, `f.Stat` + `os.SameFile` with the Lstat result; `ErrNotRegular`; `func ReadRegular(name string, max int64) ([]byte, error)` — OpenRegular + read through `io.LimitReader(max+1)`, `ErrTooLarge` when over. On unix open with `O_NONBLOCK` (build-tagged helper) so a swapped-in FIFO cannot block.
 - Tests: regular, symlink, FIFO (not on windows, quick), directory, too large, missing.
 - Commit message: `feat(fsx): safe regular-file reader`.
 
 ### Task F5: progress
 
-- Wave ids truncate at 32 runes (the id limit), not 12; the task-id column absorbs the width so lines stay ≤ 72 columns; spec example unchanged byte for byte.
+- ✅ Wave ids truncate at 32 runes (the id limit), not 12; the task-id column absorbs the width so lines stay ≤ 72 columns; spec example unchanged byte for byte.
 - Test `TestRenderLongWaveIDs` (`backend-api-01`/`-02` distinct).
 - Commit message: `fix(progress): keep wave ids distinct`.
 
 ### Task F6: packaging
 
-- `.gitattributes`: `* text=auto eol=lf`, `bin/paraplane text eol=lf`, `*.go`, `*.md`, `*.json`, `*.jsonl`, `*.yml`, `*.yaml` → `text eol=lf`.
+- ✅ `.gitattributes`: `* text=auto eol=lf`, `bin/paraplane text eol=lf`, `*.go`, `*.md`, `*.json`, `*.jsonl`, `*.yml`, `*.yaml` → `text eol=lf`.
 - `ship.txt`: one path per line — `.claude-plugin .codex-plugin .agents .gitattributes hooks skills agents bin libexec README.md README.ru.md LICENSE`; Makefile target `tree DIR=…` copies it (without libexec when absent); ci.yml strict-validate step, release.yml tar and `git add -f` read the list from `ship.txt`.
 - release.yml: after extracting the archive, `libexec/paraplane-linux-amd64 version` and `sh bin/paraplane version` must print the stamped version; ldflags `-X main.version=${GITHUB_REF_NAME#v}` (no `v`); reword the comment that claims `--strict` checks skill frontmatter.
 - ci.yml: `docs/**` out of `paths-ignore`; add `go test -race ./...` (ubuntu).

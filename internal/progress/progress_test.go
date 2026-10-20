@@ -109,3 +109,39 @@ func TestRenderWidth(t *testing.T) {
 		t.Fatalf("header not 72 columns")
 	}
 }
+
+func TestRenderLongWaveIDs(t *testing.T) {
+	p := mk(2, 2)
+	p.Waves[0].ID = "backend-api-01"
+	p.Waves[1].ID = "backend-api-02"
+	got := Render(p, "plan.md", []string{"backend-api-01"})
+	for _, id := range []string{"backend-api-01", "backend-api-02"} {
+		if !strings.Contains(got, id+"  ") {
+			t.Fatalf("missing full id %q:\n%s", id, got)
+		}
+	}
+	for _, l := range strings.Split(got, "\n") {
+		if cols(l) > 72 {
+			t.Fatalf("line %d cols: %q", cols(l), l)
+		}
+	}
+}
+
+func TestRenderShrunkIDsStayDistinct(t *testing.T) {
+	for _, n := range []int{40, 300} {
+		p := mk(n, n)
+		p.Waves[0].ID = strings.Repeat("x", 24) + "-wave-01"
+		p.Waves[1].ID = strings.Repeat("x", 24) + "-wave-02"
+		got := Render(p, "plan.md", nil)
+		lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
+		a, b := strings.Fields(lines[3])[0], strings.Fields(lines[4])[0]
+		if a == b {
+			t.Fatalf("n=%d ids collapsed: %q\n%s", n, a, got)
+		}
+		for _, l := range lines {
+			if cols(l) > 72 {
+				t.Fatalf("line %d cols: %q", cols(l), l)
+			}
+		}
+	}
+}

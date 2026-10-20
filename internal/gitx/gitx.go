@@ -24,14 +24,18 @@ var repoVars = []string{"GIT_DIR=", "GIT_WORK_TREE=", "GIT_INDEX_FILE=", "GIT_OB
 	"GIT_ALTERNATE_OBJECT_DIRECTORIES=", "GIT_COMMON_DIR=", "GIT_NAMESPACE=", "GIT_PREFIX=",
 	"GIT_CONFIG="} // exact: GIT_CONFIG_GLOBAL, GIT_CONFIG_COUNT etc. are not matched
 
+// statusArgs is the git status command of Changed.
+var statusArgs = []string{"status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=all", "--no-renames"}
+
 // ErrFilterDrivers is returned by Changed when the repository's local config
 // defines filter drivers, which git status would execute.
 var ErrFilterDrivers = errors.New("the repository config defines filter drivers; paraplane audit does not run git status here")
 
-// run runs git in root with fsmonitor and the pager disabled and returns
-// stdout; on failure the error carries stderr. It does not neutralize other
-// repo-local config: callers that run commands which can execute configured
-// programs (filter drivers) must guard against that themselves, see Changed.
+// run runs git in root with fsmonitor, the pager, hooks and every signature
+// verification program disabled and returns stdout; on failure the error
+// carries stderr. It does not neutralize filter drivers: callers that run
+// commands which can execute them must guard against that themselves, see
+// Changed.
 func run(root string, args ...string) ([]byte, error) {
 	out, _, err := runCode(root, args...)
 	return out, err
@@ -42,7 +46,15 @@ func run(root string, args ...string) ([]byte, error) {
 func runCode(root string, args ...string) ([]byte, int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	full := append([]string{"-C", root, "-c", "core.fsmonitor=false", "-c", "core.pager=cat", "--no-pager"}, args...)
+	// Repo-local config can name programs that git runs on its own: signature
+	// verifiers (log.showSignature makes git log run gpg.program) and hooks.
+	// Command-line config overrides every config file.
+	full := append([]string{"-C", root,
+		"-c", "core.fsmonitor=false", "-c", "core.pager=cat",
+		"-c", "log.showSignature=false",
+		"-c", "gpg.program=false", "-c", "gpg.ssh.program=false", "-c", "gpg.x509.program=false",
+		"-c", "core.hooksPath=" + os.DevNull,
+		"--no-pager"}, args...)
 	cmd := exec.CommandContext(ctx, "git", full...)
 	for _, kv := range os.Environ() {
 		if !slices.ContainsFunc(repoVars, func(p string) bool { return strings.HasPrefix(kv, p) }) {
@@ -52,7 +64,9 @@ func runCode(root string, args ...string) ([]byte, int, error) {
 	// GIT_OPTIONAL_LOCKS=0 stops status from refreshing (writing) the index and
 	// so from running index hooks such as post-index-change; GIT_NO_LAZY_FETCH=1
 	// stops a partial clone from fetching missing objects through repo-configured
-	// transports (uploadpack, sshCommand, credential helpers) that run programs.
+	// transports (uploadpack, sshCommand, credential helpers) that run programs;
+	// GIT_CONFIG_NOSYSTEM=1 means the system config is never read, so the only
+	// config files trusted with filter drivers are the user's global ones.
 	cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=0", "GIT_NO_LAZY_FETCH=1", "GIT_OPTIONAL_LOCKS=0", "GIT_CONFIG_NOSYSTEM=1", "LC_ALL=C", "LANGUAGE=C")
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
@@ -71,8 +85,9 @@ func runCode(root string, args ...string) ([]byte, int, error) {
 
 // WaveCommits returns the ids of waves committed with the Paraplane-Plan
 // trailer equal to planPath, in order of first appearance, without duplicates.
+// When a commit repeats a trailer, its last occurrence wins.
 func WaveCommits(root, planPath string) ([]string, error) {
-	out, err := run(root, "log", "--reverse", "--format=%(trailers:key=Paraplane-Plan,key=Paraplane-Wave,unfold)%x1e")
+	out, err := run(root, "log", "--no-show-signature", "--reverse", "--format=%(trailers:key=Paraplane-Plan,key=Paraplane-Wave,unfold)%x1e")
 	if err != nil {
 		if _, e := run(root, "rev-parse", "--git-dir"); e == nil {
 			if _, e := run(root, "rev-parse", "--verify", "-q", "HEAD"); e != nil {
@@ -106,8 +121,9 @@ func WaveCommits(root, planPath string) ([]string, error) {
 }
 
 // Changed returns the files changed in the working tree relative to root
-// (slash-separated, sorted, without duplicates); both paths of a rename or
-// copy are included, paths outside root are dropped.
+// (slash-separated, sorted, without duplicates); paths outside root are
+// dropped. Status runs with --no-renames, so a rename is reported as a
+// deletion and an addition and both paths are included.
 func Changed(root string) ([]string, error) {
 	pre, err := run(root, "rev-parse", "--show-prefix")
 	if err != nil {
@@ -127,7 +143,7 @@ func Changed(root string) ([]string, error) {
 			return nil, ErrFilterDrivers
 		}
 	}
-	out, err := run(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=all", "--no-renames")
+	out, err := run(root, statusArgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -138,18 +154,10 @@ func Changed(root string) ([]string, error) {
 			seen[rest] = true
 		}
 	}
-	fields := strings.Split(string(out), "\x00")
-	for i := 0; i < len(fields); i++ {
-		f := fields[i]
-		if len(f) < 4 {
-			continue
-		}
-		add(f[3:])
-		if f[0] == 'R' || f[0] == 'C' || f[1] == 'R' || f[1] == 'C' {
-			i++
-			if i < len(fields) {
-				add(fields[i])
-			}
+	// With --no-renames every record is "XY path"; no record carries a second path.
+	for _, f := range strings.Split(string(out), "\x00") {
+		if len(f) >= 4 {
+			add(f[3:])
 		}
 	}
 	res := make([]string, 0, len(seen))

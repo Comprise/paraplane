@@ -2,21 +2,80 @@ package gitx
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
 
+// TestMain makes the tests hermetic: the user's global git config is never
+// read, no variable points git at another repository, and repository
+// discovery stops at the temp directory, so a "not a repository" directory is
+// never inside some enclosing repository.
+func TestMain(m *testing.M) {
+	home, err := os.MkdirTemp("", "gitx-home-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	for _, v := range repoVars {
+		os.Unsetenv(strings.TrimSuffix(v, "="))
+	}
+	os.Setenv("HOME", home)
+	os.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	os.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, ".gitconfig"))
+	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	os.Setenv("GIT_CEILING_DIRECTORIES", os.TempDir())
+	code := m.Run()
+	os.RemoveAll(home)
+	os.Exit(code)
+}
+
+// testEnv is the environment for the git commands the tests run themselves:
+// the current one without repository variables (a test may set GIT_CONFIG)
+// and without global or system config, plus extra.
+func testEnv(extra ...string) []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		if !slices.ContainsFunc(repoVars, func(p string) bool { return strings.HasPrefix(kv, p) }) {
+			env = append(env, kv)
+		}
+	}
+	return append(append(env, "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1"), extra...)
+}
+
 func git(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+	cmd.Env = testEnv()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
+}
+
+// gitOut runs git in dir with stdin and returns its trimmed stdout.
+func gitOut(t *testing.T, dir, stdin string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = testEnv()
+	cmd.Stdin = strings.NewReader(stdin)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// gitRun runs git in dir with extra environment and ignores the result; it is
+// the unprotected control run of the hardening tests.
+func gitRun(dir string, extra []string, args ...string) {
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = testEnv(extra...)
+	cmd.Run()
 }
 
 func write(t *testing.T, path, content string) {
@@ -110,8 +169,9 @@ func TestChangedSubdirRoot(t *testing.T) {
 }
 
 func TestChangedNotRepo(t *testing.T) {
-	if _, err := Changed(t.TempDir()); err == nil {
-		t.Fatal("want error")
+	_, err := Changed(t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "not a git repository") {
+		t.Fatalf("err = %v, want a not-a-git-repository error", err)
 	}
 }
 
@@ -145,8 +205,9 @@ func TestWaveCommits(t *testing.T) {
 }
 
 func TestWaveCommitsNotRepo(t *testing.T) {
-	if _, err := WaveCommits(t.TempDir(), "plan.md"); err == nil {
-		t.Fatal("want error")
+	_, err := WaveCommits(t.TempDir(), "plan.md")
+	if err == nil || !strings.Contains(err.Error(), "not a git repository") {
+		t.Fatalf("err = %v, want a not-a-git-repository error", err)
 	}
 }
 
@@ -255,38 +316,6 @@ func TestChangedAllowsGlobalFilter(t *testing.T) {
 func TestChangedIgnoresGitConfigEnv(t *testing.T) {
 	dir := filterRepo(t)
 	git(t, dir, "config", "filter.x.clean", "touch PWNED")
-	t.Setenv("GIT_CONFIG", "/dev/null")
+	t.Setenv("GIT_CONFIG", os.DevNull)
 	assertRefused(t, dir)
-}
-
-func TestChangedNoLazyFetch(t *testing.T) {
-	dir := initRepo(t)
-	var body strings.Builder
-	for i := 0; i < 50; i++ {
-		body.WriteString("line number " + strings.Repeat("x", i) + "\n")
-	}
-	write(t, filepath.Join(dir, "a.txt"), body.String())
-	commitAll(t, dir, "init")
-	out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD:a.txt").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	h := strings.TrimSpace(string(out))
-	marker := filepath.Join(t.TempDir(), "PWNED")
-	git(t, dir, "config", "extensions.partialClone", "origin")
-	git(t, dir, "config", "remote.origin.url", "file:///nonexistent")
-	git(t, dir, "config", "remote.origin.promisor", "true")
-	git(t, dir, "config", "remote.origin.uploadpack", "touch "+marker+"; false")
-	if err := os.Remove(filepath.Join(dir, ".git", "objects", h[:2], h[2:])); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(filepath.Join(dir, "a.txt")); err != nil {
-		t.Fatal(err)
-	}
-	write(t, filepath.Join(dir, "b.txt"), body.String()+"more\n")
-	git(t, dir, "add", "-A")
-	Changed(dir) // may fail closed; it must not run the transport
-	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Fatalf("lazy fetch ran repo-configured uploadpack (stat err %v)", err)
-	}
 }

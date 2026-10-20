@@ -35,6 +35,15 @@ func task(id string, owns, reads, depends []string) plan.Task {
 
 func s(xs ...string) []string { return xs }
 
+// conflicts is ConflictsWithin without a deadline.
+func conflicts(p *plan.Plan, hot []string) []Conflict {
+	cs, err := ConflictsWithin(p, hot, time.Time{})
+	if err != nil {
+		panic(err)
+	}
+	return cs
+}
+
 func TestConflicts(t *testing.T) {
 	cases := []struct {
 		name string
@@ -122,7 +131,7 @@ func TestConflicts(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := Conflicts(c.p, defaultHot)
+			got := conflicts(c.p, defaultHot)
 			if !reflect.DeepEqual(got, c.want) {
 				t.Errorf("Conflicts =\n%+v\nwant\n%+v", got, c.want)
 			}
@@ -212,7 +221,7 @@ func TestConflictsMatchesPathset(t *testing.T) {
 			tasks = append(tasks, task(fmt.Sprintf("T%d", i+1), pickRich(r, r.Intn(4)), pickRich(r, r.Intn(3)), nil))
 		}
 		p := mk(tasks)
-		got, want := Conflicts(p, defaultHot), bruteConflicts(p, defaultHot)
+		got, want := conflicts(p, defaultHot), bruteConflicts(p, defaultHot)
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("plan %d: Conflicts =\n%+v\nwant\n%+v", n, got, want)
 		}
@@ -243,7 +252,7 @@ func TestConflictsFast(t *testing.T) {
 		}
 		p := mk(waves...)
 		start := time.Now()
-		cs := Conflicts(p, defaultHot)
+		cs := conflicts(p, defaultHot)
 		d := time.Since(start)
 		start = time.Now()
 		SuggestWith(p, cs)
@@ -275,36 +284,12 @@ func randomPattern(r *rand.Rand) string {
 	return strings.Join(segs, "/")
 }
 
-func TestOverlapMatchesPathset(t *testing.T) {
-	r := rand.New(rand.NewSource(41))
-	var ps []string
-	for len(ps) < 600 {
-		c, err := pathset.Clean(randomPattern(r))
-		if err == nil {
-			ps = append(ps, c)
-		}
-	}
-	ps = append(ps, "a/*.e1_2_3", "a/*.e1_2_4", "a/b/c/d/e/f/g/h/*/x1/{p,q}[ab].go",
-		"a/b/c/d/e/f/g/h/*/x2/{p,q}[ab].go", "a/b/c/d/e/f/g/h/*/x1/pa.go", "a", "a/**")
-	cs := make([]pattern, len(ps))
-	for i, p := range ps {
-		cs[i] = compile(p)
-	}
-	for i := range cs {
-		for j := range cs {
-			if got, want := overlap(&cs[i], &cs[j]), pathset.Overlap(ps[i], ps[j]); got != want {
-				t.Fatalf("overlap(%q, %q) = %v, pathset.Overlap = %v", ps[i], ps[j], got, want)
-			}
-		}
-	}
-}
-
 func TestConflictsPrefersEqualPair(t *testing.T) {
 	p := mk([]plan.Task{
 		task("T1", s("a/**", "b/x.go"), s("c/*.go", "d/y.go"), nil),
 		task("T2", s("b/*.go", "b/x.go", "d/y.go"), nil, nil),
 	})
-	got := Conflicts(p, defaultHot)
+	got := conflicts(p, defaultHot)
 	want := []Conflict{
 		{A: "T1", B: "T2", Kind: OwnsOverlap, Path: "b/x.go", With: "b/x.go"},
 	}
@@ -352,7 +337,7 @@ func TestSuggestReorders(t *testing.T) {
 		[]plan.Task{task("T2", s("b/**"), nil, s("T1"))},
 		[]plan.Task{task("T3", s("c/**"), nil, nil)},
 	)
-	got := Suggest(p, defaultHot)
+	got := SuggestWith(p, conflicts(p, defaultHot))
 	want := [][]string{{"T1", "T3"}, {"T2"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Suggest = %v, want %v", got, want)
@@ -364,7 +349,7 @@ func TestSuggestKeepsConflictOrder(t *testing.T) {
 		[]plan.Task{task("T1", s("internal/plan/**"), nil, nil)},
 		[]plan.Task{task("T2", s("internal/rules/**"), s("internal/plan/plan.go"), nil)},
 	)
-	got := Suggest(p, defaultHot)
+	got := SuggestWith(p, conflicts(p, defaultHot))
 	want := [][]string{{"T1"}, {"T2"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Suggest = %v, want %v", got, want)
@@ -378,7 +363,7 @@ func TestSuggestHotFileOrder(t *testing.T) {
 		[]plan.Task{task("T3", s("migrations/0001_a.sql"), nil, nil)},
 		[]plan.Task{task("T4", s("migrations/0002_b.sql"), nil, nil)},
 	)
-	got := Suggest(p, defaultHot)
+	got := SuggestWith(p, conflicts(p, defaultHot))
 	want := [][]string{{"T1", "T3"}, {"T2", "T4"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Suggest = %v, want %v", got, want)
@@ -462,7 +447,7 @@ func TestSuggestNeverLonger(t *testing.T) {
 	shorter, ordered := 0, 0
 	for n := range 500 {
 		p := randomPlan(r)
-		layers := Suggest(p, defaultHot)
+		layers := SuggestWith(p, conflicts(p, defaultHot))
 		if len(layers) < len(p.Waves) {
 			shorter++
 		}
@@ -571,7 +556,7 @@ waves:
 	if err != nil {
 		t.Fatal(err)
 	}
-	layers := Suggest(orig, defaultHot)
+	layers := SuggestWith(orig, conflicts(orig, defaultHot))
 	if want := [][]string{{"T1", "T3"}, {"T2"}}; !reflect.DeepEqual(layers, want) {
 		t.Fatalf("Suggest = %v, want %v", layers, want)
 	}
@@ -719,7 +704,93 @@ func TestConflictsWithinDeadline(t *testing.T) {
 
 	// A zero deadline means no limit.
 	got, err := ConflictsWithin(small, defaultHot, time.Time{})
-	if err != nil || !reflect.DeepEqual(got, Conflicts(small, defaultHot)) || len(got) == 0 {
-		t.Errorf("zero deadline: %+v, %v; want %+v", got, err, Conflicts(small, defaultHot))
+	if err != nil || !reflect.DeepEqual(got, conflicts(small, defaultHot)) || len(got) == 0 {
+		t.Errorf("zero deadline: %+v, %v; want %+v", got, err, conflicts(small, defaultHot))
+	}
+}
+
+func TestRenderWhitespaceGate(t *testing.T) {
+	p := mk(
+		[]plan.Task{task("T1", s("a/**"), nil, nil)},
+		[]plan.Task{task("T2", s("b/**"), nil, s("T1"))},
+	)
+	layers := [][]string{{"T1"}, {"T2"}}
+
+	// A blank plan.gate is not written; a blank wave gate falls back to it.
+	p.Gate = " \t "
+	p.Waves[1].Gate = "  "
+	out := Render(p, layers)
+	got, err := plan.Load([]byte(out))
+	if err != nil {
+		t.Fatalf("plan.Load(Render): %v\n%s", err, out)
+	}
+	if got.Gate != "" || got.Waves[0].Gate != "" || got.Waves[1].Gate != "" {
+		t.Errorf("blank gates: plan %q, waves %q %q\n%s", got.Gate, got.Waves[0].Gate, got.Waves[1].Gate, out)
+	}
+
+	// A blank wave gate falls back to a real plan.gate, which is not repeated.
+	p.Gate = "go test ./..."
+	out = Render(p, layers)
+	if got, err = plan.Load([]byte(out)); err != nil {
+		t.Fatalf("plan.Load(Render): %v\n%s", err, out)
+	}
+	if got.Gate != "go test ./..." || got.Waves[0].Gate != "" || got.Waves[1].Gate != "" {
+		t.Errorf("blank wave gate: plan %q, waves %q %q\n%s", got.Gate, got.Waves[0].Gate, got.Waves[1].Gate, out)
+	}
+
+	// A blank plan.gate does not hide a real wave gate.
+	p.Gate = "   "
+	p.Waves[1].Gate = "make w2"
+	out = Render(p, layers)
+	if got, err = plan.Load([]byte(out)); err != nil {
+		t.Fatalf("plan.Load(Render): %v\n%s", err, out)
+	}
+	if got.Gate != "" || got.Waves[0].Gate != "" || got.Waves[1].Gate != "make w2" {
+		t.Errorf("blank plan gate: plan %q, waves %q %q\n%s", got.Gate, got.Waves[0].Gate, got.Waves[1].Gate, out)
+	}
+}
+
+// worstPlan pairs tasks owning the slowest patterns pathset.Clean allows
+// with tasks owning long literal paths none of them match: every owns pair
+// costs a multi-millisecond doublestar.Match.
+func worstPlan() *plan.Plan {
+	const pat = "**/*/{*a,*b}*/{*a,*b}**/*/{*a,*b}**/{*a,*b}**/{*a,*b}**/{*a,*b}**/{*a,*b}**/{*a,*b}/z%d"
+	lit := strings.TrimSuffix(strings.Repeat("ab/", 84), "/") + "/x%d"
+	var ts []plan.Task
+	n := 0
+	for i := range 40 {
+		var owns []string
+		for range 4 {
+			n++
+			if i%2 == 0 {
+				owns = append(owns, fmt.Sprintf(pat, n))
+			} else {
+				owns = append(owns, fmt.Sprintf(lit, n))
+			}
+		}
+		ts = append(ts, task(fmt.Sprintf("T%d", i), owns, nil, nil))
+	}
+	return mk(ts)
+}
+
+func TestConflictsWithinWorstMatch(t *testing.T) {
+	p := worstPlan()
+	for _, tk := range p.Tasks() {
+		for _, o := range tk.Owns {
+			if c, err := pathset.Clean(o); err != nil || c != o {
+				t.Fatalf("pathset.Clean(%q) = %q, %v", o, c, err)
+			}
+		}
+	}
+	const budget = 200 * time.Millisecond
+	start := time.Now()
+	cs, err := ConflictsWithin(p, defaultHot, start.Add(budget))
+	d := time.Since(start)
+	if !errors.Is(err, ErrDeadline) || cs != nil {
+		t.Fatalf("ConflictsWithin = %d conflicts, %v; want nil, ErrDeadline", len(cs), err)
+	}
+	t.Logf("worst plan: ErrDeadline after %v", d)
+	if !raceEnabled && d > budget+100*time.Millisecond {
+		t.Errorf("ErrDeadline after %v; want within %v", d, budget+100*time.Millisecond)
 	}
 }

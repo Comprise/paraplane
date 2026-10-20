@@ -13,7 +13,7 @@ const (
 	lineWidth  = 72
 	barWidth   = 40
 	maxSquares = 12
-	maxIDRunes = 12
+	maxIDRunes = 32
 	maxTaskID  = 40
 )
 
@@ -37,6 +37,21 @@ func width(s string) int {
 		}
 	}
 	return n
+}
+
+// midCut shortens s to n runes keeping its head and tail around a "…", so ids
+// that differ only at the end stay distinct.
+func midCut(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	if n <= 1 {
+		return "…"
+	}
+	head := (n - 1) / 2
+	tail := n - 1 - head
+	return string(r[:head]) + "…" + string(r[len(r)-tail:])
 }
 
 func pad(s string, n int) string {
@@ -136,6 +151,16 @@ func Render(p *plan.Plan, name string, done []string) string {
 		idw = max(idw, width(r.id))
 		sqw = max(sqw, width(sq))
 		cntw = max(cntw, width(counts[i]))
+	}
+	// ids are never cut below 32 runes unless the fixed columns would push a
+	// line past the width limit.
+	if fixed := 2 + sqw + 2 + cntw + 2 + 9 + 2; idw+fixed > lineWidth {
+		idw = max(1, lineWidth-fixed)
+		for i := range rows {
+			if width(rows[i].id) > idw {
+				rows[i].id = midCut(rows[i].id, idw)
+			}
+		}
 	}
 	labels := map[state]string{stDone: "✓ done", stRunning: "▶ running", stWaiting: "· waiting"}
 	for i, r := range rows {

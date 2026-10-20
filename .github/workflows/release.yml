@@ -53,7 +53,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           EXT: ${{ matrix.goos == 'windows' && '.exe' || '' }}
         run: |
-          go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
+          go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_REF_NAME#v}" \
             -o "libexec/paraplane-${GOOS}-${GOARCH}${EXT}" ./cmd/paraplane
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -90,16 +90,27 @@ jobs:
       - name: Archive and checksums
         run: |
           chmod +x libexec/* bin/paraplane
-          tar -czf "paraplane-${GITHUB_REF_NAME}.tar.gz" .claude-plugin .codex-plugin .agents hooks skills agents bin libexec README.md README.ru.md LICENSE
+          # ship.txt is the one list of what ships (CI and make tree read it too).
+          tar -czf "paraplane-${GITHUB_REF_NAME}.tar.gz" $(cat ship.txt)
           sha256sum libexec/* "paraplane-${GITHUB_REF_NAME}.tar.gz" > checksums.txt
       - name: Validate the tree users install
         run: |
           mkdir -p "$RUNNER_TEMP/tree"
           tar -xzf "paraplane-${GITHUB_REF_NAME}.tar.gz" -C "$RUNNER_TEMP/tree"
-          # --strict: warnings (most broken skill frontmatter, an unknown hook
-          # event) fail the release; without it validate exits 0 on them.
-          # TestSkillsFrontmatter covers the YAML the validator lets through.
+          # --strict fails the release on any validator warning; without it
+          # validate exits 0 on them.
+          # Skill and agent frontmatter is checked by TestSkillsFrontmatter, not here.
           cd "$RUNNER_TEMP/tree" && npx --yes @anthropic-ai/claude-code@2.1.304 plugin validate --strict .
+      - name: Smoke test the shipped binary
+        # The extracted tree, not the build dir: the binary and the shim must both
+        # run from the archive and report the tag's version (without the v).
+        run: |
+          cd "$RUNNER_TEMP/tree"
+          want="${GITHUB_REF_NAME#v}"
+          got=$(libexec/paraplane-linux-amd64 version)
+          [ "$got" = "$want" ] || { echo "::error::binary version is '$got', want '$want'"; exit 1; }
+          got=$(sh bin/paraplane version)
+          [ "$got" = "$want" ] || { echo "::error::shim version is '$got', want '$want'"; exit 1; }
       - name: Update release branch
         # Users install from this branch, so pre-releases never reach it, and it
         # only moves to a higher version (an older tag pushed later would roll
@@ -123,7 +134,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
           git rm -rq --cached .
-          git add -f .claude-plugin .codex-plugin .agents hooks skills agents bin libexec README.md README.ru.md LICENSE
+          git add -f $(cat ship.txt)
           tree=$(git write-tree)
           parents=""
           if git rev-parse -q --verify refs/remotes/origin/release >/dev/null; then

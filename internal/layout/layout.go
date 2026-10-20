@@ -38,139 +38,34 @@ type Conflict struct {
 	With string
 }
 
-// pattern is a path pattern compiled once for the spec 4.1 rules.
+// pattern is a path pattern with its compiled form.
 type pattern struct {
-	s      string
-	lit    bool // no metacharacters: a literal path
-	span   bool // a segment may match several path segments (rule 2)
-	segs   []string
-	meta   []bool   // segment has a metacharacter
-	star   []string // the lit of a `*lit` segment
-	isStar []bool   // segment has the form `*lit`, lit without metacharacters
-	prefix int      // number of leading segments without metacharacters
+	s string
+	c pathset.Compiled
 }
 
-func compile(s string) pattern {
-	segs := strings.Split(s, "/")
-	c := pattern{
-		s:      s,
-		lit:    !pathset.HasMeta(s),
-		span:   spansSegments(s),
-		segs:   segs,
-		meta:   make([]bool, len(segs)),
-		star:   make([]string, len(segs)),
-		isStar: make([]bool, len(segs)),
-		prefix: len(segs),
-	}
-	for i, g := range segs {
-		c.meta[i] = pathset.HasMeta(g)
-		if c.meta[i] && c.prefix == len(segs) {
-			c.prefix = i
-		}
-		if len(g) > 0 && g[0] == '*' && !pathset.HasMeta(g[1:]) {
-			c.star[i], c.isStar[i] = g[1:], true
-		}
-	}
-	return c
-}
-
-// spansSegments mirrors pathset: `**`, or a `*` next to `{`, `,` or `}`.
-func spansSegments(p string) bool {
-	if strings.Contains(p, "**") {
-		return true
-	}
-	for _, s := range []string{"*{", "*,", "*}", "{*", ",*", "}*"} {
-		if strings.Contains(p, s) {
-			return true
-		}
-	}
-	return false
-}
-
-// overlap is pathset.Overlap (spec 4.1) evaluated on compiled patterns; the
-// tests cross-check the two.
-func overlap(a, b *pattern) bool {
-	// Segments before the first metacharacter of either pattern are
-	// literal in both and aligned; a difference there rules out every rule.
-	// A literal path is compared only on its own segments, so `a` vs `a/**`
-	// still reaches Match.
-	for i := range min(a.prefix, b.prefix) {
-		if a.segs[i] != b.segs[i] {
-			return false
-		}
-	}
-	switch {
-	case a.lit && b.lit:
-		return a.s == b.s
-	case a.lit:
-		return litMatch(b, a)
-	case b.lit:
-		return litMatch(a, b)
-	case a.span || b.span:
-		return true // static prefixes agree on the shorter one (checked above)
-	case len(a.segs) != len(b.segs):
-		return false
-	}
-	// Rule 3; the cheap segment pairs first, the result is a conjunction.
-	for i := range a.segs {
-		switch {
-		case !a.meta[i] && !b.meta[i]:
-			if a.segs[i] != b.segs[i] {
-				return false
-			}
-		case a.isStar[i] && b.isStar[i]:
-			if !strings.HasSuffix(a.star[i], b.star[i]) && !strings.HasSuffix(b.star[i], a.star[i]) {
-				return false
-			}
-		}
-	}
-	for i := range a.segs {
-		switch {
-		case a.meta[i] && !b.meta[i]:
-			if !pathset.Match(a.segs[i], b.segs[i]) {
-				return false
-			}
-		case !a.meta[i] && b.meta[i]:
-			if !pathset.Match(b.segs[i], a.segs[i]) {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-// litMatch is pathset.Match(p, l) for a literal l. Without spanning, every
-// segment of p matches exactly one path segment (pathset.Clean), so the
-// segment counts must agree.
-func litMatch(p, l *pattern) bool {
-	if !p.span && len(p.segs) != len(l.segs) {
-		return false
-	}
-	return pathset.Match(p.s, l.s)
-}
+func compile(s string) pattern { return pattern{s: s, c: pathset.Compile(s)} }
 
 // ErrDeadline reports that ConflictsWithin ran out of time.
 var ErrDeadline = errors.New("plan is too complex to check in time; simplify brace patterns or split the plan")
 
-// clock checks a deadline every checkEvery pattern evaluations; a zero
+// clock checks a deadline before every pattern evaluation (time.Now costs
+// tens of nanoseconds, one doublestar.Match up to milliseconds); a zero
 // deadline never expires.
 type clock struct {
 	deadline time.Time
-	n        int
 	expired  bool
 }
 
-const checkEvery = 256
-
-// tick counts one evaluation and reports whether the deadline has passed.
+// tick reports whether the deadline has passed; call it before each
+// evaluation.
 func (c *clock) tick() bool {
 	if c.deadline.IsZero() {
 		return false
 	}
-	if c.n%checkEvery == 0 && !c.expired {
+	if !c.expired {
 		c.expired = !time.Now().Before(c.deadline)
 	}
-	c.n++
 	return c.expired
 }
 
@@ -183,7 +78,7 @@ func firstOverlap(as, bs []pattern, c *clock) (x, y string, ok, expired bool) {
 			if c.tick() {
 				return "", "", false, true
 			}
-			if overlap(&as[i], &bs[j]) {
+			if as[i].c.Overlaps(bs[j].c) {
 				if as[i].s != bs[j].s {
 					for _, x := range as[i:] {
 						for _, y := range bs {
@@ -238,20 +133,16 @@ func prepare(p *plan.Plan, hot []string, c *clock) ([]prepared, bool) {
 	return out, false
 }
 
-// Conflicts returns the conflicts of every pair of tasks of p, in the
+// ConflictsWithin returns the conflicts of every pair of tasks of p, in the
 // author's order of pairs. For each pair it reports at most one owns
 // conflict, one reads conflict per direction and one hot conflict per hot
 // pattern both tasks touch; Path/With are a literally equal pattern pair if
 // there is one, else the first overlapping pair. Paths must have passed
 // pathset.Clean.
-func Conflicts(p *plan.Plan, hot []string) []Conflict {
-	cs, _ := ConflictsWithin(p, hot, time.Time{})
-	return cs
-}
-
-// ConflictsWithin is Conflicts with a deadline: it checks the clock at least
-// every 256 pattern evaluations and returns nil, ErrDeadline once the
-// deadline has passed. A zero deadline means no limit.
+//
+// It checks the clock before every pattern evaluation and returns nil,
+// ErrDeadline once the deadline has passed. A zero deadline means no
+// limit.
 func ConflictsWithin(p *plan.Plan, hot []string, deadline time.Time) ([]Conflict, error) {
 	c := &clock{deadline: deadline}
 	ts, expired := prepare(p, hot, c)
@@ -308,12 +199,6 @@ func sharedHot(a, b []int) []int {
 		}
 	}
 	return out
-}
-
-// Suggest returns the shortest layout of spec section 6; it is
-// SuggestWith(p, Conflicts(p, hot)).
-func Suggest(p *plan.Plan, hot []string) [][]string {
-	return SuggestWith(p, Conflicts(p, hot))
 }
 
 // SuggestWith returns the shortest layout of spec section 6 for the
@@ -378,7 +263,8 @@ func SuggestWith(p *plan.Plan, cs []Conflict) [][]string {
 // W1… (skipping numbers taken by task ids), the tasks of p unchanged, every string double-quoted. plan.gate is
 // written at the top; a layer gets the effective gate (wave.gate, then
 // plan.gate) of the latest author wave among its tasks, written only when
-// it differs from plan.gate. Ids not in p are skipped.
+// it differs from plan.gate. A gate that is blank after strings.TrimSpace
+// counts as unset. Ids not in p are skipped.
 func Render(p *plan.Plan, layers [][]string) string {
 	type at struct {
 		t    *plan.Task
@@ -395,8 +281,9 @@ func Render(p *plan.Plan, layers [][]string) string {
 	}
 	var b strings.Builder
 	b.WriteString("```paraplane\nversion: 1\n")
-	if p.Gate != "" {
-		fmt.Fprintf(&b, "gate: %s\n", q(p.Gate))
+	planGate := gateOrEmpty(p.Gate)
+	if planGate != "" {
+		fmt.Fprintf(&b, "gate: %s\n", q(planGate))
 	}
 	b.WriteString("waves:\n")
 	n := 0
@@ -419,11 +306,11 @@ func Render(p *plan.Plan, layers [][]string) string {
 			id = fmt.Sprintf("W%d", n)
 		}
 		fmt.Fprintf(&b, "  - id: %s\n", q(id))
-		gate := p.Waves[latest].Gate
+		gate := gateOrEmpty(p.Waves[latest].Gate)
 		if gate == "" {
-			gate = p.Gate
+			gate = planGate
 		}
-		if gate != p.Gate {
+		if gate != planGate {
 			fmt.Fprintf(&b, "    gate: %s\n", q(gate))
 		}
 		b.WriteString("    tasks:\n")
@@ -442,6 +329,14 @@ func Render(p *plan.Plan, layers [][]string) string {
 	}
 	b.WriteString("```\n")
 	return b.String()
+}
+
+// gateOrEmpty returns g, or "" when g is blank.
+func gateOrEmpty(g string) string {
+	if strings.TrimSpace(g) == "" {
+		return ""
+	}
+	return g
 }
 
 // q double-quotes s; every escape strconv.Quote emits for valid UTF-8 is
