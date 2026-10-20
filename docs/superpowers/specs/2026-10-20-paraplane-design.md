@@ -98,7 +98,9 @@ waves:
   `did not find expected ',' or ']'` сопровождается подсказкой `quote glob patterns`.
 - Gate волны: `wave.gate` → `plan.gate` → `default_gate` из конфига → нет (ошибка E7).
 - Лимиты (защита хука от враждебного плана): блок ≤ 256 КБ, ≤ 500 задач, ≤ 100 путей на задачу,
-  ≤ 2000 путей (`owns` + `reads`) на план, шаблон ≤ 256 символов, ≤ 8 групп `{}` в шаблоне.
+  ≤ 2000 путей (`owns` + `reads`) на план, шаблон ≤ 256 символов (рун), ≤ 8 групп `{}` в шаблоне и ≤ 256 вариантов
+  раскрытия групп `{}` (произведение числа альтернатив; иначе один вызов `doublestar.Match` может длиться десятки секунд
+  и не прерывается дедлайном).
   Сравнение пар путей квадратично, поэтому общий лимит путей держит проверку обычного плана в пределах 1 с.
   Враждебный план (много групп `{}` подряд) может стоить doublestar экспоненциального перебора, поэтому
   хуки проверяют с дедлайном 5 с: не уложились — ошибка E0 `plan is too complex to check in time; simplify
@@ -174,7 +176,10 @@ E6 — главное правило «следующий этап не лома
 - git запускается с `GIT_NO_LAZY_FETCH=1` (частичный клон не скачивает объекты через команды `remote.*`/`core.sshCommand`),
   `GIT_OPTIONAL_LOCKS=0` (индекс не пишется — хуки индекса не срабатывают), `-c core.fsmonitor=false`, без `GIT_DIR`,
   `GIT_CONFIG` и прочих переменных репозитория; `status` — с `--no-renames` и `--ignore-submodules=all`.
-`git log` для прогресса фильтры не запускает.
+`git log` для прогресса фильтры не запускает, но может запустить программу проверки подписей: поэтому все вызовы git
+идут с `-c log.showSignature=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false
+-c core.hooksPath=/dev/null`, а `git log` — ещё и с `--no-show-signature`. Системный конфиг git не читается вовсе
+(`GIT_CONFIG_NOSYSTEM=1`): доверенными считаются только фильтры из глобального (пользовательского) конфига.
 
 Аудит опирается на правило исполнения «субагенты не коммитят, координатор коммитит после зелёного gate»:
 тогда рабочая копия на момент аудита содержит ровно изменения текущей волны. Аудит не различает задачи
@@ -391,7 +396,7 @@ Go 1.27, модуль `paraplane`; зависимости — stdlib, `gopkg.in/
 
 | Claude Code | Codex | Как paraplane реагирует в Codex |
 |---|---|---|
-| `ExitPlanMode` (PreToolUse) | Plan Mode — режим совместной работы; план выдаётся блоком `<proposed_plan>` в ответе, инструмента нет | хук `Stop`: при `permission_mode == "plan"` (или наличии `<proposed_plan>` в `last_assistant_message`) план из этого блока проверяется `rules.Check`; есть E — `decision: block` с тем же текстом нарушений (Codex продолжает ход и правит план); при `stop_hook_active: true` второй раз не блокирует |
+| `ExitPlanMode` (PreToolUse) | Plan Mode — режим совместной работы; план выдаётся блоком `<proposed_plan>` в ответе, инструмента нет (поправка 12a.2: `permission_mode` не меняется, план читается из транскрипта) | хук `Stop`: при `permission_mode == "plan"` (или наличии `<proposed_plan>` в `last_assistant_message`) план из этого блока проверяется `rules.Check`; есть E — `decision: block` с тем же текстом нарушений (Codex продолжает ход и правит план); при `stop_hook_active: true` второй раз не блокирует |
 | `PostToolUse` `Write\|Edit` | `PostToolUse` для `apply_patch` | пути из заголовков патча (`*** Add File:`, `*** Update File:`, `*** Move to:`) сверяются с `plan_paths`; совпал — проверка файла как в п. 8 (E0 — контекст, E1–E7 — `block`) |
 | `PreToolUse` `Skill` | skills упоминаются в промпте как `$name`, отдельного инструмента нет | хук `UserPromptSubmit`: промпт упоминает `$…` с `execut`/`subagent-driven` — `ExecDigest`, с `plan` — `Digest` |
 | `PreToolUse` `Bash` allow | `PermissionRequest` `^Bash$` | allow только для той же строгой формы команды (и абсолютного пути `Codex.CLI()`) |
@@ -440,6 +445,11 @@ Go 1.27, модуль `paraplane`; зависимости — stdlib, `gopkg.in/
   `turn_id` — у `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`; `tool_use_id` — у событий инструментов.
 
 ## 13. Вне рамок
+
+- Регистронезависимые и нормализующие ФС: `README.md` и `readme.md`, NFC и NFD считаются разными путями;
+  на macOS/Windows по умолчанию это один файл — пересечение не обнаруживается (ограничение, задокументировано в skill `rules`).
+- Живая проверка возврата плана через `Stop` в Codex Plan Mode не выполнена (Codex избежал конфликта сам) —
+  проверять после обновлений Codex.
 
 - Исполнение планов, запуск субагентов, worktree.
 - Запрет записи вне `owns` во время исполнения (хук не знает, какой субагент пишет): кандидат на
