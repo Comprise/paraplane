@@ -5,8 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
+
+	"paraplane/internal/fsx"
 )
 
 func write(t *testing.T, root, body string) {
@@ -77,13 +82,16 @@ func TestLoadBroken(t *testing.T) {
 		t.Fatalf("got %+v, %v", cfg, err)
 	}
 	write(t, root, "default_gate: "+strings.Repeat("x", MaxSize))
-	if cfg, err = Load(root); err == nil || !reflect.DeepEqual(cfg, Default()) {
+	if cfg, err = Load(root); err == nil || !strings.Contains(err.Error(), "larger than") || !reflect.DeepEqual(cfg, Default()) {
 		t.Fatalf("oversize: %+v, %v", cfg, err)
 	}
 }
 
 func TestFindRoot(t *testing.T) {
-	root := t.TempDir()
+	base := t.TempDir()
+	t.Setenv("HOME", base) // FindRoot stops at HOME, so ancestors of base are never inspected
+	t.Setenv("USERPROFILE", base)
+	root := filepath.Join(base, "proj")
 	sub := filepath.Join(root, "a", "b")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
@@ -95,11 +103,137 @@ func TestFindRoot(t *testing.T) {
 	if got := FindRoot(sub); got != root {
 		t.Fatalf("config marker: got %s", got)
 	}
-	root2 := t.TempDir()
+	root2 := filepath.Join(base, "proj2")
 	sub2 := filepath.Join(root2, "x")
-	os.MkdirAll(filepath.Join(root2, ".git"), 0o755)
-	os.MkdirAll(sub2, 0o755)
+	if err := os.MkdirAll(filepath.Join(root2, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sub2, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if got := FindRoot(sub2); got != root2 {
 		t.Fatalf(".git marker: got %s", got)
+	}
+}
+
+func TestLoadEveryKey(t *testing.T) {
+	cases := []struct {
+		name, body string
+		check      func(Config) bool
+	}{
+		{"enabled", "enabled: false\n", func(c Config) bool { return !c.Enabled }},
+		{"mode", "mode: warn\n", func(c Config) bool { return c.Mode == "warn" }},
+		{"plan_paths", "plan_paths: [\"p/**/*.md\"]\n", func(c Config) bool { return reflect.DeepEqual(c.PlanPaths, []string{"p/**/*.md"}) }},
+		{"hot_files", "hot_files: [\"x.lock\"]\n", func(c Config) bool { return reflect.DeepEqual(c.HotFiles, []string{"x.lock"}) }},
+		{"default_gate", "default_gate: go test ./...\n", func(c Config) bool { return c.DefaultGate == "go test ./..." }},
+		{"max_parallel", "max_parallel: 3\n", func(c Config) bool { return c.MaxParallel == 3 }},
+		{"plans_dir", "plans_dir: my/plans\n", func(c Config) bool { return c.PlansDir == "my/plans" }},
+		{"audit_ignore", "audit_ignore: [\"gen/**\"]\n", func(c Config) bool { return reflect.DeepEqual(c.AuditIgnore, []string{"gen/**"}) }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			write(t, root, tc.body)
+			cfg, err := Load(root)
+			if err != nil || !tc.check(cfg) {
+				t.Fatalf("got %+v, %v", cfg, err)
+			}
+		})
+	}
+}
+
+func TestLoadMaxParallelBounds(t *testing.T) {
+	for _, tc := range []struct {
+		v    string
+		ok   bool
+		want int
+	}{{"0", false, 6}, {"1", true, 1}, {"32", true, 32}, {"33", false, 6}} {
+		root := t.TempDir()
+		write(t, root, "max_parallel: "+tc.v+"\n")
+		cfg, err := Load(root)
+		var pr Problems
+		if tc.ok != (err == nil) || (!tc.ok && !errors.As(err, &pr)) || cfg.MaxParallel != tc.want {
+			t.Errorf("%s: got %d, %v", tc.v, cfg.MaxParallel, err)
+		}
+	}
+}
+
+func TestLoadInvalidValues(t *testing.T) {
+	for name, body := range map[string]string{
+		"gate newline": "default_gate: \"a\\nb\"\n",
+		"plans_dir ..": "plans_dir: ..\n",
+	} {
+		root := t.TempDir()
+		write(t, root, body)
+		cfg, err := Load(root)
+		var pr Problems
+		if !errors.As(err, &pr) || len(pr) != 1 || !reflect.DeepEqual(cfg, Default()) {
+			t.Errorf("%s: got %+v, %v", name, cfg, err)
+		}
+	}
+}
+
+func TestLoadNullKeepsDefault(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "mode: null\nmax_parallel:\nplan_paths: ~\n")
+	cfg, err := Load(root)
+	if err != nil || !reflect.DeepEqual(cfg, Default()) {
+		t.Fatalf("got %+v, %v", cfg, err)
+	}
+}
+
+func TestLoadSpecialFileErrors(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no FIFOs")
+	}
+	root := t.TempDir()
+	p := filepath.Join(root, filepath.FromSlash(FileName))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(p, 0o644); err != nil {
+		t.Skip("mkfifo:", err)
+	}
+	type res struct {
+		cfg Config
+		err error
+	}
+	ch := make(chan res, 1)
+	go func() { c, e := Load(root); ch <- res{c, e} }()
+	select {
+	case r := <-ch:
+		if r.err == nil || !reflect.DeepEqual(r.cfg, Default()) {
+			t.Fatalf("fifo: %+v, %v", r.cfg, r.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Load blocked on FIFO")
+	}
+}
+
+func TestLoadSymlinkAndDirErrors(t *testing.T) {
+	root := t.TempDir()
+	p := filepath.Join(root, filepath.FromSlash(FileName))
+	if err := os.MkdirAll(p, 0o755); err != nil { // directory as config
+		t.Fatal(err)
+	}
+	if _, err := Load(root); err == nil {
+		t.Fatal("dir config: want error")
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	root = t.TempDir()
+	write(t, root, "enabled: false\n")
+	target := filepath.Join(root, "real.yaml")
+	if err := os.WriteFile(target, []byte("enabled: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p = filepath.Join(root, filepath.FromSlash(FileName))
+	os.Remove(p)
+	if err := os.Symlink(target, p); err != nil {
+		t.Skip("symlink:", err)
+	}
+	if cfg, err := Load(root); !errors.Is(err, fsx.ErrNotRegular) || !cfg.Enabled {
+		t.Fatalf("symlink config: %+v, %v", cfg, err)
 	}
 }

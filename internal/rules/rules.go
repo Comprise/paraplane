@@ -146,7 +146,7 @@ func (c *checker) run() Result {
 		c.conflicts(cs)
 		if c.count(Error) == 0 {
 			if l := layout.SuggestWith(c.p, cs); len(l) < len(c.p.Waves) {
-				c.add("W3", "", planKey, "the layout can be shorter: %d waves instead of %d; run paraplane check --suggest", len(l), len(c.p.Waves))
+				c.add("W3", "", planKey, "the layout can be shorter: %s instead of %d; run `paraplane check --suggest` on the plan file", waveCount(len(l)), len(c.p.Waves))
 				suggested = l
 			}
 		}
@@ -414,4 +414,12 @@ func (r Result) Summary() string {
 		return fmt.Sprintf("plan ok with %d warning(s): %s", w, size)
 	}
 	return "plan ok: " + size
+}
+
+// waveCount renders n with the correct singular or plural noun.
+func waveCount(n int) string {
+	if n == 1 {
+		return "1 wave"
+	}
+	return fmt.Sprintf("%d waves", n)
 }

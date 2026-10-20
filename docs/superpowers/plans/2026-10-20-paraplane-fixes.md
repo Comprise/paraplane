@@ -46,7 +46,7 @@ waves:
     tasks:
       - id: F7
         title: "rules: W3 text, version/limits consumers"
-        owns: ["internal/rules/**"]
+        owns: ["internal/rules/**", internal/hooks/testdata/plan_exit_warnings.golden.json]
         reads: [internal/plan/plan.go, internal/layout/layout.go]
         depends: [F2, F3]
         verify: "go test ./internal/rules/"

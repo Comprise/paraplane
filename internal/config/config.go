@@ -5,12 +5,13 @@ package config
 import (
 	"errors"
 	"fmt"
-	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	"paraplane/internal/fsx"
 	"paraplane/internal/pathset"
 
 	"gopkg.in/yaml.v3"
@@ -65,7 +66,7 @@ var knownKeys = []string{"enabled", "mode", "plan_paths", "hot_files", "default_
 // Invalid settings are dropped (the default stays) and returned as Problems.
 func Load(root string) (Config, error) {
 	data, err := readLimited(filepath.Join(root, filepath.FromSlash(FileName)))
-	if errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, fs.ErrNotExist) {
 		return Default(), nil
 	}
 	if err != nil {
@@ -102,19 +103,14 @@ func Load(root string) (Config, error) {
 }
 
 func readLimited(path string) ([]byte, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, MaxSize+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > MaxSize {
+	data, err := fsx.ReadRegular(path, MaxSize)
+	if errors.Is(err, fsx.ErrTooLarge) {
 		return nil, fmt.Errorf("%s: larger than %d bytes", FileName, MaxSize)
 	}
-	return data, nil
+	if errors.Is(err, fsx.ErrNotRegular) {
+		return nil, fmt.Errorf("%s: %w", FileName, fsx.ErrNotRegular)
+	}
+	return data, err
 }
 
 // safeKey shows an unknown key only when it is a short lowercase word: the

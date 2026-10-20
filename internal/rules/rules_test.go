@@ -426,10 +426,30 @@ waves:
     tasks:
       - {id: T3, title: c, owns: [c], depends: [T1], verify: v}
 `), opts())
-	one(t, r, "W3", "", Warning, "2", "3")
+	f := one(t, r, "W3", "", Warning, "2", "3")
+	const w3 = "the layout can be shorter: 2 waves instead of 3; run `paraplane check --suggest` on the plan file"
+	if f.Msg != w3 {
+		t.Errorf("W3 msg = %q, want %q", f.Msg, w3)
+	}
 	want := [][]string{{"T1", "T2"}, {"T3"}}
 	if !reflect.DeepEqual(r.Suggested, want) {
 		t.Errorf("Suggested = %v, want %v", r.Suggested, want)
+	}
+
+	// Singular: one wave instead of two.
+	r = Check(md(`gate: x
+waves:
+  - id: W1
+    tasks:
+      - {id: T1, title: a, owns: [a], verify: v}
+  - id: W2
+    tasks:
+      - {id: T2, title: b, owns: [b], verify: v}
+`), opts())
+	f = one(t, r, "W3", "", Warning)
+	const w3one = "the layout can be shorter: 1 wave instead of 2; run `paraplane check --suggest` on the plan file"
+	if f.Msg != w3one {
+		t.Errorf("W3 msg = %q, want %q", f.Msg, w3one)
 	}
 
 	// W3 is not reported when there are errors.
