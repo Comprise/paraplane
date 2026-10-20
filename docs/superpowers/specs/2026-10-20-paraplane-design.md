@@ -180,7 +180,7 @@ E6 — главное правило «следующий этап не лома
 - git запускается с `GIT_NO_LAZY_FETCH=1` (частичный клон не скачивает объекты через команды `remote.*`/`core.sshCommand`),
   `GIT_OPTIONAL_LOCKS=0` (индекс не пишется — хуки индекса не срабатывают), `-c core.fsmonitor=false`, без `GIT_DIR`,
   `GIT_CONFIG` и прочих переменных репозитория; `status` — с `--no-renames` и `--ignore-submodules=all`.
-`git log` для прогресса фильтры не запускает, но может запустить программу проверки подписей:: поэтому все вызовы git
+`git log` для прогресса фильтры не запускает, но может запустить программу проверки подписей, поэтому все вызовы git
 идут с `-c log.showSignature=false -c gpg.program=false -c gpg.ssh.program=false -c gpg.x509.program=false
 -c core.hooksPath=/dev/null`, а `git log` — ещё и с `--no-show-signature`. Системный конфиг git не читается вовсе
 (`GIT_CONFIG_NOSYSTEM=1`): доверенными считаются только фильтры из глобального (пользовательского) конфига.
