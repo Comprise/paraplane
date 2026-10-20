@@ -350,7 +350,7 @@ paraplane/
 ├── skills/{rules,create,check}/SKILL.md
 ├── agents/conflict-auditor.md
 ├── Makefile, .github/workflows/{ci,release}.yml
-└── README.md (ru), CLAUDE.md, LICENSE
+└── README.md (en, основной), README.ru.md, CLAUDE.md, LICENSE
 ```
 
 Go 1.27, модуль `paraplane`; зависимости — stdlib, `gopkg.in/yaml.v3`, `github.com/bmatcuk/doublestar/v4`.
@@ -422,6 +422,9 @@ Go 1.27, модуль `paraplane`; зависимости — stdlib, `gopkg.in/
   → `Stop` (Codex): транскрипт — обычный файл (Lstat), читается хвост ≤ 4 МБ; берётся последний
   `<proposed_plan>…</proposed_plan>` ассистента с этим `turn_id`; блок `paraplane` внутри проверяется; есть E —
   `{"decision":"block","reason":…}`; `stop_hook_active: true` — молчит; нет транскрипта/плана — молчит.
+  Формат транскрипта не документирован: если хвост транскрипта читается, но в нём нет ни одной записи
+  `response_item`/`message`, хук выдаёт `systemMessage` `paraplane: Codex transcript format not recognized; plan checks in
+  Plan Mode are off (update paraplane)`, а не молчит. После каждого обновления Codex — живая проверка на плане с ошибкой.
 - **Запись файлов:** Codex пишет файлы через `Bash` (`printf … > docs/plans/x.md`); `apply_patch` в проверке не
   встретился. `PostToolUse`: `tool_name: "Bash"`, `tool_input.command` — строка, `tool_response` — вывод.
   → `PostToolUse` (Codex, matcher `^(Bash|apply_patch)$`): из команды берутся слова-кандидаты (разбиение по пробелам
