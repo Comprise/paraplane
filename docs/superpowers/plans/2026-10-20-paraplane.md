@@ -285,9 +285,9 @@ func Render(p *plan.Plan, name string, done []string) string
 ```
 Раскладка, состояния и предупреждения — ровно по п. 7.1 (ширина 72 колонки; эмодзи — 2 колонки, прочие символы — 1); имя файла и id проходят `textx.Line`.
 
-- [ ] **Step 1:** Тесты (ожидаемый текст — вручную, байт в байт): `TestRenderSpecExample` (синтетический план п. 7.1: 5 волн по 6/5/2/2/2 задачи T1…T17, done W1 W2 → ровно пример п. 7.1); `TestRenderNothingDone` (W1 `running`, `0%`, полоса из `░`); `TestRenderAllDone` (`wave 5/5 · 100%`, все `✓ done`); `TestRenderManyTasks` (волна из 15 задач → 12 квадратов и `+3`); `TestRenderUnknownWave` (warning), `TestRenderCommittedOutOfOrder` (done W1, W3 → W2 running, W3 waiting, warning); `TestRenderWidth` (длинные id и имя файла → строки ≤ 72 колонок, `…`).
-- [ ] **Step 2:** Реализация; `verify` → PASS.
-- [ ] **Step 3:** Сообщение коммита: `feat(progress): render plan progress`.
+- [x] **Step 1:** Тесты (ожидаемый текст — вручную, байт в байт): `TestRenderSpecExample` (синтетический план п. 7.1: 5 волн по 6/5/2/2/2 задачи T1…T17, done W1 W2 → ровно пример п. 7.1); `TestRenderNothingDone` (W1 `running`, `0%`, полоса из `░`); `TestRenderAllDone` (`wave 5/5 · 100%`, все `✓ done`); `TestRenderManyTasks` (волна из 15 задач → 12 квадратов и `+3`); `TestRenderUnknownWave` (warning), `TestRenderCommittedOutOfOrder` (done W1, W3 → W2 running, W3 waiting, warning); `TestRenderWidth` (длинные id и имя файла → строки ≤ 72 колонок, `…`).
+- [x] **Step 2:** Реализация; `verify` → PASS.
+- [x] **Step 3:** Сообщение коммита: `feat(progress): render plan progress`.
 
 ### Task 19: internal/gitx — refuse repo-local filter drivers
 
@@ -303,25 +303,25 @@ func Render(p *plan.Plan, name string, done []string) string
 
 **Files:** Create `skills/rules/SKILL.md`, `skills/rules/references/format.md`, `skills/rules/references/execution.md`, `skills/rules/examples/plan.md`, `skills/README.md`.
 
-- [ ] **Step 1:** `SKILL.md` frontmatter: `name: rules`; `description: This skill should be used whenever Claude writes, revises or reviews an implementation plan — in plan mode before ExitPlanMode, with superpowers:writing-plans, or in any docs/plans file — or when a paraplane hook reports plan errors (E0–E7), warnings (W1–W5) or audit errors (A1). Defines the paraplane block and the rules that let subagents execute waves in parallel without conflicts.` Тело (≤ 1500 слов, английский, повелительное наклонение): алгоритм (1. выписать изменения файлов по шагам; 2. назначить `owns`, вынося общие и горячие файлы в отдельные задачи-интеграторы; 3. `depends` по реальным контрактам, `reads` — на что задача опирается; 4. разложить по волнам ASAP, переставляя этапы; 5. gate на каждую волну — полный прогон, не только новые тесты; 6. `paraplane check --suggest <file>`; 7. при ≥ 2 задачах в какой-либо волне — агент `paraplane:conflict-auditor`); правила кавычек для glob (п. 4: каждый шаблон с `* ? [ ] { } ,` или начинающийся с `!`/`&` — в кавычках); горячие файлы называть литеральным путём (п. 4.2); таблица E0–E7, W1–W5, A1 с исправлением каждого; раздел «Precedence»: для плана с блоком ```paraplane правила исполнения paraplane главнее указаний любого skill исполнения (`superpowers:subagent-driven-development`, `superpowers:executing-plans` и т.п.) — указания вроде «never dispatch implementers in parallel» или «the implementer commits» для такого плана не действуют; ссылки на references.
-- [ ] **Step 2:** `references/format.md` — схема блока, лимиты, glob, кавычки, литерал = файл, пересечение и горячие файлы (п. 4, 4.1, 4.2), предупреждение: ограждение с отступом ≥ 4 пробелов (внутри элемента списка) не считается блоком. `references/execution.md` — правила исполнения: промпт субагента с `owns`/`reads`/`verify`; запрет правок вне `owns` и «остановись и сообщи»; задачи волны одним сообщением; субагенты не коммитят, не отмечают чекбоксы, `gofmt` только по своим файлам; после волны `paraplane audit <plan> <wave>`, затем gate; нарушение аудита или красный gate чинится до следующей волны; один коммит координатора на волну с трейлерами `Paraplane-Plan`/`Paraplane-Wave`, после него — `paraplane progress <plan>` и его вывод в сообщении пользователю в блоке кода. `examples/plan.md` — полный пример плана (проза + блок с 3 волнами, `reads`, `depends`, кавычками у glob) внутри 4-бэктикового ограждения; блок должен проходить `paraplane check` без ошибок.
-- [ ] **Step 3:** `skills/README.md` — таблица skills и агента по образцу auto-context (русский).
-- [ ] **Step 4:** Сообщение коммита: `feat(skills): rules`.
+- [x] **Step 1:** `SKILL.md` frontmatter: `name: rules`; `description: This skill should be used whenever Claude writes, revises or reviews an implementation plan — in plan mode before ExitPlanMode, with superpowers:writing-plans, or in any docs/plans file — or when a paraplane hook reports plan errors (E0–E7), warnings (W1–W5) or audit errors (A1). Defines the paraplane block and the rules that let subagents execute waves in parallel without conflicts.` Тело (≤ 1500 слов, английский, повелительное наклонение): алгоритм (1. выписать изменения файлов по шагам; 2. назначить `owns`, вынося общие и горячие файлы в отдельные задачи-интеграторы; 3. `depends` по реальным контрактам, `reads` — на что задача опирается; 4. разложить по волнам ASAP, переставляя этапы; 5. gate на каждую волну — полный прогон, не только новые тесты; 6. `paraplane check --suggest <file>`; 7. при ≥ 2 задачах в какой-либо волне — агент `paraplane:conflict-auditor`); правила кавычек для glob (п. 4: каждый шаблон с `* ? [ ] { } ,` или начинающийся с `!`/`&` — в кавычках); горячие файлы называть литеральным путём (п. 4.2); таблица E0–E7, W1–W5, A1 с исправлением каждого; раздел «Precedence»: для плана с блоком ```paraplane правила исполнения paraplane главнее указаний любого skill исполнения (`superpowers:subagent-driven-development`, `superpowers:executing-plans` и т.п.) — указания вроде «never dispatch implementers in parallel» или «the implementer commits» для такого плана не действуют; ссылки на references.
+- [x] **Step 2:** `references/format.md` — схема блока, лимиты, glob, кавычки, литерал = файл, пересечение и горячие файлы (п. 4, 4.1, 4.2), предупреждение: ограждение с отступом ≥ 4 пробелов (внутри элемента списка) не считается блоком. `references/execution.md` — правила исполнения: промпт субагента с `owns`/`reads`/`verify`; запрет правок вне `owns` и «остановись и сообщи»; задачи волны одним сообщением; субагенты не коммитят, не отмечают чекбоксы, `gofmt` только по своим файлам; после волны `paraplane audit <plan> <wave>`, затем gate; нарушение аудита или красный gate чинится до следующей волны; один коммит координатора на волну с трейлерами `Paraplane-Plan`/`Paraplane-Wave`, после него — `paraplane progress <plan>` и его вывод в сообщении пользователю в блоке кода. `examples/plan.md` — полный пример плана (проза + блок с 3 волнами, `reads`, `depends`, кавычками у glob) внутри 4-бэктикового ограждения; блок должен проходить `paraplane check` без ошибок.
+- [x] **Step 3:** `skills/README.md` — таблица skills и агента по образцу auto-context (русский).
+- [x] **Step 4:** Сообщение коммита: `feat(skills): rules`.
 
 ### Task 8: Skills create and check
 
 **Files:** Create `skills/create/SKILL.md`, `skills/check/SKILL.md`.
 
-- [ ] **Step 1:** `create`: `description: This skill should be used when the user runs /paraplane:create to build a new implementation plan that is ready for parallel subagents.`, `argument-hint: <task description or path to a spec>`, `disable-model-invocation: true`, `allowed-tools: Bash(paraplane check *)`. Тело: загрузить `paraplane:rules`; уточнить неясное; изучить код; составить план с блоком; агент `paraplane:conflict-auditor`; исправить; `paraplane check --suggest <file>` до `plan ok`; сохранить в `plans_dir` из `.paraplane/config.yaml` (по умолчанию `docs/plans`) как `YYYY-MM-DD-<slug>.md`; отчёт: волны, задачи, что переставлено.
-- [ ] **Step 2:** `check`: `description: This skill should be used when the user runs /paraplane:check to validate an existing plan and restructure it for parallel execution.`, `argument-hint: [plan file]`, `disable-model-invocation: true`, `allowed-tools: Bash(paraplane check *)`. Тело: без аргумента — самый новый `.md` в `plan_paths`; `paraplane check --suggest`; агент-аудитор; правка самого плана (блок и проза синхронно); повторный check до `plan ok`; отчёт: исправленные E/W, перестановки этапов и причины. `error:` в выводе или код 2 — сообщить и остановиться.
-- [ ] **Step 3:** Сообщение коммита: `feat(skills): create and check`.
+- [x] **Step 1:** `create`: `description: This skill should be used when the user runs /paraplane:create to build a new implementation plan that is ready for parallel subagents.`, `argument-hint: <task description or path to a spec>`, `disable-model-invocation: true`, `allowed-tools: Bash(paraplane check *)`. Тело: загрузить `paraplane:rules`; уточнить неясное; изучить код; составить план с блоком; агент `paraplane:conflict-auditor`; исправить; `paraplane check --suggest <file>` до `plan ok`; сохранить в `plans_dir` из `.paraplane/config.yaml` (по умолчанию `docs/plans`) как `YYYY-MM-DD-<slug>.md`; отчёт: волны, задачи, что переставлено.
+- [x] **Step 2:** `check`: `description: This skill should be used when the user runs /paraplane:check to validate an existing plan and restructure it for parallel execution.`, `argument-hint: [plan file]`, `disable-model-invocation: true`, `allowed-tools: Bash(paraplane check *)`. Тело: без аргумента — самый новый `.md` в `plan_paths`; `paraplane check --suggest`; агент-аудитор; правка самого плана (блок и проза синхронно); повторный check до `plan ok`; отчёт: исправленные E/W, перестановки этапов и причины. `error:` в выводе или код 2 — сообщить и остановиться.
+- [x] **Step 3:** Сообщение коммита: `feat(skills): create and check`.
 
 ### Task 9: Agent conflict-auditor
 
 **Files:** Create `agents/conflict-auditor.md`.
 
-- [ ] **Step 1:** Frontmatter: `name: conflict-auditor`; `description` с 2–3 `<example>` (после составления плана в `/paraplane:create`; при `/paraplane:check`; «проверь, не столкнутся ли задачи волны W2»); `tools: Read, Grep, Glob`; `model: inherit`; `color: cyan`.
-- [ ] **Step 2:** Системный промпт: вход — путь к плану; для каждой волны с ≥ 2 задачами найти по коду `shared-file` (обе задачи неизбежно правят файл вне своих `owns`: регистрация роутов, `main.go`, `index.ts`, DI-контейнер, `go.mod` при новой зависимости), `hidden-write` (кодогенерация, форматтеры, миграции с номерами), `api-break` (задача меняет сигнатуру, которую использует другая задача волны), `order` (задаче нужен результат задачи без `depends`); каждую находку подтверждать путём и строкой; ничего не править. Вывод строго:
+- [x] **Step 1:** Frontmatter: `name: conflict-auditor`; `description` с 2–3 `<example>` (после составления плана в `/paraplane:create`; при `/paraplane:check`; «проверь, не столкнутся ли задачи волны W2»); `tools: Read, Grep, Glob`; `model: inherit`; `color: cyan`.
+- [x] **Step 2:** Системный промпт: вход — путь к плану; для каждой волны с ≥ 2 задачами найти по коду `shared-file` (обе задачи неизбежно правят файл вне своих `owns`: регистрация роутов, `main.go`, `index.ts`, DI-контейнер, `go.mod` при новой зависимости), `hidden-write` (кодогенерация, форматтеры, миграции с номерами), `api-break` (задача меняет сигнатуру, которую использует другая задача волны), `order` (задаче нужен результат задачи без `depends`); каждую находку подтверждать путём и строкой; ничего не править. Вывод строго:
   ```
   verdict: clean|conflicts
   - kind: shared-file
@@ -330,7 +330,7 @@ func Render(p *plan.Plan, name string, done []string) string
     evidence: "routes.go:40 registers every handler"
     fix: "move route registration into a new integrator task in W3 that depends on T2 and T5"
   ```
-- [ ] **Step 3:** Сообщение коммита: `feat(agents): conflict-auditor`.
+- [x] **Step 3:** Сообщение коммита: `feat(agents): conflict-auditor`.
 
 ### Task 10: internal/config
 
@@ -355,9 +355,9 @@ type Problems []string           // Error(): FileName + ": ignored " + strings.J
 func Load(root string) (Config, error) // нет файла → Default(), nil; не читается/не YAML/> MaxSize → Default(), err; неверные поля → остальные применены, Problems
 func FindRoot(dir string) string  // ближайший вверх каталог с .git или FileName; иначе dir
 ```
-- [ ] **Step 1:** Тесты: `TestDefault` (все значения п. 9), `TestLoadMissing`, `TestLoadPartial` (`mode: loud`, `max_parallel: 99`, `colour: x`, `../x` в `audit_ignore` → 4 проблемы; `enabled: false` применён), `TestLoadBroken` (`: :`), `TestFindRoot`.
-- [ ] **Step 2:** Реализация: разбор в `map[string]yaml.Node`, каждое поле проверяется отдельно; шаблоны — через `pathset.Clean`. `verify` → PASS.
-- [ ] **Step 3:** Сообщение коммита: `feat(config): .paraplane/config.yaml`.
+- [x] **Step 1:** Тесты: `TestDefault` (все значения п. 9), `TestLoadMissing`, `TestLoadPartial` (`mode: loud`, `max_parallel: 99`, `colour: x`, `../x` в `audit_ignore` → 4 проблемы; `enabled: false` применён), `TestLoadBroken` (`: :`), `TestFindRoot`.
+- [x] **Step 2:** Реализация: разбор в `map[string]yaml.Node`, каждое поле проверяется отдельно; шаблоны — через `pathset.Clean`. `verify` → PASS.
+- [x] **Step 3:** Сообщение коммита: `feat(config): .paraplane/config.yaml`.
 
 ### Task 11: internal/layout
 
@@ -384,9 +384,9 @@ var ErrDeadline = errors.New("plan is too complex to check in time; simplify bra
 func ConflictsWithin(p *plan.Plan, hot []string, deadline time.Time) ([]Conflict, error) // как Conflicts, но проверяет часы не реже чем раз в 256 пар и возвращает ErrDeadline; нулевой deadline — без ограничения
 func Render(p *plan.Plan, layers [][]string) string   // блок ```paraplane с ограждениями, version: 1, все шаблоны и строки в двойных кавычках; plan.gate вверху; gate слоя — действующий gate самой поздней волны автора среди его задач, пишется только если отличается от plan.gate (п. 6)
 ```
-- [ ] **Step 1:** Тесты: `TestConflicts` (owns; reads в обе стороны с проверкой направления A=читающая; hot: две задачи с `go.mod`; `internal/a/**` и `internal/b/**` при дефолтных hot_files — нет конфликтов); `TestSuggestReorders` (автор: W1 {T1}, W2 {T2 dep T1}, W3 {T3 без связей} → `[[T1 T3] [T2]]`); `TestSuggestKeepsConflictOrder` (T2 в W2 читает файл, которым владеет T1 в W1, без depends → T1 раньше T2); `TestSuggestNeverLonger` — свойство на 500 случайных планах генератора: `depends` только на более ранние волны; в одной волне нет конфликтов; каждое пересечение `owns` разных волн подкреплено транзитивной зависимостью; результат — слоёв ≤ волн автора, все зависимости и конфликты разведены по слоям в порядке автора; `TestRenderRoundTrip` (шаблоны `"**/x"`, `"{a,b}/x"`, `"*.go"`; `plan.Load(Render(...))` даёт те же задачи; gate по п. 6: без `plan.gate`, с `plan.gate`, с `plan.gate` и переопределением у одной волны — переопределение сохраняется в слое её задач).
-- [ ] **Step 2:** Реализация; `verify` → PASS.
-- [ ] **Step 3:** Сообщение коммита: `feat(layout): conflicts and shortest layout`.
+- [x] **Step 1:** Тесты: `TestConflicts` (owns; reads в обе стороны с проверкой направления A=читающая; hot: две задачи с `go.mod`; `internal/a/**` и `internal/b/**` при дефолтных hot_files — нет конфликтов); `TestSuggestReorders` (автор: W1 {T1}, W2 {T2 dep T1}, W3 {T3 без связей} → `[[T1 T3] [T2]]`); `TestSuggestKeepsConflictOrder` (T2 в W2 читает файл, которым владеет T1 в W1, без depends → T1 раньше T2); `TestSuggestNeverLonger` — свойство на 500 случайных планах генератора: `depends` только на более ранние волны; в одной волне нет конфликтов; каждое пересечение `owns` разных волн подкреплено транзитивной зависимостью; результат — слоёв ≤ волн автора, все зависимости и конфликты разведены по слоям в порядке автора; `TestRenderRoundTrip` (шаблоны `"**/x"`, `"{a,b}/x"`, `"*.go"`; `plan.Load(Render(...))` даёт те же задачи; gate по п. 6: без `plan.gate`, с `plan.gate`, с `plan.gate` и переопределением у одной волны — переопределение сохраняется в слое её задач).
+- [x] **Step 2:** Реализация; `verify` → PASS.
+- [x] **Step 3:** Сообщение коммита: `feat(layout): conflicts and shortest layout`.
 
 ### Task 12: internal/rules
 

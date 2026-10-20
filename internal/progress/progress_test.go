@@ -1,0 +1,111 @@
+package progress
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"paraplane/internal/plan"
+)
+
+func mk(sizes ...int) *plan.Plan {
+	p := &plan.Plan{}
+	n := 0
+	for i, s := range sizes {
+		w := plan.Wave{ID: fmt.Sprintf("W%d", i+1)}
+		for j := 0; j < s; j++ {
+			n++
+			w.Tasks = append(w.Tasks, plan.Task{ID: fmt.Sprintf("T%d", n)})
+		}
+		p.Waves = append(p.Waves, w)
+	}
+	return p
+}
+
+func cols(s string) int {
+	n := 0
+	for _, r := range s {
+		switch r {
+		case '🟩', '🟨', '⬜':
+			n += 2
+		default:
+			n++
+		}
+	}
+	return n
+}
+
+const specExample = "paraplane · example.md                                    wave 3/5 · 64%\n" +
+	"█████████████████████████░░░░░░░░░░░░░░░  11/17 tasks\n" +
+	"\n" +
+	"W1  🟩🟩🟩🟩🟩🟩  6/6  ✓ done     T1 T2 T3 T4 T5 T6\n" +
+	"W2  🟩🟩🟩🟩🟩    5/5  ✓ done     T7 T8 T9 T10 T11\n" +
+	"W3  🟨🟨          0/2  ▶ running  T12 T13\n" +
+	"W4  ⬜⬜          0/2  · waiting  T14 T15\n" +
+	"W5  ⬜⬜          0/2  · waiting  T16 T17\n"
+
+func TestRenderSpecExample(t *testing.T) {
+	got := Render(mk(6, 5, 2, 2, 2), "example.md", []string{"W1", "W2"})
+	if got != specExample {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, specExample)
+	}
+}
+
+func TestRenderNothingDone(t *testing.T) {
+	got := Render(mk(2, 2), "p.md", nil)
+	if !strings.Contains(got, "wave 1/2 · 0%") || !strings.Contains(got, strings.Repeat("░", 40)+"  0/4 tasks") {
+		t.Fatalf("bad header:\n%s", got)
+	}
+	if !strings.Contains(got, "W1  🟨🟨  0/2  ▶ running  T1 T2\n") {
+		t.Fatalf("bad W1:\n%s", got)
+	}
+}
+
+func TestRenderAllDone(t *testing.T) {
+	got := Render(mk(2, 2), "p.md", []string{"W1", "W2"})
+	if !strings.Contains(got, "wave 2/2 · 100%") || strings.Count(got, "✓ done") != 2 ||
+		strings.Contains(got, "░") || !strings.Contains(got, strings.Repeat("█", 40)+"  4/4 tasks") {
+		t.Fatalf("bad:\n%s", got)
+	}
+}
+
+func TestRenderManyTasks(t *testing.T) {
+	got := Render(mk(15), "p.md", nil)
+	if !strings.Contains(got, strings.Repeat("🟨", 12)+" +3") || strings.Contains(got, strings.Repeat("🟨", 13)) {
+		t.Fatalf("bad:\n%s", got)
+	}
+}
+
+func TestRenderUnknownWave(t *testing.T) {
+	got := Render(mk(2), "p.md", []string{"W9"})
+	if !strings.Contains(got, "warning: commit for unknown wave W9\n") {
+		t.Fatalf("no warning:\n%s", got)
+	}
+}
+
+func TestRenderCommittedOutOfOrder(t *testing.T) {
+	got := Render(mk(1, 1, 1), "p.md", []string{"W1", "W3"})
+	for _, w := range []string{"W2  🟨  0/1  ▶ running", "W3  ⬜  0/1  · waiting", "warning: wave W3 was committed before W2\n"} {
+		if !strings.Contains(got, w) {
+			t.Fatalf("missing %q:\n%s", w, got)
+		}
+	}
+}
+
+func TestRenderWidth(t *testing.T) {
+	p := mk(15, 3)
+	p.Waves[0].ID = strings.Repeat("LongWaveID", 10)
+	p.Waves[1].Tasks[0].ID = strings.Repeat("task", 40)
+	got := Render(p, strings.Repeat("name", 40)+".md", []string{p.Waves[0].ID})
+	if !strings.Contains(got, "…") {
+		t.Fatalf("no ellipsis:\n%s", got)
+	}
+	for _, l := range strings.Split(got, "\n") {
+		if cols(l) > 72 {
+			t.Fatalf("line %d cols: %q", cols(l), l)
+		}
+	}
+	if cols(strings.Split(got, "\n")[0]) != 72 {
+		t.Fatalf("header not 72 columns")
+	}
+}
