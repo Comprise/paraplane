@@ -1,0 +1,9 @@
+# Added by code-review-graph
+.code-review-graph/
+.mcp.json
+.claude/settings.local.json
+.serena/
+/dist/
+/libexec/
+/paraplane
+/paraplane.exe
