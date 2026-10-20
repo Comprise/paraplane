@@ -293,7 +293,7 @@ W5  ⬜⬜          0/2  · waiting  T16 T17
 PostToolUse не должен шуметь, пока план пишется и пока исполнитель отмечает чекбоксы:
 - `Edit` проверяется, только если `old_string` или `new_string` содержит `paraplane` или ключ блока
   (`waves:`, `tasks:`, `id:`, `title:`, `owns:`, `reads:`, `depends:`, `verify:`, `gate:`), либо непустой
-  `new_string` встречается (любое вхождение) внутри блока; `Write` — всегда.
+  `new_string` хотя бы одним вхождением пересекается с блоком (в том числе начинаясь до него); `Write` — всегда.
 - E0 — `additionalContext` (`add the block before the plan is final`), не блокировка.
 - E1–E7 — `decision: block` + `reason`.
 - Только W — `additionalContext`, и только для `Write`.
@@ -334,7 +334,7 @@ PostToolUse не должен шуметь, пока план пишется и 
 | `skills/rules` | Claude сам, `/paraplane:rules` | все правила: формат блока, E/W, как разбивать и переставлять этапы, правила исполнения; `references/` с форматом и примерами |
 | `skills/create` | `/paraplane:create <задача или путь к спецификации>` | уточнить, изучить код, составить план, `conflict-auditor`, исправить, `paraplane check`, сохранить в `plans_dir/YYYY-MM-DD-<slug>.md` |
 | `skills/check` | `/paraplane:check [путь]` | `paraplane check --suggest` + `conflict-auditor`, правка самого плана, отчёт о перестановках |
-| `agents/conflict-auditor` | из skills; правило `rules`: при ≥ 2 задачах в волне | сверяет план с кодом: скрытые общие файлы, регистрационные точки, ломка API внутри волны, миграции; инструменты `Read, Grep, Glob`; модель `inherit` |
+| `agents/conflict-auditor` | из skills; правило `rules`: при ≥ 2 задачах в волне | сверяет план с кодом: скрытые общие файлы, регистрационные точки, ломка API внутри волны, миграции; инструменты `Read, Grep, Glob`; модель `inherit`; первая строка ответа — `verdict: clean`, `verdict: conflicts` или `verdict: error` (план не читается, блоков не один, YAML не разбирается, нет запрошенной волны — ровно одна находка `- kind: input`; это не `clean`) |
 
 `create` и `check` — `disable-model-invocation: true` (меняют файлы по запросу пользователя).
 Правила исполнения в `rules` **главнее указаний любого skill исполнения** (`superpowers:subagent-driven-development`, `executing-plans` и т.п.): для плана с блоком ` ```paraplane ` противоречащие указания («не запускай исполнителей параллельно», «исполнитель коммитит») не действуют. Промпт субагента содержит его `owns`, `reads` и `verify`; «не трогай файлы
