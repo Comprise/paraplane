@@ -1,0 +1,1 @@
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"paraplane: the plan is not ready for parallel execution. Fix these and call ExitPlanMode again:\nerror E7 W1: wave W1 has no gate; set gate on the wave or the plan, or default_gate in the config\nwarning W1 T1: task T1 has no verify\nFormat and rules: skill paraplane:rules."}}

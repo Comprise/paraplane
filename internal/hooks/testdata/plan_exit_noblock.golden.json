@@ -1,0 +1,1 @@
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"paraplane: the plan is not ready for parallel execution. Fix these and call ExitPlanMode again:\nerror E0: no ```paraplane block\nFormat and rules: skill paraplane:rules."}}

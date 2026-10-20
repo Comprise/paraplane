@@ -536,9 +536,9 @@ func Options(env Env) rules.Options                  // из env.Config; IsDir �
   }
 }
 ```
-- [ ] **Step 1:** Golden-тесты (golden — вручную): `TestExitPlanModeDeny`, `TestExitPlanModeNoBlockDeny`, `TestExitPlanModeOK` (nil), `TestExitPlanModeWarnings` (с `Shorter layout`), `TestExitPlanModeWarnMode`, `TestExitPlanModeFromFile`, `TestExitPlanModeNoPlan` (nil), `TestPostToolUseWriteErrors` (block), `TestPostToolUseWriteNoBlock` (E0 → additionalContext), `TestPostToolUseEditCheckbox` (правка `- [ ]` вне блока → nil), `TestPostToolUseEditInsideBlock` (block), `TestPostToolUseEditDeleteInBlock` (пустой `new_string`, `old_string` с `owns:` → проверка), `TestPostToolUseOtherFile` (nil), `TestPostToolUseWindowsPath`, `TestPreToolUseDispatch` (Skill и Bash доходят до T13a), `TestDisabled`.
-- [ ] **Step 2:** Реализация; `verify` → PASS; `jq . hooks/hooks.json`.
-- [ ] **Step 3:** Сообщение коммита: `feat(hooks): plan checks on ExitPlanMode and plan files; hooks.json`.
+- [x] **Step 1:** Golden-тесты (golden — вручную): `TestExitPlanModeDeny`, `TestExitPlanModeNoBlockDeny`, `TestExitPlanModeOK` (nil), `TestExitPlanModeWarnings` (с `Shorter layout`), `TestExitPlanModeWarnMode`, `TestExitPlanModeFromFile`, `TestExitPlanModeNoPlan` (nil), `TestPostToolUseWriteErrors` (block), `TestPostToolUseWriteNoBlock` (E0 → additionalContext), `TestPostToolUseEditCheckbox` (правка `- [x]` вне блока → nil), `TestPostToolUseEditInsideBlock` (block), `TestPostToolUseEditDeleteInBlock` (пустой `new_string`, `old_string` с `owns:` → проверка), `TestPostToolUseOtherFile` (nil), `TestPostToolUseWindowsPath`, `TestPreToolUseDispatch` (Skill и Bash доходят до T13a), `TestDisabled`.
+- [x] **Step 2:** Реализация; `verify` → PASS; `jq . hooks/hooks.json`.
+- [x] **Step 3:** Сообщение коммита: `feat(hooks): plan checks on ExitPlanMode and plan files; hooks.json`.
 
 ### Task 17: internal/plugintest
 
@@ -546,11 +546,11 @@ func Options(env Env) rules.Options                  // из env.Config; IsDir �
 
 **Interfaces:** Consumes: `rules.Check/Options`, `plan.Extract`, `yaml.v3`. Корень репозитория — `../..` от пакета.
 
-- [ ] **Step 1:** `TestSkillsFrontmatter`: каждый `skills/*/SKILL.md` и `agents/*.md` начинается с YAML-frontmatter, `name` == имени каталога/файла, `description` не пуст; у `create` и `check` `disable-model-invocation: true`; у агента `tools` без `Write`, `Edit`, `Bash`.
-- [ ] **Step 2:** `shim_test.go` по образцу `/home/elia/Projects/auto-context/cmd/auto-context/shim_test.go`, для `bin/paraplane` (пропуск на windows): нет бинаря — `hook session-start` → JSON с `systemMessage`; с `.paraplane/config.yaml` `enabled: false` → тишина; другой хук → тишина и 0; CLI → 1. Поддельный бинарь, выходящий с 2 на хуке → шим 0; на `session-start` с кодом 1 → пустой вывод.
-- [ ] **Step 3:** `TestRulesExamplePlan`: внутренний блок из `skills/rules/examples/plan.md` (содержимое 4-бэктикового ограждения) → `rules.Check` без ошибок; `TestSpecExamplePlan`: блок ```yaml п. 4 спецификации, обёрнутый в ```paraplane → без ошибок.
-- [ ] **Step 4:** `verify` → PASS.
-- [ ] **Step 5:** Сообщение коммита: `test: plugin packaging checks`.
+- [x] **Step 1:** `TestSkillsFrontmatter`: каждый `skills/*/SKILL.md` и `agents/*.md` начинается с YAML-frontmatter, `name` == имени каталога/файла, `description` не пуст; у `create` и `check` `disable-model-invocation: true`; у агента `tools` без `Write`, `Edit`, `Bash`.
+- [x] **Step 2:** `shim_test.go` по образцу `/home/elia/Projects/auto-context/cmd/auto-context/shim_test.go`, для `bin/paraplane` (пропуск на windows): нет бинаря — `hook session-start` → JSON с `systemMessage`; с `.paraplane/config.yaml` `enabled: false` → тишина; другой хук → тишина и 0; CLI → 1. Поддельный бинарь, выходящий с 2 на хуке → шим 0; на `session-start` с кодом 1 → пустой вывод.
+- [x] **Step 3:** `TestRulesExamplePlan`: внутренний блок из `skills/rules/examples/plan.md` (содержимое 4-бэктикового ограждения) → `rules.Check` без ошибок; `TestSpecExamplePlan`: блок ```yaml п. 4 спецификации, обёрнутый в ```paraplane → без ошибок.
+- [x] **Step 4:** `verify` → PASS.
+- [x] **Step 5:** Сообщение коммита: `test: plugin packaging checks`.
 
 ### Task 14: cmd/paraplane
 

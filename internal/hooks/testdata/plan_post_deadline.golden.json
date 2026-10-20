@@ -1,0 +1,1 @@
+{"decision":"block","reason":"paraplane: docs/plans/a.md is not ready for parallel execution (fix it before the plan is final):\nerror E0: plan is too complex to check in time; simplify brace patterns or split the plan\nFormat and rules: skill paraplane:rules."}
