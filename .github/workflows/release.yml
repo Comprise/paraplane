@@ -60,28 +60,23 @@ jobs:
           name: bin-${{ matrix.goos }}-${{ matrix.goarch }}
           path: libexec/*
 
-  publish:
+  validate:
+    # Assembles, validates and smoke-tests the archive users install. It runs
+    # npx (third-party code), so it holds no write scope and no token; publish
+    # ships exactly the archive this job uploads.
     needs: build
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      id-token: write
-      attestations: write
-    env:
-      GH_TOKEN: ${{ github.token }}
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          fetch-depth: 0
           persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: libexec
+          pattern: bin-*
           merge-multiple: true
-      - name: Attest build provenance
-        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
-        with:
-          subject-path: 'libexec/*'
       - name: Stamp plugin version
         # plugin.json on main has no version; the tag is the single source.
         run: |
@@ -91,12 +86,13 @@ jobs:
         run: |
           chmod +x libexec/* bin/paraplane
           # ship.txt is the one list of what ships (CI and make tree read it too).
-          tar -czf "paraplane-${GITHUB_REF_NAME}.tar.gz" $(cat ship.txt)
-          sha256sum libexec/* "paraplane-${GITHUB_REF_NAME}.tar.gz" > checksums.txt
+          mkdir dist
+          tar -czf "dist/paraplane-${GITHUB_REF_NAME}.tar.gz" $(cat ship.txt)
+          sha256sum libexec/* "dist/paraplane-${GITHUB_REF_NAME}.tar.gz" | sed 's| dist/| |' > dist/checksums.txt
       - name: Validate the tree users install
         run: |
           mkdir -p "$RUNNER_TEMP/tree"
-          tar -xzf "paraplane-${GITHUB_REF_NAME}.tar.gz" -C "$RUNNER_TEMP/tree"
+          tar -xzf "dist/paraplane-${GITHUB_REF_NAME}.tar.gz" -C "$RUNNER_TEMP/tree"
           # --strict fails the release on any validator warning; without it
           # validate exits 0 on them.
           # Skill and agent frontmatter is checked by TestSkillsFrontmatter, not here.
@@ -111,17 +107,55 @@ jobs:
           [ "$got" = "$want" ] || { echo "::error::binary version is '$got', want '$want'"; exit 1; }
           got=$(sh bin/paraplane version)
           [ "$got" = "$want" ] || { echo "::error::shim version is '$got', want '$want'"; exit 1; }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dist
+          path: dist/*
+
+  publish:
+    # Write scopes start here, after validation. GH_TOKEN is set only on the
+    # steps that push or call gh.
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist
+      - name: Unpack the validated archive
+        # Over the checkout: the release branch then holds exactly the files
+        # validate checked (stamped plugin.json and the built binaries).
+        run: |
+          tar -xzf "dist/paraplane-${GITHUB_REF_NAME}.tar.gz"
+          # The archive (in dist/) and the binaries it held (in libexec/)
+          # must match the checksums validate wrote.
+          (cd dist && sha256sum --ignore-missing -c checksums.txt)
+          sha256sum --ignore-missing -c dist/checksums.txt
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        with:
+          subject-path: 'libexec/*'
       - name: Update release branch
         # Users install from this branch, so pre-releases never reach it, and it
         # only moves to a higher version (an older tag pushed later would roll
         # every user back). It holds only what the plugin needs (plugin.json is
-        # already stamped above). Each release is a new commit on top of the
-        # previous one only, so the branch only fast-forwards (no force-push)
+        # stamped in the validated archive). Each release is a new commit on top
+        # of the previous one only, so the branch only fast-forwards (no force-push)
         # without pulling main's history into installs; the message names the
         # tagged commit. A re-run of the same version pushes nothing. It is
         # pushed before the GitHub Release, so a release never points at a
         # stale branch.
         if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           new="${GITHUB_REF_NAME#v}"
           if git rev-parse -q --verify refs/remotes/origin/release >/dev/null; then
@@ -145,6 +179,8 @@ jobs:
       - name: GitHub Release
         # Tags with a hyphen (v0.1.0-rc1) are pre-releases. A re-run of a
         # published tag leaves the existing release alone.
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             echo "::notice::release $GITHUB_REF_NAME already exists"
@@ -152,4 +188,4 @@ jobs:
           fi
           prerelease=""
           case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" "paraplane-${GITHUB_REF_NAME}.tar.gz" checksums.txt --generate-notes $prerelease
+          gh release create "$GITHUB_REF_NAME" "dist/paraplane-${GITHUB_REF_NAME}.tar.gz" dist/checksums.txt --generate-notes $prerelease

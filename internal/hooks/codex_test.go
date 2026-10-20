@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Turns of testdata/codex_transcript.jsonl.
@@ -701,6 +702,76 @@ func TestCodexMaxPlans(t *testing.T) {
 	out, err := PostToolUse(env, bashIn(t, env.Root, cmd))
 	if err != nil || !strings.Contains(string(out), `"decision":"block"`) {
 		t.Errorf("bad first: got %s, %v", out, err)
+	}
+}
+
+// TestCodexOneDeadline: the plan files of one command share one deadline.
+// The first Options call sees a deadline already passed and any later call
+// a fresh one: both plans (E2, read) must get the deadline verdict, which a
+// read answers with nothing.
+func TestCodexOneDeadline(t *testing.T) {
+	old := postNow
+	calls := 0
+	postNow = func() time.Time {
+		calls++
+		if calls == 1 {
+			return time.Now().Add(-time.Minute)
+		}
+		return time.Now()
+	}
+	t.Cleanup(func() { postNow = old })
+	env := codexEnv(t)
+	writePlan(t, env, "docs/plans/a.md", planE2)
+	writePlan(t, env, "docs/plans/b.md", planE2)
+	nilOut(t)(PostToolUse(env, bashIn(t, env.Root, "cat docs/plans/a.md docs/plans/b.md")))
+	if calls != 1 {
+		t.Errorf("Options called %d times, want 1", calls)
+	}
+}
+
+// slowPlan owns the slowest patterns pathset.Clean allows next to long
+// literals none of them match (layout's worstPlan): its conflict check runs
+// until the deadline.
+func slowPlan() string {
+	const pat = "**/*/{*a,*b}*/{*a,*b}**/*/{*a,*b}**/{*a,*b}**/{*a,*b}**/{*a,*b}**/{*a,*b}**/{*a,*b}/z%d"
+	lit := strings.TrimSuffix(strings.Repeat("ab/", 84), "/") + "/x%d"
+	var b strings.Builder
+	b.WriteString("```paraplane\ngate: make\nwaves:\n  - id: W1\n    tasks:\n")
+	n := 0
+	for i := range 40 {
+		fmt.Fprintf(&b, "      - id: T%d\n        title: t\n        verify: v\n        owns:\n", i)
+		for range 4 {
+			n++
+			f := lit
+			if i%2 == 0 {
+				f = pat
+			}
+			fmt.Fprintf(&b, "          - %q\n", fmt.Sprintf(f, n))
+		}
+	}
+	b.WriteString("```\n")
+	return b.String()
+}
+
+// TestCodexSlowPlansOneDeadline: two plan files that each run until the
+// deadline take one deadline in all, not one each.
+func TestCodexSlowPlansOneDeadline(t *testing.T) {
+	const budget = 400 * time.Millisecond
+	old := postNow
+	postNow = func() time.Time { return time.Now().Add(budget - checkTimeout) }
+	t.Cleanup(func() { postNow = old })
+	env := codexEnv(t)
+	writePlan(t, env, "docs/plans/a.md", slowPlan())
+	writePlan(t, env, "docs/plans/b.md", slowPlan())
+	// A read answers a deadline E0 with nothing, so both files are checked.
+	start := time.Now()
+	out, err := PostToolUse(env, bashIn(t, env.Root, "cat docs/plans/a.md docs/plans/b.md"))
+	d := time.Since(start)
+	mustNil(t, out, err)
+	t.Logf("two slow plans: %v", d)
+	// A deadline per file would take at least 2*budget.
+	if d >= 2*budget {
+		t.Errorf("took %v; want under %v (one deadline)", d, 2*budget)
 	}
 }
 

@@ -95,6 +95,10 @@ func codexPost(env Env, in Input) ([]byte, error) {
 			read[rel] = true
 		}
 	}
+	// One deadline for the whole hook call: with a fresh one per file, up to
+	// codexMaxPlans checks could outlast the hook timeout. Files checked
+	// after it has passed get the E0 deadline verdict.
+	o := Options(env)
 	for _, rel := range order {
 		md, ok, err := readPlan(filepath.Join(env.Root, filepath.FromSlash(rel)))
 		if err != nil {
@@ -110,7 +114,7 @@ func codexPost(env Env, in Input) ([]byte, error) {
 			}
 			k = postRead
 		}
-		out, err := postVerdict(env, rel, md, k)
+		out, err := postVerdict(env, o, rel, md, k)
 		if out != nil || err != nil {
 			return out, err
 		}

@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -183,15 +182,12 @@ func TestLoadNullKeepsDefault(t *testing.T) {
 }
 
 func TestLoadSpecialFileErrors(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("no FIFOs")
-	}
 	root := t.TempDir()
 	p := filepath.Join(root, filepath.FromSlash(FileName))
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := syscall.Mkfifo(p, 0o644); err != nil {
+	if err := mkfifo(p); err != nil {
 		t.Skip("mkfifo:", err)
 	}
 	type res struct {

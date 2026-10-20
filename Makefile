@@ -1,10 +1,16 @@
 VERSION ?= dev
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
-.PHONY: test dist tree
+.PHONY: test vet-cross dist tree
 
-test:
+test: vet-cross
 	go test ./...
+
+# vet-cross type-checks every package, tests included, for the other release
+# OSes: OS-specific test code must not break the windows or darwin build.
+vet-cross:
+	GOOS=windows go vet ./...
+	GOOS=darwin go vet ./...
 
 dist:
 	@for p in $(PLATFORMS); do \

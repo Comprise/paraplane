@@ -25,7 +25,7 @@ Codex reads only `hooks/codex.json` (it ignores `hooks/hooks.json`). All hooks c
 | `Stop` | — | `stop` | 10 s | in Plan Mode `last_assistant_message` is empty: the transcript (`transcript_path`, a regular file, tail ≤ 4 MB) — the assistant's last `<proposed_plan>` of the current turn; E errors — `{"decision":"block","reason":…}`; `stop_hook_active: true`, no transcript or plan — silent |
 | `PermissionRequest` | `^Bash$` | `permission-request` | 10 s | `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}` only for the strict form of the command `paraplane check/audit/progress/version` with the absolute CLI path |
 
-- The hook texts name the CLI by the absolute path `$CLAUDE_PLUGIN_ROOT/bin/paraplane` (`bin/` is not on the Codex PATH); both skill invocations are named — `/paraplane:x` and `$paraplane:x`.
+- The hook texts name the CLI by the absolute path `$CLAUDE_PLUGIN_ROOT/bin/paraplane` (`bin/` is not on the Codex PATH); skills are named only the Codex way, `$paraplane:x` (the skill texts themselves name both `/paraplane:x` and `$paraplane:x`).
 - Codex does not load plugin agents, so there are no events for `conflict-auditor`: the skills perform the audit.
 - The Codex hooks must be trusted in `/hooks`.
 

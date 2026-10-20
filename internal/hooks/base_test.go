@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -224,6 +225,21 @@ func TestBashAllowPathShadow(t *testing.T) {
 		t.Setenv("PATH", t.TempDir())
 		out, _ := bash(env, in)
 		golden(t, "base_bash_allow", out)
+	})
+	t.Run("relative PATH entry", func(t *testing.T) {
+		// "." on PATH finds paraplane in the working directory (exec.ErrDot):
+		// not approved, even when that directory is the plugin's own bin/.
+		for _, dir := range []string{t.TempDir(), filepath.Join(plugin, "bin")} {
+			fakeBin(t, dir)
+			t.Chdir(dir)
+			t.Setenv("PATH", ".")
+			if _, err := exec.LookPath("paraplane"); !errors.Is(err, exec.ErrDot) {
+				t.Fatalf("LookPath in %s: %v, want exec.ErrDot", dir, err)
+			}
+			if out, _ := bash(env, in); out != nil {
+				t.Fatalf("dir %s: got %s", dir, out)
+			}
+		}
 	})
 	for _, root := range []string{"", "relative/plugin"} {
 		t.Run("plugin root "+root, func(t *testing.T) {

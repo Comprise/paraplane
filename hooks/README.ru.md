@@ -25,7 +25,7 @@ Codex читает только `hooks/codex.json` (`hooks/hooks.json` игно�
 | `Stop` | — | `stop` | 10 с | в Plan Mode `last_assistant_message` пуст: транскрипт (`transcript_path`, обычный файл, хвост ≤ 4 МБ) — последний `<proposed_plan>` ассистента текущего хода; есть E — `{"decision":"block","reason":…}`; `stop_hook_active: true`, нет транскрипта или плана — молчит |
 | `PermissionRequest` | `^Bash$` | `permission-request` | 10 с | `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}` только для строгой формы команды `paraplane check/audit/progress/version` с абсолютным путём CLI |
 
-- В тексте хуков CLI назван абсолютным путём `$CLAUDE_PLUGIN_ROOT/bin/paraplane` (`bin/` не в PATH Codex); оба вызова skills — `/paraplane:x` и `$paraplane:x`.
+- В тексте хуков CLI назван абсолютным путём `$CLAUDE_PLUGIN_ROOT/bin/paraplane` (`bin/` не в PATH Codex); skills названы только в форме Codex, `$paraplane:x` (тексты самих skills называют оба варианта — `/paraplane:x` и `$paraplane:x`).
 - Агенты плагина Codex не загружает, поэтому событий для `conflict-auditor` нет: аудит выполняют skills.
 - Хуки Codex нужно доверить в `/hooks`.
 

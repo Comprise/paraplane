@@ -52,9 +52,9 @@ func PostToolUse(env Env, in Input) ([]byte, error) {
 		if !editTouchesPlan(md, oldS, newS) {
 			return nil, nil
 		}
-		return postVerdict(env, rel, md, postEdit)
+		return postVerdict(env, Options(env), rel, md, postEdit)
 	}
-	return postVerdict(env, rel, md, postWrite)
+	return postVerdict(env, Options(env), rel, md, postWrite)
 }
 
 // postKind is how a tool call touched a plan file; a larger kind wins when
@@ -68,11 +68,11 @@ const (
 )
 
 // postVerdict is the PostToolUse answer for the plan file rel with content
-// md: E0 adds context, E1–E7 block (context in mode warn), warnings add
+// md, checked with o (one Options, so one deadline, per hook call): E0 adds context, E1–E7 block (context in mode warn), warnings add
 // context only for a write. A read answers only E1–E7. paraplane's own
 // strings go through env.Agent.text; the plan path and plan text do not.
-func postVerdict(env Env, rel string, md []byte, k postKind) ([]byte, error) {
-	r := rules.Check(md, Options(env))
+func postVerdict(env Env, o rules.Options, rel string, md []byte, k postKind) ([]byte, error) {
+	r := rules.Check(md, o)
 	if k == postRead && (r.Errors() == 0 || r.Findings[0].Code == "E0") {
 		return nil, nil
 	}

@@ -8,14 +8,15 @@ import (
 	"unicode/utf8"
 )
 
-// sanitize turns \r and \t (and \n unless keepNL) into spaces and drops all
-// other control characters and format characters (ANSI escapes, bidi).
+// sanitize turns \r, \t and the Unicode line and paragraph separators
+// U+2028 and U+2029 (and \n unless keepNL) into spaces and drops all other
+// control characters and format characters (ANSI escapes, bidi).
 func sanitize(s string, keepNL bool) string {
 	return strings.Map(func(r rune) rune {
 		switch {
 		case r == '\n' && keepNL:
 			return r
-		case r == '\r' || r == '\n' || r == '\t':
+		case r == '\r' || r == '\n' || r == '\t' || unicode.In(r, unicode.Zl, unicode.Zp):
 			return ' '
 		case unicode.IsControl(r) || unicode.Is(unicode.Cf, r):
 			return -1

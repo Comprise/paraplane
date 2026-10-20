@@ -384,7 +384,7 @@ Go 1.27, модуль `paraplane`; зависимости — stdlib, `gopkg.in/
 - в `hooks/codex.json` нет поля `if`: фильтрация — matcher-регулярками и в бинаре;
 - `bin/` плагина нет в PATH shell-инструмента Codex: тексты хуков для Codex называют CLI абсолютным путём
   `$CLAUDE_PLUGIN_ROOT/bin/paraplane` (если корень проходит `^/[A-Za-z0-9_./-]*$`, иначе голое имя);
-- skills общие; в Codex вызываются как `$paraplane:<name>`; тексты skills и хуков называют оба варианта;
+- skills общие; в Codex вызываются как `$paraplane:<name>`; тексты skills называют оба варианта; тексты хуков в Codex — `$paraplane:<name>`;
   незнакомые Codex поля frontmatter безвредны;
 - Codex продолжает ход только по `{"decision":"block","reason":…}` на `Stop` (следующий Stop — с `stop_hook_active: true`);
 - `PreToolUse` `allow` в Codex переписывает команду — авто-одобрение CLI через `PermissionRequest` (`^Bash$`),
