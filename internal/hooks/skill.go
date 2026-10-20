@@ -16,21 +16,27 @@ func skill(env Env, in Input) ([]byte, error) {
 	if !env.Config.Enabled {
 		return nil, nil
 	}
-	name := skillName(in)
-	if name == "" || strings.HasPrefix(name, "paraplane:") {
-		return nil, nil
-	}
-	low := strings.ToLower(name)
-	var digest string
-	switch {
-	case strings.Contains(low, "execut") || strings.Contains(low, "subagent-driven"):
-		digest = ExecDigest
-	case strings.Contains(low, "plan"):
-		digest = Digest
-	default:
+	digest := skillDigest(skillName(in))
+	if digest == "" {
 		return nil, nil
 	}
 	return encodeJSON(hookOutput{Hook: &hookSpecific{EventName: "PreToolUse", AdditionalContext: digest}})
+}
+
+// skillDigest is the digest for another plugin's skill name: ExecDigest for
+// an execution skill, Digest for a planning one, "" otherwise.
+func skillDigest(name string) string {
+	if name == "" || strings.HasPrefix(name, "paraplane:") {
+		return ""
+	}
+	low := strings.ToLower(name)
+	switch {
+	case strings.Contains(low, "execut") || strings.Contains(low, "subagent-driven"):
+		return ExecDigest
+	case strings.Contains(low, "plan"):
+		return Digest
+	}
+	return ""
 }
 
 // skillName reads tool_input.skill, then name, then command (the field name is

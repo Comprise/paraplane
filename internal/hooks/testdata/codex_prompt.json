@@ -1,0 +1,1 @@
+{"session_id":"01a15913-a412-7312-8fc2-f6f0eb5b47ca","turn_id":"01a15915-5cd0-7a83-a90e-4427dd06a4cc","transcript_path":"testdata/codex_transcript.jsonl","cwd":"/tmp/project","hook_event_name":"UserPromptSubmit","model":"gpt-6-luna","permission_mode":"default","prompt":"$pp-probe:probe"}

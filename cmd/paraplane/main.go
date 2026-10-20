@@ -1,5 +1,5 @@
 // Command paraplane checks wave plans, audits and shows their execution, and
-// serves the Claude Code hooks.
+// serves the Claude Code and Codex hooks.
 package main
 
 import (
@@ -24,7 +24,8 @@ commands:
   check [--suggest] <file>   check a plan; - reads stdin
   audit <file> <wave>        audit the files changed by a wave
   progress <file>            show the execution progress of a plan
-  hook <session-start|pre-tool-use|post-tool-use>
+  hook <session-start|pre-tool-use|post-tool-use> [--agent codex]
+  hook <stop|prompt-submit|permission-request> --agent codex
   version
 `
 
@@ -53,11 +54,22 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, cwd string) i
 	rest := args[1:]
 	switch args[0] {
 	case "hook":
-		if len(rest) != 1 {
+		// The flag comes after the event: the plugin shim reads the event from $2.
+		agent := hooks.Claude
+		switch {
+		case len(rest) == 1:
+		case len(rest) == 3 && rest[1] == "--agent":
+			a, ok := hooks.ParseAgent(rest[2])
+			if !ok {
+				fmt.Fprintln(stderr, "paraplane: hook: bad arguments")
+				return 0
+			}
+			agent = a
+		default:
 			fmt.Fprintln(stderr, "paraplane: hook: bad arguments")
 			return 0
 		}
-		return runHook(rest[0], stdin, stdout, stderr, cwd)
+		return runHook(rest[0], agent, stdin, stdout, stderr, cwd)
 	case "check":
 		return runCheck(rest, stdin, stdout, stderr, cwd)
 	case "audit":
@@ -74,11 +86,16 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, cwd string) i
 	return 2
 }
 
-// hookHandlers maps `paraplane hook <event>` to its handler.
+// hookHandlers maps `paraplane hook <event>` to its handler. stop,
+// prompt-submit and permission-request serve only Codex (hooks/codex.json)
+// and answer nothing for Claude.
 var hookHandlers = map[string]func(hooks.Env, hooks.Input) ([]byte, error){
-	"session-start": hooks.SessionStart,
-	"pre-tool-use":  hooks.PreToolUse,
-	"post-tool-use": hooks.PostToolUse,
+	"session-start":      hooks.SessionStart,
+	"pre-tool-use":       hooks.PreToolUse,
+	"post-tool-use":      hooks.PostToolUse,
+	"stop":               hooks.Stop,
+	"prompt-submit":      hooks.PromptSubmit,
+	"permission-request": hooks.PermissionRequest,
 }
 
 // maxHookInput caps the hook payload read from stdin (spec section 8).
@@ -105,7 +122,7 @@ func hookRoot(in hooks.Input, cwd string) string {
 
 // runHook never fails: errors and panics go to stderr, the answer stays
 // empty and the exit code is 0.
-func runHook(event string, stdin io.Reader, stdout, stderr io.Writer, cwd string) int {
+func runHook(event string, agent hooks.Agent, stdin io.Reader, stdout, stderr io.Writer, cwd string) int {
 	var out []byte
 	err := func() (err error) {
 		defer func() {
@@ -130,7 +147,7 @@ func runHook(event string, stdin io.Reader, stdout, stderr io.Writer, cwd string
 		}
 		root := hookRoot(in, cwd)
 		cfg, cfgErr := config.Load(root)
-		out, err = h(hooks.Env{Root: root, Config: cfg, ConfigErr: cfgErr}, in)
+		out, err = h(hooks.Env{Root: root, Config: cfg, ConfigErr: cfgErr, Agent: agent}, in)
 		return err
 	}()
 	if err != nil {

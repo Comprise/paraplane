@@ -7,8 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"paraplane/internal/hooks"
 )
@@ -154,14 +156,18 @@ func TestCheckCLI(t *testing.T) {
 	// A symlink, a directory, a file outside the root and a big file are refused.
 	outside := t.TempDir()
 	write(t, outside, "o.md", validPlan)
-	if err := os.Symlink(filepath.Join(dir, "ok.md"), filepath.Join(dir, "link.md")); err != nil {
+	refused := []string{"d.md", filepath.Join(outside, "o.md"), "big.md"}
+	// Windows without developer mode cannot make symlinks; the case is skipped there.
+	if err := os.Symlink(filepath.Join(dir, "ok.md"), filepath.Join(dir, "link.md")); err == nil {
+		refused = append(refused, "link.md")
+	} else if runtime.GOOS != "windows" {
 		t.Fatal(err)
 	}
 	if err := os.Mkdir(filepath.Join(dir, "d.md"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	write(t, dir, "big.md", validPlan+strings.Repeat("x", 1<<20))
-	for _, name := range []string{"link.md", "d.md", filepath.Join(outside, "o.md"), "big.md"} {
+	for _, name := range refused {
 		code, out, _ := cli(t, dir, "", "check", name)
 		if code != 1 || !strings.HasPrefix(out, "error: ") {
 			t.Errorf("%s: code %d, out %q", name, code, out)
@@ -302,7 +308,7 @@ func TestHookNeverFails(t *testing.T) {
 	}{
 		"bad json":      {"{", []string{"hook", "session-start"}},
 		"too big":       {big, []string{"hook", "session-start"}},
-		"unknown event": {"{}", []string{"hook", "stop"}},
+		"unknown event": {"{}", []string{"hook", "nope"}},
 		"no event":      {"{}", []string{"hook"}},
 		"extra args":    {"{}", []string{"hook", "session-start", "x"}},
 		"panic":         {"{}", []string{"hook", "boom"}},
@@ -394,8 +400,11 @@ func TestHooksJSONContract(t *testing.T) {
 		}
 	}
 	for sub := range hookHandlers {
-		if !used[sub] {
+		if !used[sub] && !codexOnly[sub] {
 			t.Errorf("handler %q is not used by hooks.json", sub)
+		}
+		if used[sub] && codexOnly[sub] {
+			t.Errorf("Codex-only handler %q is used by hooks.json", sub)
 		}
 	}
 }
@@ -407,5 +416,238 @@ func TestVersion(t *testing.T) {
 	}
 	if code, _, _ := cli(t, t.TempDir(), "", "version", "x"); code != 2 {
 		t.Errorf("extra arg: code %d", code)
+	}
+}
+
+// claudeHooks is hooks/hooks.json as shipped before Codex support: Codex
+// support must not change it.
+const claudeHooks = `{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook session-start", "timeout": 10 }] }],
+    "PreToolUse": [
+      { "matcher": "ExitPlanMode|Skill", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook pre-tool-use", "timeout": 10 }] },
+      { "matcher": "Bash", "hooks": [{ "type": "command", "if": "Bash(paraplane *)", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook pre-tool-use", "timeout": 10 }] }
+    ],
+    "PostToolUse": [{ "matcher": "Write|Edit", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook post-tool-use", "timeout": 10 }] }]
+  }
+}
+`
+
+// codexOnly are the handlers only hooks/codex.json uses.
+var codexOnly = map[string]bool{"stop": true, "prompt-submit": true, "permission-request": true}
+
+func TestClaudeHooksUnchanged(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "hooks", "hooks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.ReplaceAll(string(data), "\r\n", "\n"); got != claudeHooks {
+		t.Errorf("hooks/hooks.json changed:\n%s", data)
+	}
+}
+
+func TestCodexHooksManifest(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "hooks", "codex.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		Hooks map[string][]struct {
+			Matcher *string `json:"matcher"`
+			Hooks   []struct {
+				Type    string  `json:"type"`
+				Command string  `json:"command"`
+				Timeout int     `json:"timeout"`
+				If      *string `json:"if"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct{ sub, matcher string }{
+		"SessionStart":      {"session-start", ""},
+		"UserPromptSubmit":  {"prompt-submit", ""},
+		"Stop":              {"stop", ""},
+		"PermissionRequest": {"permission-request", "^Bash$"},
+		"PostToolUse":       {"post-tool-use", "^(Bash|apply_patch)$"},
+	}
+	if len(cfg.Hooks) != len(want) {
+		t.Errorf("events = %d, want %d", len(cfg.Hooks), len(want))
+	}
+	used := map[string]bool{}
+	for event, groups := range cfg.Hooks {
+		w, known := want[event]
+		if !known {
+			t.Errorf("unexpected event %s", event)
+			continue
+		}
+		if len(groups) != 1 || len(groups[0].Hooks) != 1 {
+			t.Errorf("%s: want one group with one hook", event)
+			continue
+		}
+		g, h := groups[0], groups[0].Hooks[0]
+		wantCmd := `"${CLAUDE_PLUGIN_ROOT}"/bin/paraplane hook ` + w.sub + " --agent codex"
+		if h.Type != "command" || h.Command != wantCmd {
+			t.Errorf("%s: command %q, want %q", event, h.Command, wantCmd)
+		}
+		if _, ok := hookHandlers[w.sub]; !ok {
+			t.Errorf("%s: binary has no handler for %q", event, w.sub)
+		}
+		used[w.sub] = true
+		if h.Timeout != 10 {
+			t.Errorf("%s: timeout %d, want 10", event, h.Timeout)
+		}
+		if h.If != nil {
+			t.Errorf("%s: Codex has no if field", event)
+		}
+		switch {
+		case w.matcher == "" && g.Matcher != nil:
+			t.Errorf("%s: matcher %q, want none", event, *g.Matcher)
+		case w.matcher != "" && (g.Matcher == nil || *g.Matcher != w.matcher):
+			t.Errorf("%s: matcher %v, want %q", event, g.Matcher, w.matcher)
+		}
+	}
+	for sub := range codexOnly {
+		if !used[sub] {
+			t.Errorf("Codex-only handler %q is not used by codex.json", sub)
+		}
+	}
+	if len(hookHandlers) != len(codexOnly)+3 {
+		t.Errorf("hookHandlers has %d entries; update the hooks.json and codex.json contracts", len(hookHandlers))
+	}
+}
+
+// codexHook runs `paraplane hook <event> --agent codex` with a payload.
+func codexHook(t *testing.T, cwd, event string, payload map[string]any) (int, string, string) {
+	t.Helper()
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cli(t, cwd, string(raw), "hook", event, "--agent", "codex")
+}
+
+func TestHookAgentFlag(t *testing.T) {
+	dir := project(t)
+	t.Setenv("CLAUDE_PROJECT_DIR", "") // Codex does not set it
+	t.Setenv("CLAUDE_PLUGIN_ROOT", "")
+	transcript, err := filepath.Abs(filepath.Join("..", "..", "internal", "hooks", "testdata", "codex_transcript.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := map[string]any{
+		"session_id": "s1", "turn_id": "01a15914-2abb-7442-952c-4e7261ae2507", "transcript_path": transcript,
+		"cwd": dir, "hook_event_name": "Stop", "permission_mode": "default", "stop_hook_active": false,
+		"last_assistant_message": nil,
+	}
+	code, out, errOut := codexHook(t, t.TempDir(), "stop", stop)
+	if code != 0 || !strings.HasPrefix(out, `{"decision":"block","reason":"paraplane: the proposed plan`) ||
+		!strings.Contains(out, "skill $paraplane:rules.") || errOut != "" {
+		t.Errorf("stop: code %d, out %q, stderr %q", code, out, errOut)
+	}
+	raw, _ := json.Marshal(stop)
+	for _, args := range [][]string{{"hook", "stop"}, {"hook", "stop", "--agent", "claude"}} {
+		if code, out, _ := cli(t, dir, string(raw), args...); code != 0 || out != "" {
+			t.Errorf("%v: code %d, out %q; Stop is Codex-only", args, code, out)
+		}
+	}
+
+	code, out, _ = codexHook(t, dir, "session-start", map[string]any{"cwd": dir})
+	if code != 0 || !strings.Contains(out, "skill $paraplane:rules") {
+		t.Errorf("codex session-start: code %d, out %q", code, out)
+	}
+	code, out, _ = cli(t, dir, `{"cwd":`+strconvQuote(dir)+`}`, "hook", "session-start")
+	if code != 0 || !strings.Contains(out, "skill paraplane:rules") || strings.Contains(out, "$") {
+		t.Errorf("claude session-start: code %d, out %q", code, out)
+	}
+
+	write(t, dir, "docs/plans/x.md", invalidPlan)
+	post := map[string]any{"cwd": dir, "hook_event_name": "PostToolUse", "tool_name": "Bash",
+		"tool_input": map[string]any{"command": "printf x > docs/plans/x.md"}}
+	code, out, _ = codexHook(t, dir, "post-tool-use", post)
+	if code != 0 || !strings.Contains(out, `"decision":"block"`) || !strings.Contains(out, "error E2 W1") {
+		t.Errorf("codex post-tool-use: code %d, out %q", code, out)
+	}
+	raw, _ = json.Marshal(post)
+	if code, out, _ := cli(t, dir, string(raw), "hook", "post-tool-use"); code != 0 || out != "" {
+		t.Errorf("claude post-tool-use Bash: code %d, out %q", code, out)
+	}
+
+	code, out, _ = codexHook(t, dir, "prompt-submit", map[string]any{"cwd": dir, "prompt": "$superpowers:executing-plans"})
+	if code != 0 || !strings.Contains(out, `"hookEventName":"UserPromptSubmit"`) || !strings.Contains(out, "paraplane execution rules") {
+		t.Errorf("prompt-submit: code %d, out %q", code, out)
+	}
+
+	code, out, _ = codexHook(t, dir, "permission-request", map[string]any{"cwd": dir, "tool_name": "Bash",
+		"tool_input": map[string]any{"command": "paraplane check docs/plans/x.md"}})
+	if code != 0 || out != `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}`+"\n" {
+		t.Errorf("permission-request: code %d, out %q", code, out)
+	}
+}
+
+func strconvQuote(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
+func TestHookAgentFlagBad(t *testing.T) {
+	dir := project(t)
+	t.Setenv("CLAUDE_PROJECT_DIR", dir)
+	for _, args := range [][]string{
+		{"hook", "session-start", "--agent"},
+		{"hook", "session-start", "--agent", "gpt"},
+		{"hook", "session-start", "--agent", "Codex"},
+		{"hook", "session-start", "--x", "codex"},
+		{"hook", "--agent", "codex", "session-start"},
+		{"hook", "session-start", "--agent", "codex", "x"},
+		{"hook", "session-start", "--agent=codex"},
+	} {
+		code, out, errOut := cli(t, dir, `{}`, args...)
+		if code != 0 || out != "" || !strings.Contains(errOut, "paraplane: hook: bad arguments") {
+			t.Errorf("%v: code %d, out %q, stderr %q", args, code, out, errOut)
+		}
+	}
+}
+
+func TestAuditFilterDriver(t *testing.T) {
+	dir := repo(t, validPlan)
+	write(t, dir, ".gitattributes", "* filter=x\n")
+	git(t, dir, "config", "filter.x.clean", "touch PWNED")
+	write(t, dir, "README", "changed\n") // tracked and modified: git status would run the clean filter
+	code, out, _ := cli(t, dir, "", "audit", "docs/plan.md", "W1")
+	if code != 1 || !strings.HasPrefix(out, "error: ") || !strings.Contains(out, "filter drivers") {
+		t.Errorf("code %d, out %q", code, out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "PWNED")); err == nil {
+		t.Error("filter driver ran")
+	}
+}
+
+func TestCheckFIFO(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no FIFOs on Windows")
+	}
+	dir := project(t)
+	if out, err := exec.Command("mkfifo", filepath.Join(dir, "fifo.md")).CombinedOutput(); err != nil {
+		t.Fatalf("mkfifo: %v %s", err, out)
+	}
+	type res struct {
+		code int
+		out  string
+	}
+	ch := make(chan res, 1)
+	go func() {
+		var o, e bytes.Buffer
+		code := run([]string{"check", "fifo.md"}, strings.NewReader(""), &o, &e, dir)
+		ch <- res{code, o.String()}
+	}()
+	select {
+	case r := <-ch:
+		if r.code != 1 || !strings.HasPrefix(r.out, "error: ") {
+			t.Errorf("code %d, out %q", r.code, r.out)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("check blocked on a FIFO")
 	}
 }

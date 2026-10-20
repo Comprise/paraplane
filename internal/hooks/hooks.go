@@ -1,4 +1,4 @@
-// Package hooks implements the Claude Code hook handlers.
+// Package hooks implements the Claude Code and Codex hook handlers.
 package hooks
 
 import (
@@ -8,7 +8,7 @@ import (
 	"paraplane/internal/config"
 )
 
-// Input is the JSON payload Claude Code passes to a hook on stdin.
+// Input is the JSON payload Claude Code or Codex passes to a hook on stdin.
 type Input struct {
 	SessionID      string          `json:"session_id"`
 	Cwd            string          `json:"cwd"`
@@ -16,6 +16,13 @@ type Input struct {
 	PermissionMode string          `json:"permission_mode"`
 	ToolName       string          `json:"tool_name"`
 	ToolInput      json.RawMessage `json:"tool_input"`
+
+	// Codex fields (spec section 12a.2).
+	TranscriptPath       string `json:"transcript_path"`
+	TurnID               string `json:"turn_id"`
+	LastAssistantMessage string `json:"last_assistant_message"` // null in Plan Mode
+	Prompt               string `json:"prompt"`
+	StopHookActive       bool   `json:"stop_hook_active"`
 }
 
 // Env is the resolved project state a handler works with.
@@ -23,6 +30,7 @@ type Env struct {
 	Root      string
 	Config    config.Config
 	ConfigErr error // read error or config.Problems
+	Agent     Agent // the agent running the hook; zero means Claude
 }
 
 // hookOutput is the shared response form of every hook.

@@ -171,7 +171,7 @@ waves:
         verify: "jq -e . .codex-plugin/plugin.json .agents/plugins/marketplace.json >/dev/null && go test ./internal/plugintest/"
       - id: T22
         title: "Codex: skills, agent text and docs"
-        owns: ["skills/**", "agents/**", README.md, hooks/README.md]
+        owns: ["skills/**", "agents/**", README.md, README.ru.md, hooks/README.md, hooks/README.ru.md, bin/README.md, bin/README.ru.md]
         reads: [docs/superpowers/specs/2026-10-20-paraplane-design.md]
         depends: [T7, T8, T9, T15]
         verify: "grep -q 'paraplane:rules' skills/rules/SKILL.md && grep -q Codex README.md"
@@ -584,25 +584,25 @@ func Options(env Env) rules.Options                  // из env.Config; IsDir �
 
 **Interfaces:** Produces (по образцу `/home/elia/Projects/auto-context/internal/hooks/agent.go`, `permission_request.go` и `cmd/auto-context/main.go`): `type Agent string` (`Claude`, `Codex`), `func ParseAgent(string) (Agent, bool)` (точный регистр), `func (Agent) CLI() string`, `func (Agent) Skill(name string) string` (`paraplane:x` / `$paraplane:x`); `func Stop(env Env, in Input) ([]byte, error)`, `func PromptSubmit(env Env, in Input) ([]byte, error)`, `func PermissionRequest(env Env, in Input) ([]byte, error)`; `PostToolUse` при `env.Agent == Codex` понимает `Bash` (пути из команды) и `apply_patch` (заголовки патча) — п. 12a.2; `Stop` (Codex) читает план из транскрипта — п. 12a.2. CLI: `hook <event> [--agent codex]`; новые подкоманды `stop`, `prompt-submit`, `permission-request` — только для Codex (`hooks/hooks.json` не меняется). Тексты хуков для Codex называют skills через `Skill()` и CLI через `CLI()`.
 
-- [ ] **Step 1:** Тесты: `TestAgentRefs`, `TestCodexCLIPath` (безопасный и небезопасный корень), `TestCodexStopPlanErrors` (транскрипт-фикстура в формате п. 12a.2 с `<proposed_plan>` с блоком с ошибками, `last_assistant_message: null` → `{"decision":"block","reason":…}`), `TestCodexStopPlanOK` (nil), `TestCodexStopOtherTurn` (план другого `turn_id` → nil), `TestCodexStopHookActive` (nil), `TestCodexStopNoTranscript` и `TestCodexStopTranscriptFIFO` (nil, без зависания), `TestCodexBashPlanFile` (`mkdir -p docs/plans && printf 'x' > docs/plans/x.md` → проверка файла), `TestCodexBashQuoted` (`cat > "docs/plans/a b.md" <<EOF`), `TestCodexBashOther` (nil), `TestCodexApplyPatchPlanFile`, `TestCodexPromptDigest` (`$superpowers:executing-plans` → `ExecDigest`), `TestPermissionRequestAllows`/`Silent`/`AbsolutePath`; в `cmd`: `TestHookAgentFlag`, `TestHookAgentFlagBad`, `TestCodexHooksManifest` (события, команды с `--agent codex`, таймауты 10 с, matcher `^Bash$` у PermissionRequest, `^(Bash|apply_patch)$` у PostToolUse, без matcher у SessionStart/UserPromptSubmit/Stop — п. 12a.2, события ↔ `hookHandlers`), `TestClaudeHooksUnchanged` (`hooks/hooks.json` без изменений). Заодно в `cmd/paraplane/main_test.go`: симлинк-кейс `TestCheckCLI` выполнять только при успешном `os.Symlink` (на Windows без режима разработчика он падает, а CI гоняет windows-latest); добавить кейсы CLI на отказ аудита при filter-драйвере и на FIFO (не на Windows).
-- [ ] **Step 2:** Реализация; `verify` → PASS.
-- [ ] **Step 3:** Сообщение коммита: `feat(codex): hooks and CLI for Codex CLI`.
+- [x] **Step 1:** Тесты: `TestAgentRefs`, `TestCodexCLIPath` (безопасный и небезопасный корень), `TestCodexStopPlanErrors` (транскрипт-фикстура в формате п. 12a.2 с `<proposed_plan>` с блоком с ошибками, `last_assistant_message: null` → `{"decision":"block","reason":…}`), `TestCodexStopPlanOK` (nil), `TestCodexStopOtherTurn` (план другого `turn_id` → nil), `TestCodexStopHookActive` (nil), `TestCodexStopNoTranscript` и `TestCodexStopTranscriptFIFO` (nil, без зависания), `TestCodexBashPlanFile` (`mkdir -p docs/plans && printf 'x' > docs/plans/x.md` → проверка файла), `TestCodexBashQuoted` (`cat > "docs/plans/a b.md" <<EOF`), `TestCodexBashOther` (nil), `TestCodexApplyPatchPlanFile`, `TestCodexPromptDigest` (`$superpowers:executing-plans` → `ExecDigest`), `TestPermissionRequestAllows`/`Silent`/`AbsolutePath`; в `cmd`: `TestHookAgentFlag`, `TestHookAgentFlagBad`, `TestCodexHooksManifest` (события, команды с `--agent codex`, таймауты 10 с, matcher `^Bash$` у PermissionRequest, `^(Bash|apply_patch)$` у PostToolUse, без matcher у SessionStart/UserPromptSubmit/Stop — п. 12a.2, события ↔ `hookHandlers`), `TestClaudeHooksUnchanged` (`hooks/hooks.json` без изменений). Заодно в `cmd/paraplane/main_test.go`: симлинк-кейс `TestCheckCLI` выполнять только при успешном `os.Symlink` (на Windows без режима разработчика он падает, а CI гоняет windows-latest); добавить кейсы CLI на отказ аудита при filter-драйвере и на FIFO (не на Windows).
+- [x] **Step 2:** Реализация; `verify` → PASS.
+- [x] **Step 3:** Сообщение коммита: `feat(codex): hooks and CLI for Codex CLI`.
 
 ### Task 21: Codex — манифесты, маркетплейс, CI и релиз
 
 **Files:** Create `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, `internal/plugintest/codex_test.go`; Modify `.github/workflows/ci.yml`, `.github/workflows/release.yml`.
 
-- [ ] **Step 1:** Манифест и маркетплейс по образцу `/home/elia/Projects/auto-context/.codex-plugin/plugin.json` и `/home/elia/Projects/auto-context/.agents/plugins/marketplace.json` (имя `paraplane`, автор `Elia Samoylov`, `hooks: "./hooks/codex.json"`, без `version`). CI и релиз — изменения как в auto-context (`jq -e` трёх файлов; `.codex-plugin`, `.agents` в дерево проверки, архив, `git add -f`; штамп версии в `.codex-plugin/plugin.json`).
-- [ ] **Step 2:** `TestCodexManifest` (поля как в `.claude-plugin/plugin.json`, `hooks`, нет `version`), `TestCodexMarketplace` (один плагин, источник `local` `./`).
-- [ ] **Step 3:** Сообщение коммита: `feat(codex): manifest, marketplace, CI and release`.
+- [x] **Step 1:** Манифест и маркетплейс по образцу `/home/elia/Projects/auto-context/.codex-plugin/plugin.json` и `/home/elia/Projects/auto-context/.agents/plugins/marketplace.json` (имя `paraplane`, автор `Elia Samoylov`, `hooks: "./hooks/codex.json"`, без `version`). CI и релиз — изменения как в auto-context (`jq -e` трёх файлов; `.codex-plugin`, `.agents` в дерево проверки, архив, `git add -f`; штамп версии в `.codex-plugin/plugin.json`).
+- [x] **Step 2:** `TestCodexManifest` (поля как в `.claude-plugin/plugin.json`, `hooks`, нет `version`), `TestCodexMarketplace` (один плагин, источник `local` `./`).
+- [x] **Step 3:** Сообщение коммита: `feat(codex): manifest, marketplace, CI and release`.
 
 ### Task 22: Codex — skills, текст агента и документация
 
 **Files:** Modify `skills/**/SKILL.md`, `skills/rules/references/*.md`, `skills/README.md`, `agents/conflict-auditor.md`, `README.md`, `hooks/README.md`.
 
-- [ ] **Step 1:** По образцу skills auto-context: описания и заголовки называют оба вызова (`/paraplane:check` и `$paraplane:check` в Codex); строка о том, что в Codex `paraplane` не в PATH и команда берётся по пути из хука; в `rules` — где в Codex проверяется план (п. 12a: Stop в Plan Mode, `apply_patch` файлов плана) и что агента-аудитора в Codex Claude выполняет сам по тексту `agents/conflict-auditor.md`, если агенты плагина не загружаются (по шагу 0). `skills/README.md` — колонка вызова в Codex. Не увеличить тело `rules/SKILL.md` выше 1500 слов (подробности — в references).
-- [ ] **Step 2:** `README.md` — раздел «Codex CLI» (установка `codex plugin marketplace add Comprise/paraplane --ref release`, `/plugins`, `/hooks` → доверить; что работает и что нет — таблица п. 12a); `hooks/README.md` — таблица событий `hooks/codex.json` по п. 12a (файл `hooks/codex.json` не читать: его пишет T20 в той же волне).
-- [ ] **Step 3:** Сообщение коммита: `docs(codex): skills and README for Codex CLI`.
+- [x] **Step 1:** По образцу skills auto-context: описания и заголовки называют оба вызова (`/paraplane:check` и `$paraplane:check` в Codex); строка о том, что в Codex `paraplane` не в PATH и команда берётся по пути из хука; в `rules` — где в Codex проверяется план (п. 12a: Stop в Plan Mode, `apply_patch` файлов плана) и что агента-аудитора в Codex Claude выполняет сам по тексту `agents/conflict-auditor.md`, если агенты плагина не загружаются (по шагу 0). `skills/README.md` — колонка вызова в Codex. Не увеличить тело `rules/SKILL.md` выше 1500 слов (подробности — в references).
+- [x] **Step 2:** `README.md` — раздел «Codex CLI» (установка `codex plugin marketplace add Comprise/paraplane --ref release`, `/plugins`, `/hooks` → доверить; что работает и что нет — таблица п. 12a); `hooks/README.md` — таблица событий `hooks/codex.json` по п. 12a (файл `hooks/codex.json` не читать: его пишет T20 в той же волне).
+- [x] **Step 3:** Сообщение коммита: `docs(codex): skills and README for Codex CLI`.
 
 ## После W6
 

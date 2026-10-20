@@ -35,7 +35,7 @@ func exitPlan(env Env, in Input) ([]byte, error) {
 	switch {
 	case r.Errors() > 0:
 		text := "paraplane: the plan is not ready for parallel execution. Fix these and call ExitPlanMode again:\n" +
-			postFindings(r.Findings) + "\nFormat and rules: skill paraplane:rules."
+			postFindings(r.Findings) + "\nFormat and rules: skill " + env.Agent.Skill("rules") + "."
 		if env.Config.Mode == "warn" {
 			return postContext("PreToolUse", text)
 		}

@@ -1,0 +1,1 @@
+{"decision":"block","reason":"paraplane: docs/plans/x.md is not ready for parallel execution (fix it before the plan is final):\nerror E7 W1: wave W1 has no gate; set gate on the wave or the plan, or default_gate in the config\nwarning W1 T1: task T1 has no verify\nFormat and rules: skill $paraplane:rules."}

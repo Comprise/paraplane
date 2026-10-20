@@ -1,0 +1,1 @@
+{"session_id":"01a15913-a412-7312-8fc2-f6f0eb5b47ca","turn_id":"01a15914-2abb-7442-952c-4e7261ae2507","transcript_path":"testdata/codex_transcript.jsonl","cwd":"/tmp/project","hook_event_name":"Stop","model":"gpt-6-luna","permission_mode":"default","stop_hook_active":false,"last_assistant_message":null}

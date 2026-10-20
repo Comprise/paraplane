@@ -27,7 +27,13 @@ type postInput struct {
 // PostToolUse checks a plan file after Write or Edit. It stays quiet while a
 // plan is being written and while checkboxes are ticked (spec section 8).
 func PostToolUse(env Env, in Input) ([]byte, error) {
-	if !env.Config.Enabled || (in.ToolName != "Write" && in.ToolName != "Edit") {
+	if !env.Config.Enabled {
+		return nil, nil
+	}
+	if env.Agent == Codex && (in.ToolName == "Bash" || in.ToolName == "apply_patch") {
+		return codexPost(env, in)
+	}
+	if in.ToolName != "Write" && in.ToolName != "Edit" {
 		return nil, nil
 	}
 	var v postInput
@@ -52,20 +58,44 @@ func PostToolUse(env Env, in Input) ([]byte, error) {
 		}
 	}
 
+	k := postWrite
+	if edit {
+		k = postEdit
+	}
+	return postVerdict(env, rel, md, k)
+}
+
+// postKind is how a tool call touched a plan file.
+type postKind int
+
+const (
+	postWrite postKind = iota // the file was written: every finding counts
+	postEdit                  // the file was edited: warnings are not repeated
+	postRead                  // the file was only mentioned: only E1–E7 count
+)
+
+// postVerdict is the PostToolUse answer for the plan file rel with content
+// md: E0 adds context, E1–E7 block (context in mode warn), warnings add
+// context only for a write. A read answers only E1–E7.
+func postVerdict(env Env, rel string, md []byte, k postKind) ([]byte, error) {
 	r := rules.Check(md, Options(env))
+	if k == postRead && (r.Errors() == 0 || r.Findings[0].Code == "E0") {
+		return nil, nil
+	}
 	name := textx.Line(rel, postMaxPath)
+	rulesSkill := env.Agent.Skill("rules")
 	switch {
 	case len(r.Findings) > 0 && r.Findings[0].Code == "E0" && r.Findings[0].Msg != layout.ErrDeadline.Error():
 		return postContext("PostToolUse", "paraplane: "+name+" has no valid ```paraplane block yet ("+
-			textx.Line(r.Findings[0].Msg, postMaxE0)+"); add the block before the plan is final. Format: skill paraplane:rules.")
+			textx.Line(r.Findings[0].Msg, postMaxE0)+"); add the block before the plan is final. Format: skill "+rulesSkill+".")
 	case r.Errors() > 0:
 		reason := "paraplane: " + name + " is not ready for parallel execution (fix it before the plan is final):\n" +
-			postFindings(r.Findings) + "\nFormat and rules: skill paraplane:rules."
+			postFindings(r.Findings) + "\nFormat and rules: skill " + rulesSkill + "."
 		if env.Config.Mode == "warn" {
 			return postContext("PostToolUse", reason)
 		}
 		return encodeJSON(hookOutput{Decision: "block", Reason: reason})
-	case r.Warnings() > 0 && !edit:
+	case r.Warnings() > 0 && k == postWrite:
 		return postContext("PostToolUse", postWarnings(r))
 	}
 	return nil, nil

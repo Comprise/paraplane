@@ -1,6 +1,6 @@
 ---
 name: rules
-description: This skill should be used whenever Claude writes, revises or reviews an implementation plan — in plan mode before ExitPlanMode, with superpowers:writing-plans, or in any docs/plans file — or when a paraplane hook reports plan errors (E0–E7), warnings (W1–W5) or audit errors (A1). Defines the paraplane block and the rules that let subagents execute waves in parallel without conflicts.
+description: This skill should be used whenever Claude writes, revises or reviews an implementation plan — in plan mode before ExitPlanMode, with superpowers:writing-plans, or in any docs/plans file — or when a paraplane hook reports plan errors (E0–E7), warnings (W1–W5) or audit errors (A1). Also loaded as $paraplane:rules in Codex. Defines the paraplane block and the rules that let subagents execute waves in parallel without conflicts.
 ---
 # paraplane rules
 
@@ -60,7 +60,7 @@ Full schema, limits, glob syntax and the overlap rules: `references/format.md`. 
    of the block, and per wave only where it differs.
 6. **Run `paraplane check --suggest <file>`** and fix every error. On W3 it prints `Shorter layout:`
    and a ready block; adopt it and update the prose to match.
-7. **When any wave has 2 or more tasks, run the agent `paraplane:conflict-auditor`** on the plan. It
+7. **When any wave has 2 or more tasks, run the agent `paraplane:conflict-auditor`** (Codex: see `references/codex.md`) on the plan. It
    finds conflicts the block cannot show (shared files outside `owns`, registration points, API breaks
    inside a wave, numbered migrations). Fix the plan, then run `paraplane check` again until
    `plan ok`.
@@ -88,7 +88,7 @@ A literal path is a file. To own a whole directory write `dir/**`.
 ## Findings and fixes
 
 `paraplane check` prints `warning: config: …` lines for problems in `.paraplane/config.yaml` (if
-any), then one line per finding (`error E2 W1: T1 and T2 both own internal/a.go`), then
+any), then one line per finding (`error E2 W1: owns of T1 (internal/a.go) and T2 (internal/*.go) may overlap; …`), then
 `plan ok: 3 waves, 7 tasks`, `plan ok with 2 warning(s): 3 waves, 7 tasks` or
 `plan invalid: 2 error(s), 1 warning(s)`. Errors (E) make the plan unfit; warnings (W) do not.
 
@@ -110,7 +110,7 @@ W3 is checked only when there are no errors at all.
 | W2 | A wave has more tasks than `max_parallel` | Split the wave, or accept the warning |
 | W3 | A shorter layout exists | Adopt the block printed after `Shorter layout:` by `paraplane check --suggest` |
 | W4 | A task has an empty `owns` | List its files, or fold the task into another |
-| W5 | A literal in `owns` is an existing directory (reported only by the CLI and hooks, which see the filesystem) | Write `dir/**` |
+| W5 | A literal in `owns` is an existing directory (CLI and hooks only) | Write `dir/**` |
 | A1 | After a wave a changed file is owned by no task of that wave (`error A1 W2: internal/x.go changed but no task of W2 owns it`) | Revert the stray change, or, when it was needed, add the file to the right task's `owns` and re-check the plan; fix before the gate |
 
 Messages for patterns that are not literally equal say "may overlap": narrow the patterns if the
@@ -138,5 +138,6 @@ skills ask for (reviews, verification, reporting) still applies.
 - **`references/format.md`** — block schema, limits, ids, paths and globs, quoting, overlap of
   patterns, hot files, fence pitfalls.
 - **`references/execution.md`** — coordinator and subagent rules, audit, gate, commits, progress.
+- **`references/codex.md`** — Codex CLI: where the plan is checked, the CLI path, the audit without agents.
 - **`examples/plan.md`** — a complete plan (prose and a three-wave block) that passes
   `paraplane check`.

@@ -1,174 +1,184 @@
 # paraplane
 
-**Плагин для [Claude Code](https://docs.claude.com/en/docs/claude-code), который заставляет любой план
-реализации быть пригодным для параллельного исполнения субагентами без потери качества.**
+**English** | [Русский](README.ru.md)
 
-Параллельные субагенты ломают друг другу работу, когда две задачи правят один файл, а следующий этап
-опирается на то, что предыдущий ещё не закончил. paraplane требует от плана машиночитаемый блок и
-проверяет его детерминированно (без LLM):
+**A plugin for [Claude Code](https://docs.claude.com/en/docs/claude-code) (and Codex CLI) that makes every implementation plan fit for parallel execution by subagents without loss of quality.**
 
-- работа разбита на задачи с явным **владением файлами** (`owns`);
-- задачи сгруппированы в **волны**: внутри волны задачи независимы и идут параллельно, волны — последовательно;
-- порядок задаётся **зависимостями**, а не исходной нумерацией этапов: этапы можно переставлять, если так
-  меньше конфликтов и короче план;
-- каждая волна закрывается **gate** — полным прогоном проверок, поэтому следующая волна не ломает предыдущую.
+Parallel subagents break each other's work when two tasks edit the same file, or when the next stage relies on
+something the previous one has not finished. paraplane requires a machine-readable block in the plan and
+validates it deterministically (no LLM):
 
-Плагин только задаёт и проверяет правила; исполнять план — дело исполнителя (сам Claude,
-`superpowers:subagent-driven-development` и т.п.). Правила исполнения входят в skill `paraplane:rules`.
+- the work is split into tasks with explicit **file ownership** (`owns`);
+- tasks are grouped into **waves**: tasks within a wave are independent and run in parallel, waves run one after another;
+- order is set by **dependencies**, not by the original numbering of stages: stages may be reordered when that
+  means fewer conflicts and a shorter plan;
+- every wave is closed by a **gate**, a full run of the checks, so the next wave does not break the previous one.
 
-## Блок `paraplane`
+The plugin only defines and checks the rules; executing the plan is up to the executor (Claude itself,
+`superpowers:subagent-driven-development`, etc.). The execution rules are part of the skill `paraplane:rules`.
 
-В плане (Markdown) ровно один огороженный блок кода с info-строкой `paraplane`. Остальной текст плана — для
-людей, paraplane его не читает. Содержимое — YAML:
+## The `paraplane` block
+
+A plan (Markdown) has exactly one fenced code block with the info string `paraplane`. The rest of the plan is
+for people; paraplane does not read it. The content is YAML:
 
 ````
 ```paraplane
-version: 1                  # необязательно; поддерживается только 1
-gate: "go test ./..."       # необязательно; gate по умолчанию для волн плана
+version: 1                  # optional; only 1 is supported
+gate: "go test ./..."       # optional; default gate for the waves of the plan
 waves:
   - id: W1
-    gate: "go vet ./... && go test ./..."   # необязательно; перекрывает gate плана
+    gate: "go vet ./... && go test ./..."   # optional; overrides the plan gate
     tasks:
       - id: T1
-        title: "Пакет config"
+        title: "Config package"
         owns: ["internal/config/**"]
         reads: []
         depends: []
         verify: "go test ./internal/config/"
       - id: T2
-        title: "Пакет plan"
+        title: "Plan package"
         owns: ["internal/plan/**"]
   - id: W2
     tasks:
       - id: T3
-        title: "Валидатор"
+        title: "Validator"
         owns: ["internal/rules/**"]
         reads: [internal/plan/plan.go]
         depends: [T2]
 ```
 ````
 
-- **`owns`** — пути и glob-шаблоны файлов, которые задача создаёт, меняет или удаляет. Только она.
-- **`reads`** — пути, на содержимое которых задача опирается (интерфейсы, схемы), не меняя их.
-- **`depends`** — id задач более ранних волн; это зависимости, а не id волн.
-- **`verify`** — команда проверки задачи; **`gate`** — команда, которую исполнитель запускает после волны.
-  Gate волны: `wave.gate`, затем `plan.gate`, затем `default_gate` из конфига.
-- Блок ограждается бэктиками или тильдами (длина ограждения не меньше 3). Неизвестные ключи — ошибка.
-- Пути — от корня проекта, разделитель `/`, без `..` и ведущего `/`. Glob — синтаксис
-  [doublestar](https://github.com/bmatcuk/doublestar) (`*`, `**`, `?`, `[...]`, `{a,b}`). Литеральный путь —
-  это файл; каталог целиком пишется как `dir/**`.
-- Шаблон с любым из символов `* ? [ ] { } ,` или начинающийся с `!` или `&` пишется в кавычках
-  (`"**/x.go"`), иначе YAML разберёт его как alias, ключ или якорь. Если YAML не разбирается по этой причине,
-  проверка подскажет `quote glob patterns`.
-- Лимиты (защита хука от враждебного плана): блок ≤ 256 КБ, ≤ 500 задач, ≤ 100 путей на задачу, ≤ 2000 путей
-  (`owns` + `reads`) на план, шаблон ≤ 256 символов, ≤ 8 групп `{}` в шаблоне.
+- **`owns`** — paths and glob patterns of the files the task creates, changes or deletes. Only this task.
+- **`reads`** — paths whose contents the task relies on (interfaces, schemas) without changing them.
+- **`depends`** — ids of tasks from earlier waves; these are task dependencies, not wave ids.
+- **`verify`** — the task's check command; **`gate`** — the command the executor runs after a wave.
+  Wave gate: `wave.gate`, then `plan.gate`, then `default_gate` from the config.
+- The block is fenced with backticks or tildes (fence length at least 3). Unknown keys are an error.
+- Paths are relative to the project root, `/`-separated, without `..` and a leading `/`. Globs use the
+  [doublestar](https://github.com/bmatcuk/doublestar) syntax (`*`, `**`, `?`, `[...]`, `{a,b}`). A literal path
+  is a file; a whole directory is written as `dir/**`.
+- A pattern containing any of `* ? [ ] { } ,` or starting with `!` or `&` is written in quotes
+  (`"**/x.go"`), otherwise YAML reads it as an alias, a key or an anchor. If YAML fails to parse for this
+  reason, the check suggests `quote glob patterns`.
+- Limits (protection of the hook against a hostile plan): block ≤ 256 KB, ≤ 500 tasks, ≤ 100 paths per task,
+  ≤ 2000 paths (`owns` + `reads`) per plan, pattern ≤ 256 characters, ≤ 8 `{}` groups in a pattern.
 
-## Правила проверки
+## Validation rules
 
-Каждое нарушение — строка с кодом, местом и текстом. Ошибки (E) делают план негодным, замечания (W) — нет.
+Every violation is a line with a code, a place and a text. Errors (E) make the plan unfit, warnings (W) do not.
 
-| Код | Правило |
+| Code | Rule |
 |---|---|
-| E0 | блока `paraplane` нет, их больше одного, YAML не разбирается или превышен лимит |
-| E1 | структура: нет волн; пустая волна; нет `id`/`title`; повтор `id`; `depends` на неизвестную задачу; неверный путь или шаблон; неизвестный ключ или неверный тип; `version` не 1 |
-| E2 | в одной волне `owns` двух задач пересекаются |
-| E3 | `depends` указывает на задачу той же или более поздней волны (в том числе цикл) |
-| E4 | в одной волне `reads` задачи пересекается с `owns` другой задачи |
-| E5 | в одной волне две задачи задевают один горячий шаблон |
-| E6 | задача меняет то, что `owns` задачи более ранней волны, но не зависит от неё (прямо или транзитивно) |
-| E7 | у волны нет gate |
-| W1 | у задачи нет `verify` |
-| W2 | в волне больше `max_parallel` задач |
-| W3 | раскладку можно сделать короче |
-| W4 | у задачи пустой `owns` |
-| W5 | литерал в `owns` — существующий каталог (имелось в виду `dir/**`) |
-| A1 | только `paraplane audit`: изменённый файл волны не принадлежит ни одной её задаче |
+| E0 | there is no `paraplane` block, there is more than one, YAML does not parse, or a limit is exceeded |
+| E1 | structure: no waves; empty wave; no `id`/`title`; duplicate `id`; `depends` on an unknown task; bad path or pattern; unknown key or wrong type; `version` is not 1 |
+| E2 | `owns` of two tasks of one wave overlap |
+| E3 | `depends` points to a task of the same or a later wave (including a cycle) |
+| E4 | `reads` of a task overlaps `owns` of another task of the same wave |
+| E5 | two tasks of one wave touch the same hot pattern |
+| E6 | a task changes what a task of an earlier wave `owns` but does not depend on it (directly or transitively) |
+| E7 | a wave has no gate |
+| W1 | a task has no `verify` |
+| W2 | a wave has more than `max_parallel` tasks |
+| W3 | the layout can be made shorter |
+| W4 | a task has an empty `owns` |
+| W5 | a literal in `owns` is an existing directory (`dir/**` was meant) |
+| A1 | `paraplane audit` only: a changed file of the wave belongs to no task of it |
 
-- E6 — главное правило «следующий этап не ломает предыдущий»: правка чужого результата допустима только как
-  осознанное продолжение (зависимость), тогда исполнитель видит контракт предшественника.
-- **Горячие файлы** (`hot_files`) — общий ресурс (`go.mod`, lock-файлы, миграции). Задача задевает горячий
-  шаблон, если называет подходящий файл явно; широкий шаблон (`internal/**`) горячий файл не задевает. Две
-  задачи одной волны, задевающие один горячий шаблон, — E5, даже если это разные файлы
-  (`migrations/0003_a.sql` и `migrations/0003_b.sql` конфликтуют по номеру).
-- Пересечение шаблонов считается консервативно: возможны ложные срабатывания (сообщение «may overlap»),
-  пропусков нет.
-- Если есть ошибки E0, остальное не проверяется; при ошибках E1/E3 проверяются только E7, W1, W2, W4, W5;
-  W3 выдаётся, только когда ошибок нет вовсе.
+- E6 is the main "the next stage does not break the previous one" rule: changing someone else's result is
+  allowed only as a deliberate continuation (a dependency), so that the executor sees the predecessor's contract.
+- **Hot files** (`hot_files`) are a shared resource (`go.mod`, lock files, migrations). A task touches a hot
+  pattern if it names a matching file explicitly; a wide pattern (`internal/**`) does not touch a hot file. Two
+  tasks of one wave touching the same hot pattern are E5, even if the files differ
+  (`migrations/0003_a.sql` and `migrations/0003_b.sql` clash on the number).
+- Pattern overlap is computed conservatively: false alarms are possible (the message says "may overlap"),
+  misses are not.
+- With E0 errors nothing else is checked; with E1/E3 errors only E7, W1, W2, W4, W5 are checked;
+  W3 is reported only when there are no errors at all.
 
-## Команды
+## Commands
 
-В Claude Code:
+In Claude Code:
 
-| Команда | Что делает |
+| Command | What it does |
 |---|---|
-| `/paraplane:create <задача или путь к спецификации>` | уточнить задачу, изучить код, составить план, прогнать `conflict-auditor`, исправить, проверить `paraplane check` и сохранить в `plans_dir/YYYY-MM-DD-<slug>.md` |
-| `/paraplane:check [путь]` | `paraplane check --suggest` плюс `conflict-auditor`, правка самого плана и отчёт о перестановках |
-| `/paraplane:rules` | все правила: формат блока, E/W, как разбивать и переставлять этапы, правила исполнения (Claude подгружает его сам) |
+| `/paraplane:create <task or path to a spec>` | clarify the task, study the code, compose a plan, run `conflict-auditor`, fix, validate with `paraplane check` and save to `plans_dir/YYYY-MM-DD-<slug>.md` |
+| `/paraplane:check [path]` | `paraplane check --suggest` plus `conflict-auditor`, edit the plan itself and report the reorderings |
+| `/paraplane:rules` | all the rules: block format, E/W, how to split and reorder stages, execution rules (Claude loads it by itself) |
 
-`create` и `check` вызывает только пользователь (они меняют файлы). Агент `conflict-auditor` запускается из
-этих skills при двух и более задачах в волне и ищет то, чего нет в плане: скрытые общие файлы, регистрационные
-точки, ломку API внутри волны, миграции. Его отчёт — список находок и вердикт `clean` или `conflicts`; план
-правит основной Claude.
+Only the user invokes `create` and `check` (they change files). The `conflict-auditor` agent is started from
+these skills when a wave has two or more tasks and looks for what the plan does not show: hidden shared files,
+registration points, API breaks inside a wave, migrations. Its report is a list of findings and a verdict,
+`clean` or `conflicts`; the plan is edited by the main Claude.
 
-Консольная утилита (её можно запускать вручную; Claude пользуется ею сам):
+The command-line utility (you can run it by hand; Claude uses it by itself):
 
 ```
-paraplane check [--suggest] <file>   # проверить план; - читает stdin
-paraplane audit <file> <wave>        # аудит изменений волны
-paraplane progress <file>            # прогресс исполнения плана
-paraplane hook <session-start|pre-tool-use|post-tool-use>
+paraplane check [--suggest] <file>   # validate a plan; - reads stdin
+paraplane audit <file> <wave>        # audit the changes of a wave
+paraplane progress <file>            # execution progress of a plan
+paraplane hook <session-start|pre-tool-use|post-tool-use> [--agent codex]
+paraplane hook <stop|prompt-submit|permission-request> --agent codex   # Codex events: see hooks/README.md
 paraplane version
 ```
 
+**Outside Claude Code.** The plugin's `bin/` is on PATH only for the Bash tool of Claude Code. From a regular
+terminal run `<plugin dir>/bin/paraplane …` (in Claude Code this is the directory in the plugin cache, also
+`${CLAUDE_PLUGIN_ROOT}`; in Codex it is the plugin directory in the Codex cache) or build the binary from
+source: `go build -o /usr/local/bin/paraplane ./cmd/paraplane` (Go required) and call it as `paraplane`.
+
 ### `paraplane check`
 
-Печатает нарушения, затем итог:
+Prints the violations, then a summary. For example, for two tasks of one wave with `owns` `internal/a.go` and `internal/*.go`:
 
 ```
-error E2 W1: T1 and T2 both own internal/a.go
-plan invalid: 2 error(s), 1 warning(s)
+error E2 W1: owns of T1 (internal/a.go) and T2 (internal/*.go) may overlap; narrow the patterns or move a task to another wave
+warning W1 T1: task T1 has no verify
+warning W1 T2: task T2 has no verify
+plan invalid: 1 error(s), 2 warning(s)
 ```
 
-Итоги: `plan ok: 3 waves, 7 tasks`, `plan ok with 2 warning(s): 3 waves, 7 tasks` или
-`plan invalid: 2 error(s), 1 warning(s)`. С `--suggest` при W3 перед итогом выводится `Shorter layout:` и готовый
-блок `paraplane` с более короткой раскладкой (независимый «третий» этап уходит в W1). Код выхода: 0 — ошибок
-нет, 1 — есть ошибки или файл не читается, 2 — неверные аргументы. Проблемы конфига — строки
-`warning: config: …` перед нарушениями. Файл плана должен быть обычным файлом (не симлинк, не FIFO) внутри
-корня проекта и не больше 1 МБ.
+Summaries: `plan ok: 3 waves, 7 tasks`, `plan ok with 2 warning(s): 3 waves, 7 tasks` or
+`plan invalid: 1 error(s), 2 warning(s)`. With `--suggest`, on W3 the line `Shorter layout:` and a ready
+`paraplane` block with a shorter layout are printed before the summary (an independent "third" stage moves to
+W1). Exit code: 0 — no errors, 1 — there are errors or the file is unreadable, 2 — bad arguments. Config
+problems are `warning: config: …` lines before the violations. The plan file must be a regular file (not a
+symlink or FIFO) inside the project root and at most 1 MB.
 
 ### `paraplane audit`
 
-Проверка **после** исполнения волны и **до** её gate (артефакты gate — покрытие, бинари — в аудит не
-попадают). Изменённые файлы рабочей копии должны попадать в `owns` какой-либо задачи этой волны; исключения —
-сам файл плана и шаблоны `audit_ignore`. Нарушение:
+A check **after** a wave is executed and **before** its gate (gate artifacts — coverage, binaries — do not
+count). Changed files of the working copy must fall into `owns` of some task of this wave; exceptions are the
+plan file itself and the `audit_ignore` patterns. For example, with two stray files:
 
 ```
 error A1 W2: internal/x.go changed but no task of W2 owns it
+error A1 W2: internal/y.go changed but no task of W2 owns it
 audit failed: 2 file(s) outside W2
 ```
 
-Успех — `audit ok: W2, 5 changed file(s)`. Нет git или не репозиторий, неизвестная волна, план с ошибками E —
-`error: …` и код 1. Аудит опирается на правило исполнения «субагенты не коммитят, координатор коммитит после
-зелёного gate»: тогда рабочая копия содержит ровно изменения текущей волны. Он не различает задачи внутри
-волны — это ловят тесты gate.
+Success is `audit ok: W2, 5 changed file(s)`. No git or not a repository, an unknown wave, a plan with E errors —
+`error: …` and exit code 1. The audit relies on the execution rule "subagents do not commit, the coordinator
+commits after a green gate": then the working copy contains exactly the changes of the current wave. It does
+not distinguish tasks within a wave — the gate tests catch that.
 
-**Безопасность аудита.** `git status` может выполнить команду, заданную конфигом репозитория, а
-`paraplane audit` одобряется хуком без запроса, поэтому:
+**Audit security.** `git status` can run a command set by the repository config, and `paraplane audit` is
+approved by the hook without a prompt, therefore:
 
-- перед `status` проверяются драйверы фильтров (`filter.*.clean|smudge|process`); любой, определённый в
-  области `local` или `worktree` (включая подключённые через `include`/`includeIf`), — отказ
+- before `status`, filter drivers (`filter.*.clean|smudge|process`) are checked; any defined in the `local` or
+  `worktree` scope (including ones pulled in via `include`/`includeIf`) is a refusal
   `error: the repository config defines filter drivers; paraplane audit does not run git status here`
-  (код 1). Фильтры из `global`/`system` (например git-lfs) — доверенная настройка пользователя;
-- git запускается с `GIT_NO_LAZY_FETCH=1`, `GIT_OPTIONAL_LOCKS=0` (индекс не пишется, хуки индекса не
-  срабатывают) и `-c core.fsmonitor=false`, без `GIT_DIR`, `GIT_CONFIG` и прочих переменных репозитория;
-  `status` — с `--no-renames` и `--ignore-submodules=all`.
+  (exit code 1). Filters from `global`/`system` (for example git-lfs) are trusted user setup;
+- git runs with `GIT_NO_LAZY_FETCH=1`, `GIT_OPTIONAL_LOCKS=0` (the index is not written, index hooks do not
+  fire) and `-c core.fsmonitor=false`, without `GIT_DIR`, `GIT_CONFIG` and other repository variables;
+  `status` runs with `--no-renames` and `--ignore-submodules=all`.
 
 ### `paraplane progress`
 
-Координатор коммитит каждую волну один раз, после зелёного gate, с трейлерами
-`Paraplane-Plan: <путь плана от корня>` и `Paraplane-Wave: <id волны>`. `paraplane progress <file>` читает
-блок и трейлеры коммитов текущей ветки. Плагин не хранит состояния, поэтому прогресс переживает перезапуск
-сессии. Пример (план `example.md`, 5 волн, 17 задач, выполнены W1 и W2):
+The coordinator commits each wave once, after a green gate, with the trailers
+`Paraplane-Plan: <plan path from the root>` and `Paraplane-Wave: <wave id>`. `paraplane progress <file>` reads
+the block and the commit trailers of the current branch. The plugin keeps no state, so progress survives a
+session restart. Example (plan `example.md`, 5 waves, 17 tasks, W1 and W2 done):
 
 ```
 paraplane · example.md                                    wave 3/5 · 64%
@@ -181,127 +191,158 @@ W4  ⬜⬜          0/2  · waiting  T14 T15
 W5  ⬜⬜          0/2  · waiting  T16 T17
 ```
 
-🟩 — волна выполнена, 🟨 — идёт, ⬜ — ждёт. Коммит волны, стоящей после идущей, даёт строку
-`warning: wave <id> was committed before <running id>`; коммит волны, которой нет в плане, —
-`warning: commit for unknown wave <id>`. После коммита каждой волны координатор запускает
-`paraplane progress <plan>` и показывает вывод пользователю.
+🟩 — wave done, 🟨 — in progress, ⬜ — waiting. A commit of a wave that follows the running one gives the line
+`warning: wave <id> was committed before <running id>`; a commit of a wave that is not in the plan gives
+`warning: commit for unknown wave <id>`. After each wave's commit the coordinator runs
+`paraplane progress <plan>` and shows the output to the user.
 
-## Правила исполнения
+## Execution rules
 
-Skill `paraplane:rules` главнее указаний любого skill исполнения (`superpowers:subagent-driven-development`,
-`executing-plans` и т.п.): для плана с блоком `paraplane` противоречащие указания («не запускай исполнителей
-параллельно», «исполнитель коммитит») не действуют.
+The skill `paraplane:rules` outranks the instructions of any execution skill
+(`superpowers:subagent-driven-development`, `executing-plans`, etc.): for a plan with a `paraplane` block,
+contradicting instructions ("do not run implementers in parallel", "the implementer commits") do not apply.
 
-1. Промпт субагента содержит его `owns`, `reads` и `verify`; «не трогай файлы вне `owns`; если нужно —
-   остановись и сообщи».
-2. Задачи волны запускаются одним сообщением.
-3. После волны — `paraplane audit <plan> <wave>`, затем gate. При нарушении аудита или красном gate — исправление
-   до старта следующей волны.
-4. Субагенты не коммитят (параллельные коммиты гоняются за `index.lock` и захватывают чужие файлы): координатор
-   коммитит один раз после зелёного gate волны с трейлерами `Paraplane-Plan` и `Paraplane-Wave` и показывает
-   `paraplane progress`.
+1. The prompt of a subagent contains its `owns`, `reads` and `verify`; "do not touch files outside `owns`; if
+   needed, stop and report".
+2. The tasks of a wave are started in one message.
+3. After a wave — `paraplane audit <plan> <wave>`, then the gate. On an audit violation or a red gate — fix
+   before the next wave starts.
+4. Subagents do not commit (parallel commits race for `index.lock` and pick up other tasks' files): the
+   coordinator commits once after a green wave gate with the trailers `Paraplane-Plan` and `Paraplane-Wave` and
+   shows `paraplane progress`.
 
-## Хуки
+## Hooks
 
-Хуки ловят план в любом виде: из plan mode, из skill с `plan` в имени, из файла в `plan_paths`.
+The hooks catch a plan in any form: from plan mode, from a skill with `plan` in its name, from a file in `plan_paths`.
 
-| Событие | Что делает |
+| Event | What it does |
 |---|---|
-| `SessionStart` | добавляет в контекст строку о правилах и `paraplane:rules`; при проблемах конфига — сообщение |
-| `PreToolUse` `ExitPlanMode` | проверяет план; есть ошибки E (включая E0) — **запрещает выход из plan mode** и перечисляет нарушения (до 20) с инструкцией; только замечания W — добавляет их в контекст |
-| `PreToolUse` `Skill` | перед skill исполнения (имя содержит `execut` или `subagent-driven`) напоминает правила исполнения и их приоритет; перед skill с `plan` в имени — правила составления плана |
-| `PreToolUse` `Bash` | одобряет без запроса `paraplane check <путь>`, `paraplane audit <путь> <волна>`, `paraplane progress <путь>`, `paraplane version` |
-| `PostToolUse` `Write\|Edit` | если файл входит в `plan_paths` — проверяет его (≤ 1 МБ). E0 — только подсказка `add the block before the plan is final`; E1–E7 — **блокировка** с причиной; только W — подсказка, и только для `Write` |
+| `SessionStart` | adds to the context a line about the rules and `paraplane:rules`; on config problems — a message |
+| `PreToolUse` `ExitPlanMode` | validates the plan; E errors (including E0) — **forbids leaving plan mode** and lists the violations (up to 20) with an instruction; only W warnings — adds them to the context |
+| `PreToolUse` `Skill` | before an execution skill (the name contains `execut` or `subagent-driven`, does not start with `paraplane:`) reminds of the execution rules and their priority; before a skill with `plan` in its name — the plan-writing rules |
+| `PreToolUse` `Bash` | approves without a prompt `paraplane check <path>`, `paraplane audit <path> <wave>`, `paraplane progress <path>`, `paraplane version` |
+| `PostToolUse` `Write\|Edit` | if the file is in `plan_paths` — validates it (≤ 1 MB). E0 — only the hint `add the block before the plan is final`; E1–E7 — **block** with a reason; only W — a hint, and only for `Write` |
 
-- `Edit` проверяется, только если правка касается блока `paraplane` или его ключей (`waves:`, `tasks:`, `id:`,
-  `title:`, `owns:`, `reads:`, `depends:`, `verify:`, `gate:`) либо новый текст встречается внутри блока: пока
-  исполнитель отмечает чекбоксы, хук молчит.
-- Хуки всегда выходят с кодом 0 и ничего не пишут в репозиторий. Ошибка плагина уходит в stderr (видна в
-  `claude --debug`), ответ пустой: плагин не мешает работе (fail-open).
-- Проверка в хуке ограничена 5 секундами; не уложились — ошибка E0
-  `plan is too complex to check in time; simplify brace patterns or split the plan`. CLI проверяет без дедлайна.
-- `mode: warn` в конфиге заменяет запрет и блокировку на сообщение с тем же текстом.
-- Подробнее — [`hooks/README.md`](hooks/README.md).
+- `Edit` is checked only if the edit touches the `paraplane` block or its keys (`waves:`, `tasks:`, `id:`,
+  `title:`, `owns:`, `reads:`, `depends:`, `verify:`, `gate:`) or the new text occurs inside the block: while
+  the executor ticks checkboxes, the hook stays silent.
+- Hooks always exit with code 0 and write nothing to the repository. A plugin error goes to stderr (visible in
+  `claude --debug`), the response is empty: the plugin does not get in the way (fail-open).
+- The check in a hook is limited to 5 seconds; if it does not finish — error E0
+  `plan is too complex to check in time; simplify brace patterns or split the plan`. The CLI checks without a deadline.
+- `mode: warn` in the config replaces the denial and the block with a message of the same text.
+- More in [`hooks/README.md`](hooks/README.md).
 
-## Настройка
+## Configuration
 
-Конфиг необязателен и лежит в `.paraplane/config.yaml`; все поля необязательны. Неизвестный ключ или неверное
-значение — предупреждение, остальные поля применяются.
+The config is optional and lives in `.paraplane/config.yaml`; all fields are optional. An unknown key or a bad
+value is a warning, the other fields apply.
 
-| Поле | По умолчанию | Смысл |
+| Field | Default | Meaning |
 |---|---|---|
-| `enabled` | `true` | выключить плагин в проекте |
-| `mode` | `block` | `block` или `warn`: блокируют ли хуки (`ExitPlanMode`, PostToolUse) или только сообщают |
-| `plan_paths` | `docs/plans/**/*.md`, `docs/superpowers/plans/**/*.md`, `.paraplane/plans/**/*.md` | какие файлы — планы |
-| `hot_files` | `go.mod`, `go.sum`, `**/package.json`, `**/package-lock.json`, `**/pnpm-lock.yaml`, `**/yarn.lock`, `**/Cargo.toml`, `**/Cargo.lock`, `**/pyproject.toml`, `**/uv.lock`, `**/poetry.lock`, `**/migrations/**` | горячие файлы |
-| `default_gate` | `""` | gate по умолчанию |
-| `max_parallel` | `6` | порог W2, 1…32 |
-| `plans_dir` | `docs/plans` | куда `/paraplane:create` сохраняет планы |
-| `audit_ignore` | `[]` | шаблоны файлов, которые аудит не учитывает (генерируемое, кеши) |
+| `enabled` | `true` | turn the plugin off in the project |
+| `mode` | `block` | `block` or `warn`: whether hooks block (`ExitPlanMode`, PostToolUse) or only report |
+| `plan_paths` | `docs/plans/**/*.md`, `docs/superpowers/plans/**/*.md`, `.paraplane/plans/**/*.md` | which files are plans |
+| `hot_files` | `go.mod`, `go.sum`, `**/package.json`, `**/package-lock.json`, `**/pnpm-lock.yaml`, `**/yarn.lock`, `**/Cargo.toml`, `**/Cargo.lock`, `**/pyproject.toml`, `**/uv.lock`, `**/poetry.lock`, `**/migrations/**` | hot files |
+| `default_gate` | `""` | default gate |
+| `max_parallel` | `6` | W2 threshold, 1…32 |
+| `plans_dir` | `docs/plans` | where `/paraplane:create` saves plans |
+| `audit_ignore` | `[]` | patterns of files the audit ignores (generated, caches) |
 
-Корень проекта — `CLAUDE_PROJECT_DIR`, иначе `cwd` сессии; далее ближайший каталог вверх с `.git` или
-`.paraplane/config.yaml`.
+The project root is `CLAUDE_PROJECT_DIR`, otherwise the session `cwd`; then the nearest directory upward with
+`.git` or `.paraplane/config.yaml`.
 
-## Требования
+## Requirements
 
-- Claude Code (CLI, расширение для IDE или desktop-приложение).
-- Linux, macOS или Windows (amd64 или arm64). Go не нужен: плагин ставится с готовыми бинарниками.
-- `git` — нужен для `paraplane audit` и `paraplane progress`; проверка плана (`check`) и хуки работают без него.
-- **Windows:** нужен [Git for Windows](https://git-scm.com/downloads/win) — без Git Bash хуки плагина
-  не запускаются. Если Git Bash стоит не в стандартном месте, укажите путь в `settings.json`:
+- Claude Code (CLI, IDE extension or desktop app) or Codex CLI (see "Codex CLI").
+- Linux, macOS or Windows (amd64 or arm64). Go is not needed: the plugin is installed with prebuilt binaries.
+- `git` — needed for `paraplane audit` and `paraplane progress`; plan validation (`check`) and hooks work without it.
+- **Windows:** [Git for Windows](https://git-scm.com/downloads/win) is required — without Git Bash the plugin
+  hooks do not run. If Git Bash is not in the standard place, set the path in `settings.json`:
 
   ```json
   { "env": { "CLAUDE_CODE_GIT_BASH_PATH": "C:\\Program Files\\Git\\bin\\bash.exe" } }
   ```
 
-## Установка
+## Installation
 
-В Claude Code:
+In Claude Code:
 
 ```
 /plugin marketplace add Comprise/paraplane
 /plugin install paraplane@paraplane
 ```
 
-Без SSH-ключа для GitHub задайте перед этим `CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1`.
+Without an SSH key for GitHub, set `CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1` first.
 
-Обновление (автообновление сторонних маркетплейсов по умолчанию выключено; включается в
+Update (auto-update of third-party marketplaces is off by default; enable it in
 `/plugin` → Marketplaces):
 
 ```
 claude plugin update paraplane@paraplane
 ```
 
-## Ограничения
+## Codex CLI
 
-- Исполнение планов, запуск субагентов и worktree — вне рамок: плагин только задаёт и проверяет правила.
-- Запрет записи вне `owns` во время исполнения не реализован (хук не знает, какой субагент пишет): сейчас
-  есть только аудит после волны.
-- Аудит не различает задачи внутри волны: запись одной задачи в файл другой ловят тесты gate.
-- Скрытые конфликты (файлы, не названные в плане) детерминированная проверка не видит — для этого агент
-  `conflict-auditor`, который запускается из skills, а не из хуков.
-- Хуки не используют LLM.
-- Вызов `/skill` пользователем не проходит через `PreToolUse`; такие планы ловят `ExitPlanMode` и `PostToolUse`.
-- Остаётся ли сессия в plan mode после запрета выхода, документация Claude Code не уточняет; поведение
-  проверяется вручную.
+The same rules and the same binary; only the delivery differs.
 
-## Если что-то не работает
+In a terminal:
 
-- В `/hooks` должны быть хуки плагина: `SessionStart`, `PreToolUse`, `PostToolUse`.
-- `paraplane check <план>` покажет предупреждения конфига (`warning: config: …`) и нарушения плана.
-- Ошибки хуков пишутся в stderr: запустите `claude --debug`.
-
-## Разработка
-
-```sh
-make test                                    # тесты
-make dist                                    # бинарники для 6 платформ
-claude --plugin-dir /path/to/paraplane       # запустить Claude Code с локальной версией
+```
+codex plugin marketplace add Comprise/paraplane --ref release
 ```
 
-Релиз — тег `vX.Y.Z` на коммите из `main`: workflow соберёт бинарники и обновит ветку `release`, из которой
-ставится плагин. Спецификация — [`docs/superpowers/specs/2026-10-20-paraplane-design.md`](docs/superpowers/specs/2026-10-20-paraplane-design.md).
+Then in Codex: `/plugins` — install `paraplane`; `/hooks` — **trust** the plugin hooks (until they are
+trusted, Codex does not run them).
 
-## Автор и лицензия
+- Skills are invoked as `$paraplane:rules`, `$paraplane:create <task>`, `$paraplane:check [path]`.
+- The plugin's `bin/` is not on PATH of the Codex shell tool: hook texts name the CLI by the absolute path
+  `<plugin dir>/bin/paraplane`, and the skills take the command from there. The Codex hooks are
+  `hooks/codex.json`, calling `paraplane hook <event> --agent codex`.
+- Codex does not load plugin agents: the skills perform the audit themselves from the text of `agents/conflict-auditor.md`.
+
+| What | Claude Code | Codex |
+|---|---|---|
+| Plan from plan mode | `PreToolUse` `ExitPlanMode`: leaving is forbidden | `Stop`: the plan from the `<proposed_plan>` block in the transcript; E errors — `block`, Codex continues the turn and fixes the plan; a repeated `Stop` of the same turn stays silent |
+| Plan file | `PostToolUse` `Write\|Edit` | `PostToolUse` `^(Bash\|apply_patch)$`: files from the `Bash` command (`printf … > file`) and from patch headers; E1–E7 — `block`; a write through an indirect command can slip past the hook — `Stop` and the skills catch it |
+| Rules before a skill | `PreToolUse` `Skill` | `UserPromptSubmit`: the prompt mentions `$…` with `execut`/`subagent-driven` or `plan` |
+| CLI approval | `PreToolUse` `Bash` | `PermissionRequest` `^Bash$`, only the strict command form and the absolute CLI path |
+| Session context | `SessionStart` | `SessionStart` (with a reference to `$paraplane:rules`) |
+| Agent `conflict-auditor` | started from the skills | not loaded; Claude performs the audit itself from the agent's text |
+
+`mode: warn` and `enabled: false` work the same way. Hook details — [`hooks/README.md`](hooks/README.md).
+
+## Limitations
+
+- Executing plans, starting subagents and worktrees are out of scope: the plugin only defines and checks the rules.
+- A ban on writing outside `owns` during execution is not implemented (the hook does not know which subagent
+  writes): for now there is only the audit after a wave.
+- The audit does not distinguish tasks within a wave: a write of one task into another's file is caught by the gate tests.
+- Hidden conflicts (files not named in the plan) are invisible to the deterministic check — that is what the
+  `conflict-auditor` agent is for; it is started from skills, not from hooks.
+- Hooks do not use an LLM.
+- A user's `/skill` call does not pass through `PreToolUse`; such plans are caught by `ExitPlanMode` and `PostToolUse`.
+- Whether the session stays in plan mode after leaving is denied is not specified in the Claude Code
+  documentation; the behavior is verified manually.
+
+## Troubleshooting
+
+- `/hooks` should list the plugin hooks: `SessionStart`, `PreToolUse`, `PostToolUse` (in Codex — `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `Stop`, `PermissionRequest`, and they must be trusted).
+- `paraplane check <plan>` shows config warnings (`warning: config: …`) and plan violations.
+- Hook errors go to stderr: run `claude --debug`.
+
+## Development
+
+```sh
+make test                                    # tests
+make dist                                    # binaries for 6 platforms
+claude --plugin-dir /path/to/paraplane       # run Claude Code with the local version
+```
+
+A release is a tag `vX.Y.Z` on a commit from `main`: the workflow builds the binaries and updates the `release`
+branch the plugin is installed from. Specification —
+[`docs/superpowers/specs/2026-10-20-paraplane-design.md`](docs/superpowers/specs/2026-10-20-paraplane-design.md) (in Russian).
+
+## Author and license
 
 Elia Samoylov. [MIT](LICENSE)

@@ -1,18 +1,20 @@
 ---
 name: create
-description: This skill should be used when the user runs /paraplane:create to build a new implementation plan that is ready for parallel subagents.
+description: This skill should be used when the user runs /paraplane:create (or $paraplane:create in Codex) to build a new implementation plan that is ready for parallel subagents.
 argument-hint: "<task description or path to a spec>"
 disable-model-invocation: true
 allowed-tools: Bash(paraplane check *)
 ---
-# /paraplane:create
+# /paraplane:create (Codex: $paraplane:create)
+
+In Codex, `paraplane` is not on PATH: run the commands below by the absolute path the hook text gives (`<plugin dir>/bin/paraplane`).
 
 Build a new implementation plan for: $ARGUMENTS
 
 If the argument is empty, ask the user what the plan is for and stop until they answer. If it is a path to a
 spec, read that file first.
 
-1. Invoke the `paraplane:rules` skill and follow it for the whole run: block format, validation rules E0-E7 and
+1. Invoke the `paraplane:rules` skill (Codex: `$paraplane:rules`) and follow it for the whole run: block format, validation rules E0-E7 and
    W1-W5, how to split work into tasks and waves, hot files.
 2. Ask the user about anything unclear: scope, non-goals, constraints, the gate command (tests/lint) of the
    project. Ask once, in one message, and do not start planning before the answers.
@@ -25,7 +27,8 @@ spec, read that file first.
    an independent stage goes into the earliest wave it can run in. Quote glob patterns in YAML.
 5. When a wave has two or more tasks, dispatch the `paraplane:conflict-auditor` agent with the draft plan
    (path or full text) and the project root. Wait for its report (a list of findings and a verdict
-   `clean` / `conflicts`).
+   `clean` / `conflicts`). In Codex plugin agents are not loaded: read `agents/conflict-auditor.md` in the
+   plugin directory and perform the audit yourself, read-only, with exactly that output format.
 6. Fix the plan yourself for every finding (narrow `owns`, add `depends`, move a task to another wave, merge
    tasks). Keep the block and the prose in sync: a task renamed or moved in the block is renamed or moved in
    the text.

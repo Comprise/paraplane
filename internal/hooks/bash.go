@@ -17,7 +17,7 @@ var bashOwnCLI = regexp.MustCompile(`^paraplane (version|check( --suggest)? [A-Z
 // bash auto-approves the plugin's own read-only CLI calls; anything else keeps
 // the normal permission flow.
 func bash(env Env, in Input) ([]byte, error) {
-	if !env.Config.Enabled || !bashAllowed(bashCommand(in)) || bashShadowed() {
+	if !env.Config.Enabled || !bashApprovable(env, in) {
 		return nil, nil
 	}
 	return encodeJSON(hookOutput{Hook: &hookSpecific{
@@ -25,6 +25,25 @@ func bash(env Env, in Input) ([]byte, error) {
 		PermissionDecision:       "allow",
 		PermissionDecisionReason: "paraplane CLI",
 	}})
+}
+
+// bashApprovable reports whether the tool call is a Bash run of the plugin's
+// own CLI that the hook may approve. Codex runs it by absolute path (its shell
+// has no plugin bin/ on PATH); that path points at the plugin's binary itself,
+// so PATH shadowing does not matter for it.
+func bashApprovable(env Env, in Input) bool {
+	if in.ToolName != "Bash" {
+		return false
+	}
+	cmd := bashCommand(in)
+	if env.Agent == Codex {
+		if abs := Codex.CLI(); abs != "paraplane" {
+			if rest, ok := strings.CutPrefix(cmd, abs+" "); ok {
+				return bashAllowed("paraplane " + rest)
+			}
+		}
+	}
+	return bashAllowed(cmd) && !bashShadowed()
 }
 
 // bashCommand is tool_input.command, or "" when it is not a string.
