@@ -80,7 +80,7 @@ var refuseCases = []struct {
 	{"includeIf", func(t *testing.T, dir string) {
 		evil := filepath.Join(t.TempDir(), "evil.cfg")
 		write(t, evil, "[filter \"x\"]\n\tclean = touch PWNED\n")
-		git(t, dir, "config", "includeIf.gitdir:"+filepath.ToSlash(dir)+"/.path", evil)
+		git(t, dir, "config", "includeIf.gitdir:"+realDir(t, dir)+"/.path", evil)
 	}},
 	// With extensions.worktreeConfig the worktree query no longer reads the
 	// local config, so the local query alone must follow includes.
@@ -94,7 +94,7 @@ var refuseCases = []struct {
 		evil := filepath.Join(t.TempDir(), "evil.cfg")
 		write(t, evil, "[filter \"x\"]\n\tclean = touch PWNED\n")
 		git(t, dir, "config", "extensions.worktreeConfig", "true")
-		git(t, dir, "config", "includeIf.gitdir:"+filepath.ToSlash(dir)+"/.path", evil)
+		git(t, dir, "config", "includeIf.gitdir:"+realDir(t, dir)+"/.path", evil)
 	}},
 	{"worktree", func(t *testing.T, dir string) {
 		needGit(t, 2, 20, "git config --worktree")
@@ -749,4 +749,15 @@ func TestWaveCommitsNeedsGit222(t *testing.T) {
 			}
 		})
 	}
+}
+
+// realDir is dir with symlinks resolved, as git matches includeIf gitdir:
+// against the real path (macOS t.TempDir is under the /var symlink).
+func realDir(t *testing.T, dir string) string {
+	t.Helper()
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.ToSlash(real)
 }
