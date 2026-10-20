@@ -13,8 +13,10 @@ const (
 	lineWidth  = 72
 	barWidth   = 40
 	maxSquares = 12
-	maxIDRunes = 32
-	maxTaskID  = 40
+	// Caps on ids before the "…" suffix is added (textx.Line does not count
+	// the suffix in its max).
+	idRunesBeforeEllipsis     = 32
+	taskIDRunesBeforeEllipsis = 40
 )
 
 type state int
@@ -54,6 +56,16 @@ func midCut(s string, n int) string {
 	return string(r[:head]) + "…" + string(r[len(r)-tail:])
 }
 
+// capLine keeps a one-line s within lineWidth columns, ending in "…" when it
+// cuts.
+func capLine(s string) string {
+	for width(s) > lineWidth {
+		r := []rune(strings.TrimSuffix(s, "…"))
+		s = string(r[:len(r)-1]) + "…"
+	}
+	return s
+}
+
 func pad(s string, n int) string {
 	if w := width(s); w < n {
 		return s + strings.Repeat(" ", n-w)
@@ -83,9 +95,9 @@ func Render(p *plan.Plan, name string, done []string) string {
 	total, ndone, cur := 0, 0, -1
 	var warns []string
 	for i, w := range p.Waves {
-		r := row{id: textx.Line(w.ID, maxIDRunes)}
+		r := row{id: textx.Line(w.ID, idRunesBeforeEllipsis)}
 		for _, t := range w.Tasks {
-			r.tasks = append(r.tasks, textx.Line(t.ID, maxTaskID))
+			r.tasks = append(r.tasks, textx.Line(t.ID, taskIDRunesBeforeEllipsis))
 		}
 		total += len(w.Tasks)
 		switch {
@@ -98,8 +110,8 @@ func Render(p *plan.Plan, name string, done []string) string {
 		default:
 			r.st = stWaiting
 			if doneSet[w.ID] {
-				warns = append(warns, fmt.Sprintf("warning: wave %s was committed before %s",
-					textx.Line(w.ID, maxIDRunes), textx.Line(p.Waves[cur].ID, maxIDRunes)))
+				warns = append(warns, capLine(fmt.Sprintf("warning: wave %s was committed before %s",
+					textx.Line(w.ID, idRunesBeforeEllipsis), textx.Line(p.Waves[cur].ID, idRunesBeforeEllipsis))))
 			}
 		}
 		rows = append(rows, r)
@@ -108,7 +120,7 @@ func Render(p *plan.Plan, name string, done []string) string {
 	for _, id := range done {
 		if !known[id] && !seen[id] {
 			seen[id] = true
-			warns = append(warns, "warning: commit for unknown wave "+textx.Line(id, 32))
+			warns = append(warns, capLine("warning: commit for unknown wave "+textx.Line(id, idRunesBeforeEllipsis)))
 		}
 	}
 

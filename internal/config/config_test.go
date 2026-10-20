@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"paraplane/internal/fsx"
+	"paraplane/internal/pathset"
 )
 
 func write(t *testing.T, root, body string) {
@@ -161,6 +162,15 @@ func TestLoadInvalidValues(t *testing.T) {
 	for name, body := range map[string]string{
 		"gate newline": "default_gate: \"a\\nb\"\n",
 		"plans_dir ..": "plans_dir: ..\n",
+		"gate NUL":     "default_gate: \"a\\0b\"\n",
+		"gate tab":     "default_gate: \"a\\tb\"\n",
+		"gate ESC":     "default_gate: \"a\\eb\"\n",
+		"gate DEL":     "default_gate: \"a\\x7fb\"\n",
+		"gate U+2028":  "default_gate: \"a\\u2028b\"\n",
+		"gate U+2029":  "default_gate: \"a\\u2029b\"\n",
+		"gate U+202E":  "default_gate: \"a\u202eb\"\n",
+		"gate U+200B":  "default_gate: \"a\u200bb\"\n",
+		"gate U+FEFF":  "default_gate: \"a\ufeffb\"\n",
 	} {
 		root := t.TempDir()
 		write(t, root, body)
@@ -168,6 +178,48 @@ func TestLoadInvalidValues(t *testing.T) {
 		var pr Problems
 		if !errors.As(err, &pr) || len(pr) != 1 || !reflect.DeepEqual(cfg, Default()) {
 			t.Errorf("%s: got %+v, %v", name, cfg, err)
+		}
+	}
+}
+
+// TestLoadPlansDirGlobChars checks the plans_dir glob-character rule by its
+// message. Values marked valid are path patterns pathset.Clean accepts, so
+// only that rule rejects them; a lone '{' or '}' is also an invalid glob, and
+// the message shows the glob rule still answers first.
+func TestLoadPlansDirGlobChars(t *testing.T) {
+	for _, tc := range []struct {
+		v     string
+		valid bool
+	}{
+		{"}", false}, {"a}b", false}, {"{", false}, {"a{b", false},
+		{"{a,b}", true}, {"a{b}", true}, {"]", true}, {"a]b", true}, {"[ab]", true},
+		{"*", true}, {"a/*", true}, {"?", true}, {"a?", true},
+	} {
+		if _, err := pathset.Clean(tc.v); (err == nil) != tc.valid {
+			t.Fatalf("%q: pathset.Clean error %v, want valid=%v", tc.v, err, tc.valid)
+		}
+		root := t.TempDir()
+		write(t, root, "plans_dir: '"+tc.v+"'\n")
+		cfg, err := Load(root)
+		var pr Problems
+		if !errors.As(err, &pr) || len(pr) != 1 || !strings.Contains(pr[0], "glob characters") || !reflect.DeepEqual(cfg, Default()) {
+			t.Errorf("%q: got %+v, %v", tc.v, cfg, err)
+		}
+	}
+}
+
+func TestLoadGateMessages(t *testing.T) {
+	for body, want := range map[string]string{
+		"default_gate: \"a\\tb\"\n":                                   "control",
+		"default_gate: \"a\\u202eb\"\n":                               "format characters",
+		"default_gate: '" + strings.Repeat("x", maxGateLen+1) + "'\n": "up to",
+	} {
+		root := t.TempDir()
+		write(t, root, body)
+		_, err := Load(root)
+		var pr Problems
+		if !errors.As(err, &pr) || len(pr) != 1 || !strings.Contains(pr[0], want) {
+			t.Errorf("%q: got %v, want %q", body, err, want)
 		}
 	}
 }

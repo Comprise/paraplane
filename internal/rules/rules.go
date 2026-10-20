@@ -89,6 +89,8 @@ type checker struct {
 	// waveWhere and waveName are the Where and the message name of each
 	// wave: its id, or "" and its number when the id is missing or invalid.
 	waveWhere, waveName []string
+	// taskWhere and taskName are the same for every task, by wave and position.
+	taskWhere, taskName [][]string
 }
 
 // key orders findings of one code: plan-level first (-1, -1), then by wave,
@@ -146,7 +148,7 @@ func (c *checker) run() Result {
 		c.conflicts(cs)
 		if c.count(Error) == 0 {
 			if l := layout.SuggestWith(c.p, cs); len(l) < len(c.p.Waves) {
-				c.add("W3", "", planKey, "the layout can be shorter: %s instead of %d; run `paraplane check --suggest` on the plan file", waveCount(len(l)), len(c.p.Waves))
+				c.add("W3", "", planKey, "the layout can be shorter: %s instead of %d (`paraplane check --suggest` prints it)", waveCount(len(l)), len(c.p.Waves))
 				suggested = l
 			}
 		}
@@ -217,6 +219,8 @@ func (c *checker) checkID(kind, id string, k key) bool {
 func (c *checker) structure() {
 	c.waveWhere = make([]string, len(c.p.Waves))
 	c.waveName = make([]string, len(c.p.Waves))
+	c.taskWhere = make([][]string, len(c.p.Waves))
+	c.taskName = make([][]string, len(c.p.Waves))
 	if len(c.p.Waves) == 0 {
 		c.add("E1", "", planKey, "the plan has no waves")
 		return
@@ -234,23 +238,25 @@ func (c *checker) structure() {
 			wname = fmt.Sprint(i + 1)
 		}
 		c.waveName[i] = wname
+		c.taskWhere[i] = make([]string, len(w.Tasks))
+		c.taskName[i] = make([]string, len(w.Tasks))
 		if len(w.Tasks) == 0 {
 			c.add("E1", where, wk, "wave %s has no tasks", wname)
 		}
 		for j := range w.Tasks {
 			t := &w.Tasks[j]
 			tk := key{i, j}
-			tw := where // where the findings of t go
+			// tw is where the findings of t go and name is how messages call
+			// it: its id when the id is usable, else, like a wave, its
+			// position ("2 of wave W1").
+			tw, name := where, fmt.Sprintf("%d of wave %s", j+1, wname)
 			if t.ID == "" {
-				c.add("E1", where, tk, "task %d of wave %s has no id", j+1, wname)
+				c.add("E1", where, tk, "task %s has no id", name)
 			} else if c.checkID("task", t.ID, tk) {
 				c.wave[t.ID], c.pos[t.ID] = i, j
-				tw = t.ID
+				tw, name = t.ID, t.ID
 			}
-			name := t.ID
-			if name == "" {
-				name = fmt.Sprintf("%d of wave %s", j+1, wname)
-			}
+			c.taskWhere[i][j], c.taskName[i][j] = tw, name
 			if t.ID != "" && strings.TrimSpace(t.Title) == "" {
 				c.add("E1", tw, tk, "task %s has no title", name)
 			}
@@ -271,19 +277,16 @@ func (c *checker) structure() {
 func (c *checker) depends() {
 	for i, w := range c.p.Waves {
 		for j, t := range w.Tasks {
-			if t.ID == "" {
-				continue
-			}
-			tk := key{i, j}
+			tk, where, name := key{i, j}, c.taskWhere[i][j], c.taskName[i][j]
 			for _, d := range t.Depends {
 				wi, ok := c.wave[d]
 				switch {
 				case !ok:
-					c.add("E1", t.ID, tk, "%s depends on unknown task %s", t.ID, d)
+					c.add("E1", where, tk, "task %s depends on unknown task %s", name, d)
 				case wi == i:
-					c.add("E3", t.ID, tk, "%s depends on %s of the same wave %s", t.ID, d, w.ID)
+					c.add("E3", where, tk, "task %s depends on %s of the same wave %s", name, d, c.waveName[i])
 				case wi > i:
-					c.add("E3", t.ID, tk, "%s depends on %s of the later wave %s", t.ID, d, c.p.Waves[wi].ID)
+					c.add("E3", where, tk, "task %s depends on %s of the later wave %s", name, d, c.waveName[wi])
 				}
 			}
 		}
@@ -311,10 +314,7 @@ func (c *checker) gates() {
 func (c *checker) tasks() {
 	for i, w := range c.p.Waves {
 		for j, t := range w.Tasks {
-			name, where, tk := t.ID, t.ID, key{i, j}
-			if name == "" {
-				name, where = fmt.Sprintf("%d of wave %s", j+1, c.waveName[i]), c.waveWhere[i]
-			}
+			name, where, tk := c.taskName[i][j], c.taskWhere[i][j], key{i, j}
 			if strings.TrimSpace(t.Verify) == "" {
 				c.add("W1", where, tk, "task %s has no verify", name)
 			}

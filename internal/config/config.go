@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode"
 
 	"paraplane/internal/fsx"
 	"paraplane/internal/pathset"
@@ -144,14 +145,20 @@ func apply(cfg *Config, key string, n *yaml.Node) error {
 		cfg.MaxParallel = v
 	case "default_gate":
 		var v string
-		if err := n.Decode(&v); err != nil || len(v) > maxGateLen || strings.ContainsAny(v, "\r\n") {
+		if err := n.Decode(&v); err != nil || len(v) > maxGateLen {
 			return fmt.Errorf("must be a single-line string up to %d bytes", maxGateLen)
+		}
+		if hasControl(v) {
+			return errors.New("must not contain control, line separator or invisible format characters")
 		}
 		cfg.DefaultGate = v
 	case "plans_dir":
 		var v string
 		if err := n.Decode(&v); err != nil {
 			return errors.New("must be a string")
+		}
+		if strings.ContainsAny(v, "*?[]{}") {
+			return errors.New("must not contain glob characters")
 		}
 		c, err := pathset.Clean(v)
 		if err != nil {
@@ -166,6 +173,16 @@ func apply(cfg *Config, key string, n *yaml.Node) error {
 		return applyList(&cfg.AuditIgnore, n)
 	}
 	return nil
+}
+
+// hasControl reports any control character (including NUL, tab, DEL), the
+// Unicode line/paragraph separators U+2028 and U+2029, or a format character
+// (category Cf: bidi overrides, zero-width spaces, BOM) that would hide or
+// reorder what the gate command shows.
+func hasControl(s string) bool {
+	return strings.IndexFunc(s, func(r rune) bool {
+		return unicode.IsControl(r) || r == '\u2028' || r == '\u2029' || unicode.Is(unicode.Cf, r)
+	}) >= 0
 }
 
 // applyList sets dst to the cleaned patterns, or leaves it untouched when any

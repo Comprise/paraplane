@@ -344,3 +344,97 @@ func TestParseLimitBeforeVersion(t *testing.T) {
 		t.Errorf("err = %#v, want *LimitError", err)
 	}
 }
+
+func TestExtractDeindentsIndentedFence(t *testing.T) {
+	md := "intro\n  ```paraplane\n  waves: []\n    x: 1\n bad: 2\n\n  ```\nend\n"
+	b, err := Extract([]byte(md))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "waves: []\n  x: 1\nbad: 2\n\n"; string(b.Body) != want {
+		t.Errorf("Body = %q, want %q", b.Body, want)
+	}
+	if got := md[b.Start:b.End]; got != "  ```paraplane\n  waves: []\n    x: 1\n bad: 2\n\n  ```" {
+		t.Errorf("offsets index %q", got)
+	}
+}
+
+func TestExtractDeindentsTabs(t *testing.T) {
+	// CommonMark tab stops are every 4 columns from the start of the line; a
+	// tab straddling the fence's indent leaves the columns past it as spaces.
+	for _, tc := range []struct{ ind, body, want string }{
+		{"  ", "\tx\n", "  x\n"},
+		{" ", "\tx\n", "   x\n"},
+		{"   ", "\tx\n", " x\n"},
+		{"  ", " \tx\n", "  x\n"},
+		{"  ", "  \tx\n", "\tx\n"},
+		{"   ", "\t\tx\n", " \tx\n"},
+		{"  ", "\t\n", "  \n"},
+		{"  ", "x\t\n", "x\t\n"},
+	} {
+		md := tc.ind + "```paraplane\n" + tc.body + tc.ind + "```\n"
+		b, err := Extract([]byte(md))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(b.Body) != tc.want {
+			t.Errorf("indent %d, body %q: Body = %q, want %q", len(tc.ind), tc.body, b.Body, tc.want)
+		}
+		if got := md[b.Start:b.End]; got != strings.TrimSuffix(md, "\n") {
+			t.Errorf("indent %d, body %q: offsets index %q", len(tc.ind), tc.body, got)
+		}
+	}
+}
+
+func TestParseTabDeindentKeepsLines(t *testing.T) {
+	// The body keeps its line count, so a YAML error points at the same line
+	// as for the same plan indented with spaces.
+	parse := func(md string) error {
+		b, err := Extract([]byte(md))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = Parse(b.Body)
+		return err
+	}
+	md := "  ```paraplane\n  waves:\n\t- id: W1\n\t  a: b: c\n  ```\n"
+	errTab, errRef := parse(md), parse(strings.ReplaceAll(md, "\t", "    "))
+	if errTab == nil || errRef == nil || errTab.Error() != errRef.Error() || !strings.Contains(errTab.Error(), "line 3") {
+		t.Errorf("tab: %v; spaces: %v", errTab, errRef)
+	}
+}
+
+func TestExtractDeindentsCRLF(t *testing.T) {
+	md := " ```paraplane\r\n a: 1\r\n ```\r\n"
+	b, err := Extract([]byte(md))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "a: 1\r\n"; string(b.Body) != want {
+		t.Errorf("Body = %q, want %q", b.Body, want)
+	}
+}
+
+func TestExtractClosingFenceRules(t *testing.T) {
+	// indented >= 4 does not close; shorter does not close
+	for _, closer := range []string{"    ```", "``"} {
+		md := "```paraplane\na: 1\n" + closer + "\nb: 2\n"
+		b, err := Extract([]byte(md))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := "a: 1\n" + closer + "\nb: 2\n"; string(b.Body) != want {
+			t.Errorf("closer %q: Body = %q, want %q", closer, b.Body, want)
+		}
+		if b.End != len(md) {
+			t.Errorf("closer %q: End = %d, want %d", closer, b.End, len(md))
+		}
+	}
+}
+
+func TestExtractManyWithUnclosed(t *testing.T) {
+	md := "```paraplane\na: 1\n```\n\n```paraplane\nb: 2\n"
+	if _, err := Extract([]byte(md)); !errors.Is(err, ErrManyBlocks) {
+		t.Errorf("err = %v, want ErrManyBlocks", err)
+	}
+}

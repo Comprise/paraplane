@@ -427,7 +427,7 @@ waves:
       - {id: T3, title: c, owns: [c], depends: [T1], verify: v}
 `), opts())
 	f := one(t, r, "W3", "", Warning, "2", "3")
-	const w3 = "the layout can be shorter: 2 waves instead of 3; run `paraplane check --suggest` on the plan file"
+	const w3 = "the layout can be shorter: 2 waves instead of 3 (`paraplane check --suggest` prints it)"
 	if f.Msg != w3 {
 		t.Errorf("W3 msg = %q, want %q", f.Msg, w3)
 	}
@@ -447,7 +447,7 @@ waves:
       - {id: T2, title: b, owns: [b], verify: v}
 `), opts())
 	f = one(t, r, "W3", "", Warning)
-	const w3one = "the layout can be shorter: 1 wave instead of 2; run `paraplane check --suggest` on the plan file"
+	const w3one = "the layout can be shorter: 1 wave instead of 2 (`paraplane check --suggest` prints it)"
 	if f.Msg != w3one {
 		t.Errorf("W3 msg = %q, want %q", f.Msg, w3one)
 	}
@@ -741,5 +741,99 @@ func TestInvalidWaveIDWhere(t *testing.T) {
 func TestAuditNilPlan(t *testing.T) {
 	if _, err := Audit(nil, "W1", []string{"a"}, "plan.md", nil); err == nil {
 		t.Error("Audit(nil) returned no error")
+	}
+}
+
+// TestE3WaveAndTaskNames: E3 uses the Where and name rules of waves and
+// tasks, not the raw ids.
+func TestE3WaveAndTaskNames(t *testing.T) {
+	r := Check(md(`gate: x
+waves:
+  - id: 1W
+    tasks:
+      - {id: T1, title: a, owns: [a], depends: [T2], verify: v}
+      - {id: T2, title: b, owns: [b], verify: v}
+  - id: W2
+    tasks:
+      - {id: T3, title: c, owns: [c], verify: v}
+`), opts())
+	f := one(t, r, "E3", "T1", Error, "T1", "T2")
+	if !strings.Contains(f.Msg, "wave 1") || strings.Contains(f.Msg, "1W") {
+		t.Errorf("msg %q must name the wave by number", f.Msg)
+	}
+
+	// A task without an id: Where is the wave, the name is its position.
+	r = Check(md(`gate: x
+waves:
+  - id: W1
+    tasks:
+      - {id: T1, title: a, owns: [a], verify: v}
+      - {title: b, owns: [b], depends: [T1], verify: v}
+`), opts())
+	f = one(t, r, "E3", "W1", Error, "2 of wave W1", "T1")
+
+	// A duplicate task id: Where is the wave, not the repeated id.
+	r = Check(md(`gate: x
+waves:
+  - id: W1
+    tasks:
+      - {id: T1, title: a, owns: [a], verify: v}
+      - {id: T1, title: b, owns: [b], depends: [T1], verify: v}
+`), opts())
+	one(t, r, "E3", "W1", Error, "T1")
+}
+
+// TestInvalidTaskIDNamedByPosition: like a wave, a task whose id cannot be
+// used is named by its position in every finding but the one about the id.
+func TestInvalidTaskIDNamedByPosition(t *testing.T) {
+	r := Check(md(`gate: x
+waves:
+  - id: W1
+    tasks:
+      - {id: T1, title: a, owns: [a], verify: v}
+      - {id: 2T, owns: ['/abs'], depends: [Nope]}
+`), opts())
+	for _, code := range []string{"E1", "W1", "W4"} {
+		for _, f := range only(r, code) {
+			if strings.Contains(f.Msg, "invalid task id") {
+				continue
+			}
+			if !strings.Contains(f.Msg, "task 2 of wave W1") || strings.Contains(f.Msg, "2T") || f.Where != "W1" {
+				t.Errorf("%s at %q: msg %q must name the task by position", code, f.Where, f.Msg)
+			}
+		}
+	}
+	var msgs []string
+	for _, f := range only(r, "E1") {
+		msgs = append(msgs, f.Msg)
+	}
+	for _, want := range []string{"invalid task id \"2T\"", "task 2 of wave W1 has no title", "task 2 of wave W1: invalid owns path", "task 2 of wave W1 depends on unknown task Nope"} {
+		if !strings.Contains(strings.Join(msgs, "\n"), want) {
+			t.Errorf("no E1 %q in %q", want, msgs)
+		}
+	}
+}
+
+// TestE1UnknownDependsOfIDLessTask: the depends of a task without an id are
+// still checked, and the finding names the task by position.
+func TestE1UnknownDependsOfIDLessTask(t *testing.T) {
+	r := Check(md(`gate: x
+waves:
+  - id: W1
+    tasks:
+      - {id: T1, title: a, owns: [a], verify: v}
+      - {title: b, owns: [b], depends: [Nope], verify: v}
+`), opts())
+	var hit bool
+	for _, f := range only(r, "E1") {
+		if strings.Contains(f.Msg, "unknown task") {
+			hit = true
+			if f.Where != "W1" || f.Msg != "task 2 of wave W1 depends on unknown task Nope" {
+				t.Errorf("where %q msg %q", f.Where, f.Msg)
+			}
+		}
+	}
+	if !hit {
+		t.Errorf("no unknown-task E1 in %v", r.Findings)
 	}
 }

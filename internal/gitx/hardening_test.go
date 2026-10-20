@@ -1,7 +1,9 @@
 package gitx
 
 import (
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -79,12 +81,16 @@ func signedRepo(t *testing.T, begin, end string) string {
 // names the verification program of each signature format.
 func TestWaveCommitsNoSignatureProgram(t *testing.T) {
 	skipWindows(t)
+	needGit(t, 2, 22, "%(trailers:key=)")
 	for _, tc := range []struct{ name, format, key, begin, end string }{
 		{"openpgp", "openpgp", "gpg.program", "-----BEGIN PGP SIGNATURE-----", "-----END PGP SIGNATURE-----"},
 		{"ssh", "ssh", "gpg.ssh.program", "-----BEGIN SSH SIGNATURE-----", "-----END SSH SIGNATURE-----"},
 		{"x509", "x509", "gpg.x509.program", "-----BEGIN SIGNED MESSAGE-----", "-----END SIGNED MESSAGE-----"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.format == "ssh" {
+				needGit(t, 2, 34, "gpg.format=ssh")
+			}
 			dir := signedRepo(t, tc.begin, tc.end)
 			prog, marker := markerProgram(t, t.TempDir(), "verify.sh")
 			signers := filepath.Join(t.TempDir(), "allowed_signers") // ssh verifies only with one
@@ -116,6 +122,7 @@ func TestWaveCommitsNoSignatureProgram(t *testing.T) {
 // program override is "false", found on PATH, here a script with a marker.
 func TestRunDisablesShowSignature(t *testing.T) {
 	skipWindows(t)
+	needGit(t, 2, 22, "%(trailers:key=)")
 	dir := signedRepo(t, "-----BEGIN PGP SIGNATURE-----", "-----END PGP SIGNATURE-----")
 	bin := t.TempDir()
 	_, marker := markerProgram(t, bin, "false")
@@ -238,6 +245,61 @@ func TestChangedNoLazyFetch(t *testing.T) {
 	}
 
 	racy(t, dir, "a.txt")
-	Changed(dir) // may fail closed; it must not run the transport
+	_, err := Changed(dir) // may fail closed; it must not run the transport
 	assertNoMarker(t, marker, "Changed (lazy fetch)")
+	// A git that may ignore GIT_NO_LAZY_FETCH must not get to git status.
+	if v, ok, _ := version(dir); !lazyFetchSafe(v, ok) && !errors.Is(err, ErrPartialClone) {
+		t.Fatalf("git %v: err = %v, want ErrPartialClone", v, err)
+	}
+}
+
+// TestChangedNoFsmonitor: a repo-configured core.fsmonitor names a program
+// that git status runs to ask for changed files.
+func TestChangedNoFsmonitor(t *testing.T) {
+	skipWindows(t)
+	dir := initRepo(t)
+	write(t, filepath.Join(dir, "a.txt"), "a\n")
+	commitAll(t, dir, "init")
+	prog, marker := markerProgram(t, t.TempDir(), "fsmonitor.sh")
+	git(t, dir, "config", "core.fsmonitor", prog)
+	write(t, filepath.Join(dir, "a.txt"), "changed\n")
+
+	got, err := Changed(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, []string{"a.txt"}) {
+		t.Fatalf("got %v", got)
+	}
+	assertNoMarker(t, marker, "Changed")
+
+	gitRun(dir, []string{"GIT_OPTIONAL_LOCKS=0"}, statusArgs...)
+	control(t, marker, "the git status of Changed without core.fsmonitor=false")
+}
+
+// TestChangedNoSystemConfig: run itself sets GIT_CONFIG_NOSYSTEM=1, so a
+// filter driver in the system config is neither trusted nor read, whatever
+// the environment of paraplane. Read, it would show up in the system scope
+// and refuse.
+func TestChangedNoSystemConfig(t *testing.T) {
+	dir := filterRepo(t)
+	sys := filepath.Join(t.TempDir(), "gitconfig")
+	write(t, sys, "[filter \"x\"]\n\tclean = touch PWNED\n")
+	t.Setenv("GIT_CONFIG_SYSTEM", sys) // git 2.32+
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "")
+	os.Unsetenv("GIT_CONFIG_NOSYSTEM") // TestMain sets it; t.Setenv restores it
+
+	cmd := exec.Command("git", "-C", dir, "config", "--system", "--get", "filter.x.clean")
+	if out, err := cmd.Output(); err != nil || len(out) == 0 {
+		t.Skipf("control: git does not read GIT_CONFIG_SYSTEM here (%v), the test proves nothing", err)
+	}
+	write(t, filepath.Join(dir, "a.txt"), "changed\n")
+	got, err := Changed(dir)
+	if err != nil {
+		t.Fatalf("Changed read the system config: %v", err)
+	}
+	if !reflect.DeepEqual(got, []string{"a.txt"}) {
+		t.Fatalf("got %v", got)
+	}
+	assertNoMarker(t, filepath.Join(dir, "PWNED"), "Changed")
 }

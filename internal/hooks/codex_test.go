@@ -825,7 +825,7 @@ func TestCodexTextsUseCLIPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(out), "run `"+safeRoot+"/bin/paraplane check --suggest` on the plan file") ||
+	if !strings.Contains(string(out), "(`"+safeRoot+"/bin/paraplane check --suggest` prints it)") ||
 		strings.Contains(string(out), "`paraplane ") {
 		t.Errorf("post W3: %s", out)
 	}

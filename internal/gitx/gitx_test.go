@@ -30,6 +30,12 @@ func TestMain(m *testing.M) {
 	os.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, ".gitconfig"))
 	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	os.Setenv("GIT_CEILING_DIRECTORIES", os.TempDir())
+	if v, ok, err := version(os.TempDir()); err != nil || !ok {
+		fmt.Fprintln(os.Stderr, "git version:", err)
+		os.Exit(1)
+	} else {
+		realVersion = v
+	}
 	code := m.Run()
 	os.RemoveAll(home)
 	os.Exit(code)
@@ -76,6 +82,19 @@ func gitRun(dir string, extra []string, args ...string) {
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	cmd.Env = testEnv(extra...)
 	cmd.Run()
+}
+
+// realVersion is the version of the git on PATH when the tests start, before
+// any test puts a fake git first.
+var realVersion gitVersion
+
+// needGit skips the test when the real git is older than major.minor, which
+// lacks feature.
+func needGit(t *testing.T, major, minor int, feature string) {
+	t.Helper()
+	if v := realVersion; !v.atLeast(major, minor, 0) {
+		t.Skipf("git %d.%d.%d has no %s (needs %d.%d)", v[0], v[1], v[2], feature, major, minor)
+	}
 }
 
 func write(t *testing.T, path, content string) {
@@ -176,6 +195,7 @@ func TestChangedNotRepo(t *testing.T) {
 }
 
 func TestWaveCommits(t *testing.T) {
+	needGit(t, 2, 22, "%(trailers:key=)")
 	dir := initRepo(t)
 	got, err := WaveCommits(dir, "plan.md")
 	if err != nil || len(got) != 0 {
@@ -205,6 +225,7 @@ func TestWaveCommits(t *testing.T) {
 }
 
 func TestWaveCommitsNotRepo(t *testing.T) {
+	needGit(t, 2, 22, "%(trailers:key=)")
 	_, err := WaveCommits(t.TempDir(), "plan.md")
 	if err == nil || !strings.Contains(err.Error(), "not a git repository") {
 		t.Fatalf("err = %v, want a not-a-git-repository error", err)
@@ -290,6 +311,7 @@ func TestChangedRefusesIncludedFilter(t *testing.T) {
 }
 
 func TestChangedRefusesWorktreeFilter(t *testing.T) {
+	needGit(t, 2, 20, "git config --worktree")
 	dir := filterRepo(t)
 	git(t, dir, "config", "extensions.worktreeConfig", "true")
 	git(t, dir, "config", "--worktree", "filter.x.clean", "touch PWNED")
@@ -318,4 +340,58 @@ func TestChangedIgnoresGitConfigEnv(t *testing.T) {
 	git(t, dir, "config", "filter.x.clean", "touch PWNED")
 	t.Setenv("GIT_CONFIG", os.DevNull)
 	assertRefused(t, dir)
+}
+
+// TestWaveCommitsTrailers: a plan trailer without a wave trailer is ignored;
+// keys match case-insensitively; when a commit repeats a trailer, its last
+// occurrence wins.
+func TestWaveCommitsTrailers(t *testing.T) {
+	needGit(t, 2, 22, "%(trailers:key=)")
+	dir := initRepo(t)
+	msgs := []string{
+		"no wave\n\nParaplane-Plan: plan.md\n",
+		"wave only\n\nParaplane-Wave: W7\n",
+		"lower case\n\nparaplane-plan: plan.md\nPARAPLANE-WAVE: W1\n",
+		"dup wave\n\nParaplane-Plan: plan.md\nParaplane-Wave: W8\nParaplane-Wave: W2\n",
+		"dup plan, last other\n\nParaplane-Plan: plan.md\nParaplane-Plan: other.md\nParaplane-Wave: W9\n",
+		"dup plan, last ours\n\nParaplane-Plan: other.md\nParaplane-Plan: plan.md\nParaplane-Wave: W3\n",
+	}
+	for i, m := range msgs {
+		write(t, filepath.Join(dir, "f.txt"), strings.Repeat("x", i+1))
+		commitAll(t, dir, m)
+	}
+	got, err := WaveCommits(dir, "plan.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"W1", "W2", "W3"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
+// TestChangedDeletedAndStaged: deletions (staged or not) and changes that are
+// only in the index are reported.
+func TestChangedDeletedAndStaged(t *testing.T) {
+	dir := initRepo(t)
+	for _, f := range []string{"del.go", "rm.go", "staged.go", "keep.go"} {
+		write(t, filepath.Join(dir, f), f+"\n")
+	}
+	commitAll(t, dir, "init")
+	if err := os.Remove(filepath.Join(dir, "del.go")); err != nil { // unstaged deletion
+		t.Fatal(err)
+	}
+	git(t, dir, "rm", "-q", "rm.go") // staged deletion
+	write(t, filepath.Join(dir, "staged.go"), "changed\n")
+	git(t, dir, "add", "staged.go") // staged only: work tree equals index
+	write(t, filepath.Join(dir, "added.go"), "new\n")
+	git(t, dir, "add", "added.go") // new file, staged only
+	got, err := Changed(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"added.go", "del.go", "rm.go", "staged.go"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
 }

@@ -8,6 +8,13 @@ import (
 	"unicode/utf8"
 )
 
+func max0(n int) int {
+	if n < 0 {
+		return 0
+	}
+	return n
+}
+
 // sanitize turns \r, \t and the Unicode line and paragraph separators
 // U+2028 and U+2029 (and \n unless keepNL) into spaces and drops all other
 // control characters and format characters (ANSI escapes, bidi).
@@ -26,8 +33,10 @@ func sanitize(s string, keepNL bool) string {
 }
 
 // Line makes s one clean line of at most max runes and appends "…" when it
-// cuts.
+// cuts. The "…" is not counted in max, so the result can be max+1 runes. A
+// negative max is treated as 0.
 func Line(s string, max int) string {
+	max = max0(max)
 	s = sanitize(s, false)
 	if r := []rune(s); len(r) > max {
 		return string(r[:max]) + "…"
@@ -36,8 +45,10 @@ func Line(s string, max int) string {
 }
 
 // Block cleans s but keeps its newlines, and keeps at most max bytes, cutting
-// on a rune boundary and appending "…" when it cuts.
+// on a rune boundary and appending "…" when it cuts. The "…" is not counted in
+// max. A negative max is treated as 0.
 func Block(s string, max int) string {
+	max = max0(max)
 	s = sanitize(s, true)
 	if len(s) <= max {
 		return s

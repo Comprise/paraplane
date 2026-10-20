@@ -36,7 +36,7 @@ waves:
         verify: "go test ./internal/config/"
       - id: P7
         title: "rules: messages, Where consistency, W3 wording"
-        owns: ["internal/rules/**", internal/hooks/testdata/plan_exit_warnings.golden.json]
+        owns: ["internal/rules/**", internal/hooks/testdata/plan_exit_warnings.golden.json, internal/hooks/codex_test.go]
         verify: "go test ./internal/rules/"
   - id: W2
     tasks:

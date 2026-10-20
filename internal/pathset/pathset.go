@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"slices"
 	"strings"
+	"sync"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -21,6 +24,9 @@ const (
 	// doublestar.Match on more alternatives can take tens of seconds and
 	// cannot be interrupted by a deadline.
 	maxExpansion = 256
+	// maxClassRunes bounds the runes of a class that foldPattern enumerates;
+	// a larger class is widened to `?`.
+	maxClassRunes = 256
 )
 
 // Clean validates a plan path or glob pattern and returns it normalized by
@@ -186,10 +192,171 @@ func Match(pattern, name string) bool {
 	return err == nil && ok
 }
 
+// foldRune returns the smallest rune of the simple case-folding orbit of r,
+// so foldRune(r) == foldRune(s) exactly when r and s are equal under
+// strings.EqualFold. Metacharacters, `/` and `\` fold to themselves.
+func foldRune(r rune) rune {
+	if r < utf8.RuneSelf {
+		// An ASCII orbit holds at most one upper and one lower ASCII letter
+		// (k and s add non-ASCII runes above them): its minimum is the upper.
+		if 'a' <= r && r <= 'z' {
+			return r - ('a' - 'A')
+		}
+		return r
+	}
+	m := r
+	for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+		m = min(m, f)
+	}
+	return m
+}
+
+// foldLiteral maps every rune of s to its foldRune: two strings are equal
+// under strings.EqualFold exactly when their foldLiterals are equal.
+func foldLiteral(s string) string {
+	return strings.Map(foldRune, s)
+}
+
+// foldCache memoizes foldPattern for patterns with a class: folding a class
+// enumerates its runes, and Touches and Compile fold the same hot and owned
+// patterns over and over. It is cleared when full.
+var foldCache struct {
+	sync.Mutex
+	m map[string]string
+}
+
+const foldCacheSize = 4096
+
+// foldPattern rewrites a pattern (passed Clean) so that it matches
+// foldLiteral(x) exactly for the x equal under strings.EqualFold to a string
+// the original matches: literal runes are folded, and a class becomes the
+// class of the folded runes it contains, or `?` when it holds more than
+// maxClassRunes runes (a class never matches `/`, so `?` only widens it).
+func foldPattern(p string) string {
+	if !strings.Contains(p, "[") {
+		return foldLiteral(p)
+	}
+	foldCache.Lock()
+	f, ok := foldCache.m[p]
+	foldCache.Unlock()
+	if ok {
+		return f
+	}
+	f = foldPatternUncached(p)
+	foldCache.Lock()
+	if foldCache.m == nil || len(foldCache.m) >= foldCacheSize {
+		foldCache.m = make(map[string]string)
+	}
+	foldCache.m[p] = f
+	foldCache.Unlock()
+	return f
+}
+
+func foldPatternUncached(p string) string {
+	var b strings.Builder
+	for i := 0; i < len(p); {
+		if p[i] != '[' {
+			r, n := utf8.DecodeRuneInString(p[i:])
+			b.WriteRune(foldRune(r))
+			i += n
+			continue
+		}
+		end, class := foldClass(p, i)
+		b.WriteString(class)
+		i = end + 1
+	}
+	return b.String()
+}
+
+// foldClass parses the class starting at p[start] == '[' and returns the
+// index of its closing ']' and its folded form: `[…]` of the folded runes,
+// escaped and merged into ranges, or `?` for a class of more than
+// maxClassRunes runes. p passed Clean: no negation, no escapes, no empty
+// class. The parse follows doublestar.Match: every rune is a member; a rune
+// followed by `-` and a rune other than `]` also adds the range up to that
+// rune (nothing when inverted: `[z-a]` is {z}, `[ac-a]` is {a, c}); the end
+// of a range is not a member by itself, and `-` before `]` is a member. A
+// malformed class (no closing ']') is copied as is.
+func foldClass(p string, start int) (int, string) {
+	type span struct{ lo, hi rune }
+	var spans []span
+	size := 0
+	i := start + 1
+	last := utf8.MaxRune
+	for i < len(p) && p[i] != ']' {
+		r, n := utf8.DecodeRuneInString(p[i:])
+		i += n
+		if last < utf8.MaxRune && r == '-' && i < len(p) && p[i] != ']' {
+			hi, n := utf8.DecodeRuneInString(p[i:])
+			i += n
+			if last < hi { // spans ends in {last, last}
+				spans[len(spans)-1].hi = hi
+				size += int(hi - last)
+			}
+			last = utf8.MaxRune
+			continue
+		}
+		spans = append(spans, span{r, r})
+		size++
+		last = r
+	}
+	if i >= len(p) {
+		return len(p) - 1, p[start:]
+	}
+	if size > maxClassRunes {
+		return i, "?"
+	}
+	runes := make([]rune, 0, size)
+	for _, s := range spans {
+		for r := s.lo; r <= s.hi; r++ {
+			runes = append(runes, foldRune(r))
+		}
+	}
+	slices.Sort(runes)
+	runes = slices.Compact(runes)
+	var b strings.Builder
+	b.WriteByte('[')
+	for j := 0; j < len(runes); {
+		k := j // runes[j..k] are consecutive
+		for k+1 < len(runes) && runes[k+1] == runes[k]+1 {
+			k++
+		}
+		writeClassRune(&b, runes[j])
+		if k-j >= 2 {
+			b.WriteByte('-')
+			writeClassRune(&b, runes[k])
+			j = k + 1
+		} else {
+			j++
+		}
+	}
+	b.WriteByte(']')
+	return i, b.String()
+}
+
+// writeClassRune writes r as a class member or range end, escaped when
+// doublestar would read it as class syntax.
+func writeClassRune(b *strings.Builder, r rune) {
+	if strings.ContainsRune(`\]-^!`, r) {
+		b.WriteByte('\\')
+	}
+	b.WriteRune(r)
+}
+
+// matchFold reports whether a case variant of name (a string equal to it
+// under strings.EqualFold) may match pattern (passed Clean); it never misses
+// one, and may report true for a class wider than maxClassRunes.
+func matchFold(pattern, name string) bool {
+	return Match(foldPattern(pattern), foldLiteral(name))
+}
+
 // Overlap reports whether patterns a and b (both passed Clean) may describe
-// the same file (spec 4.1). False positives are allowed, misses are not: if
-// a path matches both, Overlap returns true. It is
-// Compile(a).Overlaps(Compile(b)).
+// the same file (spec 4.1), comparing and matching literals case-insensitively.
+// False positives are allowed, misses are not: if a path matching a and a path
+// matching b are equal under strings.EqualFold, Overlap returns true.
+//
+// Overlap is the reference API: it is Compile(a).Overlaps(Compile(b)), which
+// callers checking many pairs use instead, and tests pin both to each other.
 func Overlap(a, b string) bool {
 	return Compile(a).Overlaps(Compile(b))
 }
@@ -197,11 +364,13 @@ func Overlap(a, b string) bool {
 // Compiled is a pattern prepared once for repeated Overlaps checks.
 type Compiled struct {
 	s      string
-	lit    bool // no metacharacters: a literal path
-	span   bool // a segment may match several path segments (rule 2)
+	f      string // foldPattern(s)
+	lit    bool   // no metacharacters: a literal path
+	span   bool   // a segment may match several path segments (rule 2)
 	segs   []string
+	fsegs  []string // foldPattern of each segment
 	meta   []bool   // segment has a metacharacter
-	star   []string // the lit of a `*lit` segment
+	star   []string // foldLiteral of the lit of a `*lit` segment
 	isStar []bool   // segment has the form `*lit`, lit without metacharacters
 	prefix int      // number of leading segments without metacharacters
 }
@@ -214,38 +383,42 @@ func Compile(p string) Compiled {
 		lit:    !HasMeta(p),
 		span:   SpansSegments(p),
 		segs:   segs,
+		fsegs:  make([]string, len(segs)),
 		meta:   make([]bool, len(segs)),
 		star:   make([]string, len(segs)),
 		isStar: make([]bool, len(segs)),
 		prefix: len(segs),
 	}
 	for i, g := range segs {
+		c.fsegs[i] = foldPattern(g)
 		c.meta[i] = HasMeta(g)
 		if c.meta[i] && c.prefix == len(segs) {
 			c.prefix = i
 		}
 		if len(g) > 0 && g[0] == '*' && !HasMeta(g[1:]) {
-			c.star[i], c.isStar[i] = g[1:], true
+			c.star[i], c.isStar[i] = foldLiteral(g[1:]), true
 		}
 	}
+	c.f = strings.Join(c.fsegs, "/") // classes hold no '/', so folding is per segment
 	return c
 }
 
 // Overlaps reports whether a and b may describe the same file (spec 4.1);
-// see Overlap.
+// see Overlap. Literal segments are compared folded (foldLiteral), and
+// patterns are matched against literals through foldPattern.
 func (a Compiled) Overlaps(b Compiled) bool {
 	// Segments before the first metacharacter of either pattern are
 	// literal in both and aligned; a difference there rules out every rule.
 	// A literal path is compared only on its own segments, so `a` vs `a/**`
 	// still reaches Match.
 	for i := range min(a.prefix, b.prefix) {
-		if a.segs[i] != b.segs[i] {
+		if a.fsegs[i] != b.fsegs[i] {
 			return false
 		}
 	}
 	switch {
 	case a.lit && b.lit:
-		return a.s == b.s
+		return a.f == b.f
 	case a.lit:
 		return matchesLiteral(&b, &a)
 	case b.lit:
@@ -259,7 +432,7 @@ func (a Compiled) Overlaps(b Compiled) bool {
 	for i := range a.segs {
 		switch {
 		case !a.meta[i] && !b.meta[i]:
-			if a.segs[i] != b.segs[i] {
+			if a.fsegs[i] != b.fsegs[i] {
 				return false
 			}
 		case a.isStar[i] && b.isStar[i]:
@@ -271,11 +444,11 @@ func (a Compiled) Overlaps(b Compiled) bool {
 	for i := range a.segs {
 		switch {
 		case a.meta[i] && !b.meta[i]:
-			if !Match(a.segs[i], b.segs[i]) {
+			if !Match(a.fsegs[i], b.fsegs[i]) {
 				return false
 			}
 		case !a.meta[i] && b.meta[i]:
-			if !Match(b.segs[i], a.segs[i]) {
+			if !Match(b.fsegs[i], a.fsegs[i]) {
 				return false
 			}
 		}
@@ -283,14 +456,14 @@ func (a Compiled) Overlaps(b Compiled) bool {
 	return true
 }
 
-// matchesLiteral is Match(p, l) for a literal l. Without spanning, every
+// matchesLiteral is matchFold(p, l) for a literal l. Without spanning, every
 // segment of p matches exactly one path segment (Clean), so the segment
 // counts must agree.
 func matchesLiteral(p, l *Compiled) bool {
 	if !p.span && len(p.segs) != len(l.segs) {
 		return false
 	}
-	return Match(p.s, l.s)
+	return Match(p.f, l.f)
 }
 
 // SpansSegments reports whether a segment of p may match several path
@@ -310,13 +483,14 @@ func SpansSegments(p string) bool {
 
 // Touches reports whether a task owning owns touches the hot pattern hot
 // (spec 4.2): some p in owns equals hot, or p is a literal matched by hot, or
-// hot is a literal matched by p.
+// hot is a literal matched by p. Like Overlap, it ignores case: equality is
+// strings.EqualFold and matching goes through matchFold.
 func Touches(owns []string, hot string) bool {
 	hotLit := !HasMeta(hot)
 	for _, p := range owns {
-		if p == hot ||
-			!HasMeta(p) && Match(hot, p) ||
-			hotLit && Match(p, hot) {
+		if strings.EqualFold(p, hot) ||
+			!HasMeta(p) && matchFold(hot, p) ||
+			hotLit && matchFold(p, hot) {
 			return true
 		}
 	}

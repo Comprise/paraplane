@@ -19,6 +19,7 @@ type Block struct {
 // fence is an opening code fence line.
 type fence struct {
 	char byte
+	ind  int    // indentation of the opening fence, 0-3
 	n    int    // fence length
 	info []byte // info string, trimmed
 }
@@ -42,7 +43,7 @@ func openFence(line []byte) (fence, bool) {
 	if c == '`' && bytes.IndexByte(info, '`') >= 0 {
 		return fence{}, false
 	}
-	return fence{char: c, n: n, info: info}, true
+	return fence{char: c, ind: i, n: n, info: info}, true
 }
 
 // closes reports whether line closes the fenced block opened by f.
@@ -126,7 +127,7 @@ func Extract(md []byte) (Block, error) {
 			inside = false
 			if inPlan {
 				inPlan = false
-				blk.Body, blk.End = md[bodyAt:start], lineEnd
+				blk.Body, blk.End = deindent(md[bodyAt:start], open.ind), lineEnd
 			}
 		}
 	}
@@ -134,9 +135,49 @@ func Extract(md []byte) (Block, error) {
 		return Block{}, ErrNoBlock
 	}
 	if inPlan { // unclosed: runs to the end of md
-		blk.Body, blk.End = md[bodyAt:], len(md)
+		blk.Body, blk.End = deindent(md[bodyAt:], open.ind), len(md)
 	}
 	return blk, nil
+}
+
+// deindent removes up to n columns of leading indentation from each line of
+// b, like CommonMark does for the content of a fence indented n (1..3)
+// spaces. Tabs advance to the next multiple of 4 columns; a tab that straddles
+// column n is replaced by the spaces left past n. With n == 0 it returns b
+// itself; otherwise a copy, so Block offsets still index md. The number of
+// lines never changes.
+func deindent(b []byte, n int) []byte {
+	if n == 0 || len(b) == 0 {
+		return b
+	}
+	out := make([]byte, 0, len(b))
+	for len(b) > 0 {
+		line := b
+		if j := bytes.IndexByte(b, '\n'); j >= 0 {
+			line, b = b[:j+1], b[j+1:]
+		} else {
+			b = nil
+		}
+		k, col, pad := 0, 0, 0
+		for col < n && k < len(line) {
+			if line[k] == ' ' {
+				col++
+			} else if line[k] == '\t' {
+				col += 4 - col%4
+			} else {
+				break
+			}
+			k++
+		}
+		if col > n {
+			pad = col - n
+		}
+		for ; pad > 0; pad-- {
+			out = append(out, ' ')
+		}
+		out = append(out, line[k:]...)
+	}
+	return out
 }
 
 // bomLen is the length of a leading UTF-8 byte order mark in md, or 0.

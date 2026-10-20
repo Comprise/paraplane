@@ -85,7 +85,14 @@ func TestRenderUnknownWave(t *testing.T) {
 
 func TestRenderCommittedOutOfOrder(t *testing.T) {
 	got := Render(mk(1, 1, 1), "p.md", []string{"W1", "W3"})
-	for _, w := range []string{"W2  🟨  0/1  ▶ running", "W3  ⬜  0/1  · waiting", "warning: wave W3 was committed before W2\n"} {
+	lines := strings.Split(got, "\n")
+	if !strings.HasPrefix(lines[0], "paraplane · p.md") || !strings.HasSuffix(lines[0], "wave 2/3 · 33%") {
+		t.Fatalf("bad header %q", lines[0])
+	}
+	if lines[1] != strings.Repeat("█", 13)+strings.Repeat("░", 27)+"  1/3 tasks" {
+		t.Fatalf("bad bar %q", lines[1])
+	}
+	for _, w := range []string{"W1  🟩  1/1  ✓ done", "W2  🟨  0/1  ▶ running", "W3  ⬜  0/1  · waiting", "warning: wave W3 was committed before W2\n"} {
 		if !strings.Contains(got, w) {
 			t.Fatalf("missing %q:\n%s", w, got)
 		}
@@ -143,5 +150,48 @@ func TestRenderShrunkIDsStayDistinct(t *testing.T) {
 				t.Fatalf("line %d cols: %q", cols(l), l)
 			}
 		}
+	}
+}
+
+func TestRenderUnknownWaveDedup(t *testing.T) {
+	got := Render(mk(2), "p.md", []string{"W9", "W9", "W9"})
+	if n := strings.Count(got, "commit for unknown wave W9"); n != 1 {
+		t.Fatalf("want 1 warning, got %d:\n%s", n, got)
+	}
+}
+
+func TestRenderSanitisesControls(t *testing.T) {
+	p := mk(1, 1)
+	p.Waves[0].ID = "W\x1b[31m1\n"
+	p.Waves[0].Tasks[0].ID = "T\x07\u202e1"
+	got := Render(p, "n\x1bame.md", []string{"bad\x1b[0m\nid"})
+	for _, r := range got {
+		if r != '\n' && (r < ' ' || r == 0x7f || (r >= 0x80 && r < 0xa0) || r == 0x202e) {
+			t.Fatalf("control %U in output:\n%q", r, got)
+		}
+	}
+	for _, w := range []string{"W[31m1", "T1", "name.md", "commit for unknown wave bad[0m id"} {
+		if !strings.Contains(got, w) {
+			t.Fatalf("missing %q:\n%q", w, got)
+		}
+	}
+}
+
+func TestRenderWarningsCapped(t *testing.T) {
+	p := mk(1, 1, 1)
+	p.Waves[1].ID = strings.Repeat("b", 50)
+	p.Waves[2].ID = strings.Repeat("c", 50)
+	got := Render(p, "p.md", []string{p.Waves[2].ID, strings.Repeat("u", 80)})
+	n := 0
+	for _, l := range strings.Split(got, "\n") {
+		if strings.HasPrefix(l, "warning:") {
+			n++
+			if cols(l) > 72 || (strings.Contains(l, "unknown") && !strings.HasSuffix(l, "…")) {
+				t.Fatalf("warning not capped to 72 cols: %d %q", cols(l), l)
+			}
+		}
+	}
+	if n != 2 {
+		t.Fatalf("want 2 warnings, got %d:\n%s", n, got)
 	}
 }
