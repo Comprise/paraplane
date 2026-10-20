@@ -63,7 +63,8 @@ waves:
   (`"**/x.go"`), иначе YAML разберёт его как alias, ключ или якорь. Если YAML не разбирается по этой причине,
   проверка подскажет `quote glob patterns`.
 - Лимиты (защита хука от враждебного плана): блок ≤ 256 КБ, ≤ 500 задач, ≤ 100 путей на задачу, ≤ 2000 путей
-  (`owns` + `reads`) на план, шаблон ≤ 256 символов, ≤ 8 групп `{}` в шаблоне.
+  (`owns` + `reads`) на план, шаблон ≤ 256 символов (рун), ≤ 8 групп `{}` в шаблоне и ≤ 256 вариантов раскрытия групп `{}`
+  (произведение числа альтернатив его групп `{}`).
 
 ## Правила проверки
 
@@ -141,7 +142,7 @@ plan invalid: 1 error(s), 2 warning(s)
 
 Итоги: `plan ok: 3 waves, 7 tasks`, `plan ok with 2 warning(s): 3 waves, 7 tasks` или
 `plan invalid: 1 error(s), 2 warning(s)`. С `--suggest` при W3 перед итогом выводится `Shorter layout:` и готовый
-блок `paraplane` с более короткой раскладкой (независимый «третий» этап уходит в W1). Код выхода: 0 — ошибок
+блок `paraplane` с более короткой раскладкой (независимый «третий» этап уходит в W1). Текст W3: ``warning W3: the layout can be shorter: 2 waves instead of 3; run `paraplane check --suggest` on the plan file`` (при одной волне — `1 wave`). Код выхода: 0 — ошибок
 нет, 1 — есть ошибки или файл не читается, 2 — неверные аргументы. Проблемы конфига — строки
 `warning: config: …` перед нарушениями. Файл плана должен быть обычным файлом (не симлинк, не FIFO) внутри
 корня проекта и не больше 1 МБ.
@@ -169,10 +170,14 @@ audit failed: 2 file(s) outside W2
 - перед `status` проверяются драйверы фильтров (`filter.*.clean|smudge|process`); любой, определённый в
   области `local` или `worktree` (включая подключённые через `include`/`includeIf`), — отказ
   `error: the repository config defines filter drivers; paraplane audit does not run git status here`
-  (код 1). Фильтры из `global`/`system` (например git-lfs) — доверенная настройка пользователя;
-- git запускается с `GIT_NO_LAZY_FETCH=1`, `GIT_OPTIONAL_LOCKS=0` (индекс не пишется, хуки индекса не
-  срабатывают) и `-c core.fsmonitor=false`, без `GIT_DIR`, `GIT_CONFIG` и прочих переменных репозитория;
-  `status` — с `--no-renames` и `--ignore-submodules=all`.
+  (код 1). Доверенными считаются только фильтры из глобального (пользовательского) конфига git (например git-lfs); git
+  запускается с `GIT_CONFIG_NOSYSTEM=1`, системный конфиг не читается вовсе;
+- каждый вызов git идёт с `GIT_NO_LAZY_FETCH=1`, `GIT_OPTIONAL_LOCKS=0` (индекс не пишется, хуки индекса не
+  срабатывают) и `GIT_CONFIG_NOSYSTEM=1`, без `GIT_DIR`, `GIT_CONFIG` и прочих переменных репозитория, и с
+  `-c core.fsmonitor=false -c core.pager=cat --no-pager -c log.showSignature=false -c gpg.program=false
+  -c gpg.ssh.program=false -c gpg.x509.program=false -c core.hooksPath=/dev/null` (не запустятся пейджер,
+  программы подписей и хуки);
+- `status` — с `--no-renames` и `--ignore-submodules=all`, `git log` — с `--no-show-signature`.
 
 ### `paraplane progress`
 
@@ -322,6 +327,11 @@ codex plugin marketplace add Comprise/paraplane --ref release
 - Скрытые конфликты (файлы, не названные в плане) детерминированная проверка не видит — для этого агент
   `conflict-auditor`, который запускается из skills, а не из хуков.
 - Хуки не используют LLM.
+- Пути сравниваются как точные строки: на регистронезависимых и нормализующих ФС (macOS, Windows) `README.md` и
+  `readme.md`, а также NFC и NFD — один файл, но разные пути для проверки, поэтому пересечение не обнаруживается
+  (описано в skill `rules`).
+- Codex: возврат плана через `Stop` в Plan Mode (`decision: block`) вживую не проверен (Codex избежал конфликта
+  сам); проверять после обновлений Codex (спецификация, раздел 13).
 - Вызов `/skill` пользователем не проходит через `PreToolUse`; такие планы ловят `ExitPlanMode` и `PostToolUse`.
 - Остаётся ли сессия в plan mode после запрета выхода, документация Claude Code не уточняет; поведение
   проверяется вручную.
@@ -336,12 +346,24 @@ codex plugin marketplace add Comprise/paraplane --ref release
 
 ```sh
 make test                                    # тесты
-make dist                                    # бинарники для 6 платформ
+make dist                                    # бинарники для 6 платформ в libexec/ (нужно перед --plugin-dir)
+make tree DIR=/tmp/paraplane-tree            # поставляемое дерево: ровно пути из ship.txt
 claude --plugin-dir /path/to/paraplane       # запустить Claude Code с локальной версией
 ```
 
-Релиз — тег `vX.Y.Z` на коммите из `main`: workflow соберёт бинарники и обновит ветку `release`, из которой
-ставится плагин. Спецификация — [`docs/superpowers/specs/2026-10-20-paraplane-design.md`](docs/superpowers/specs/2026-10-20-paraplane-design.md).
+Без `make dist` шим `bin/paraplane` не находит бинарь в `libexec/` (см. `bin/README.ru.md`).
+
+- `.gitattributes` принудительно задаёт переводы строк LF, поэтому на Windows при checkout и установке POSIX-шим
+  остаётся рабочим; файл тоже поставляется.
+- `ship.txt` — единый список поставляемых путей. `make tree DIR=<каталог>` собирает по нему дерево (пропуская
+  `libexec`, если его нет); строгая проверка в CI, tar-архив релиза и ветка `release` читают один и тот же файл.
+- CI гоняет `go test` на трёх платформах, отдельное задание `go test -race ./...` на ubuntu и проверку плагина;
+  изменения в `docs/` тоже запускают CI.
+- Релиз — тег `vX.Y.Z` на коммите из `main`: workflow соберёт бинарники и обновит ветку `release`, из которой
+  ставится плагин. Версия бинаря без префикса `v` (`paraplane version` для тега `v0.9.1` печатает `0.9.1`). Перед
+  публикацией релиз прогоняет бинарь и шим: оба должны напечатать версию тега.
+- Спецификация (на русском):
+  [`docs/superpowers/specs/2026-10-20-paraplane-design.md`](https://github.com/Comprise/paraplane/blob/main/docs/superpowers/specs/2026-10-20-paraplane-design.md).
 
 ## Автор и лицензия
 

@@ -12,14 +12,16 @@ import (
 	"paraplane/internal/config"
 )
 
-// golden compares got with testdata/<name>.golden.json (written by hand).
+// golden compares got with testdata/<name>.golden.json (written by hand),
+// ignoring CRLF line endings and a trailing newline of the file.
 func golden(t *testing.T, name string, got []byte) {
 	t.Helper()
 	want, err := os.ReadFile(filepath.Join("testdata", name+".golden.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != strings.TrimRight(string(want), "\n") {
+	// A checkout with CRLF line endings must not fail the comparison.
+	if string(got) != strings.TrimRight(strings.ReplaceAll(string(want), "\r\n", "\n"), "\n") {
 		t.Errorf("%s mismatch\n got: %s\nwant: %s", name, got, want)
 	}
 }
@@ -115,8 +117,16 @@ func TestSkillDigest(t *testing.T) {
 	})
 }
 
+// noShadow sets a plugin root and a PATH without paraplane, so the shadow
+// check has nothing to compare and approves.
+func noShadow(t *testing.T) {
+	t.Helper()
+	t.Setenv("CLAUDE_PLUGIN_ROOT", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+}
+
 func TestBashAllow(t *testing.T) {
-	t.Setenv("CLAUDE_PLUGIN_ROOT", "") // no shadow check
+	noShadow(t)
 	env := testEnv(t)
 	allow := []string{
 		"paraplane version",
@@ -215,4 +225,45 @@ func TestBashAllowPathShadow(t *testing.T) {
 		out, _ := bash(env, in)
 		golden(t, "base_bash_allow", out)
 	})
+	for _, root := range []string{"", "relative/plugin"} {
+		t.Run("plugin root "+root, func(t *testing.T) {
+			// Without an absolute CLAUDE_PLUGIN_ROOT the check cannot tell:
+			// fail closed.
+			t.Setenv("CLAUDE_PLUGIN_ROOT", root)
+			for _, p := range []string{filepath.Join(plugin, "bin"), t.TempDir()} {
+				t.Setenv("PATH", p)
+				if out, _ := bash(env, in); out != nil {
+					t.Fatalf("PATH %s: got %s", p, out)
+				}
+			}
+		})
+	}
+}
+
+func TestBashCodexBareName(t *testing.T) {
+	// Codex's shell has no plugin bin/ on PATH: the bare name is never its
+	// own binary, so it is not approved even where Claude's would be.
+	noShadow(t)
+	env := testEnv(t)
+	env.Agent = Codex
+	nilOut(t)(bash(env, toolInput(t, "Bash", map[string]any{"command": "paraplane version"})))
+	t.Setenv("CLAUDE_PLUGIN_ROOT", safeRoot)
+	nilOut(t)(bash(env, toolInput(t, "Bash", map[string]any{"command": "paraplane version"})))
+	out, err := bash(env, toolInput(t, "Bash", map[string]any{"command": safeRoot + "/bin/paraplane version"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	golden(t, "base_bash_allow", out)
+}
+
+func TestGoldenCRLF(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.MkdirAll("testdata", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join("testdata", "crlf.golden.json"), []byte("{\"a\":\"x\\ny\"}\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	golden(t, "crlf", []byte(`{"a":"x\ny"}`))
 }

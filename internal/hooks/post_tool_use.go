@@ -2,20 +2,17 @@ package hooks
 
 import (
 	"encoding/json"
-	"path"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"paraplane/internal/layout"
-	"paraplane/internal/pathset"
 	"paraplane/internal/plan"
 	"paraplane/internal/rules"
 	"paraplane/internal/textx"
 )
 
-// postKeys are the words whose presence in an Edit makes it a plan edit.
-var postKeys = []string{"paraplane", "waves:", "tasks:", "id:", "title:", "owns:", "reads:", "depends:", "verify:", "gate:"}
+// planKeys are the words whose presence in an Edit makes it a plan edit.
+var planKeys = []string{"paraplane", "waves:", "tasks:", "id:", "title:", "owns:", "reads:", "depends:", "verify:", "gate:"}
 
 // postInput is the part of a Write or Edit tool_input the hook reads.
 type postInput struct {
@@ -41,117 +38,68 @@ func PostToolUse(env Env, in Input) ([]byte, error) {
 		return nil, nil
 	}
 	fp, _ := v.FilePath.(string)
-	rel, ok := postRel(env.Root, fp)
-	if !ok || !postIsPlan(env, rel) {
+	rel, ok := rootRel(env.Root, fp)
+	if !ok || !isPlanPath(env, rel) {
 		return nil, nil
 	}
-	md, ok, err := postReadFile(filepath.Join(env.Root, filepath.FromSlash(rel)))
+	md, ok, err := readPlan(filepath.Join(env.Root, filepath.FromSlash(rel)))
 	if !ok {
 		return nil, err
 	}
-	edit := in.ToolName == "Edit"
-	if edit {
+	if in.ToolName == "Edit" {
 		oldS, _ := v.OldString.(string)
 		newS, _ := v.NewString.(string)
-		if !postEditTouchesPlan(md, oldS, newS) {
+		if !editTouchesPlan(md, oldS, newS) {
 			return nil, nil
 		}
+		return postVerdict(env, rel, md, postEdit)
 	}
-
-	k := postWrite
-	if edit {
-		k = postEdit
-	}
-	return postVerdict(env, rel, md, k)
+	return postVerdict(env, rel, md, postWrite)
 }
 
-// postKind is how a tool call touched a plan file.
+// postKind is how a tool call touched a plan file; a larger kind wins when
+// one call touches the file several ways.
 type postKind int
 
 const (
-	postWrite postKind = iota // the file was written: every finding counts
+	postRead  postKind = iota // the file was only mentioned: only E1–E7 count
 	postEdit                  // the file was edited: warnings are not repeated
-	postRead                  // the file was only mentioned: only E1–E7 count
+	postWrite                 // the file was written: every finding counts
 )
 
 // postVerdict is the PostToolUse answer for the plan file rel with content
 // md: E0 adds context, E1–E7 block (context in mode warn), warnings add
-// context only for a write. A read answers only E1–E7.
+// context only for a write. A read answers only E1–E7. paraplane's own
+// strings go through env.Agent.text; the plan path and plan text do not.
 func postVerdict(env Env, rel string, md []byte, k postKind) ([]byte, error) {
 	r := rules.Check(md, Options(env))
 	if k == postRead && (r.Errors() == 0 || r.Findings[0].Code == "E0") {
 		return nil, nil
 	}
-	name := textx.Line(rel, postMaxPath)
-	rulesSkill := env.Agent.Skill("rules")
+	name := textx.Line(rel, maxPath)
+	text := env.Agent.text
 	switch {
 	case len(r.Findings) > 0 && r.Findings[0].Code == "E0" && r.Findings[0].Msg != layout.ErrDeadline.Error():
-		return postContext("PostToolUse", "paraplane: "+name+" has no valid ```paraplane block yet ("+
-			textx.Line(r.Findings[0].Msg, postMaxE0)+"); add the block before the plan is final. Format: skill "+rulesSkill+".")
+		return contextOutput("PostToolUse", "paraplane: "+name+" has no valid ```paraplane block yet ("+
+			textx.Line(r.Findings[0].Msg, maxE0)+text("); add the block before the plan is final. Format: skill paraplane:rules."))
 	case r.Errors() > 0:
 		reason := "paraplane: " + name + " is not ready for parallel execution (fix it before the plan is final):\n" +
-			postFindings(r.Findings) + "\nFormat and rules: skill " + rulesSkill + "."
+			planFindings(env.Agent, r.Findings) + text("\nFormat and rules: skill paraplane:rules.")
 		if env.Config.Mode == "warn" {
-			return postContext("PostToolUse", reason)
+			return contextOutput("PostToolUse", reason)
 		}
 		return encodeJSON(hookOutput{Decision: "block", Reason: reason})
 	case r.Warnings() > 0 && k == postWrite:
-		return postContext("PostToolUse", postWarnings(r))
+		return contextOutput("PostToolUse", planWarnings(env.Agent, r))
 	}
 	return nil, nil
 }
 
-// postRel turns file_path into a path relative to root with "/" separators;
-// a backslash counts as a separator on every platform. A relative file_path
-// is taken relative to root. ok is false outside root.
-func postRel(root, fp string) (string, bool) {
-	if fp == "" || root == "" {
-		return "", false
-	}
-	slash := func(s string) string { return strings.ReplaceAll(filepath.ToSlash(s), `\`, "/") }
-	p := slash(fp)
-	if postAbs(p) {
-		r := strings.TrimRight(slash(root), "/")
-		if len(p) <= len(r)+1 || p[len(r)] != '/' || !postSamePrefix(p[:len(r)], r) {
-			return "", false
-		}
-		p = p[len(r)+1:]
-	}
-	p = path.Clean(p)
-	if p == "." || p == ".." || strings.HasPrefix(p, "../") || postAbs(p) {
-		return "", false
-	}
-	return p, true
-}
-
-// postAbs reports whether a "/"-separated path is absolute ("/x" or "C:/x").
-func postAbs(p string) bool {
-	return strings.HasPrefix(p, "/") || (len(p) >= 3 && p[1] == ':' && p[2] == '/')
-}
-
-// postSamePrefix compares path prefixes; case-insensitively on Windows.
-func postSamePrefix(a, b string) bool {
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(a, b)
-	}
-	return a == b
-}
-
-// postIsPlan reports whether rel matches one of plan_paths.
-func postIsPlan(env Env, rel string) bool {
-	for _, pat := range env.Config.PlanPaths {
-		if pathset.Match(pat, rel) {
-			return true
-		}
-	}
-	return false
-}
-
-// postEditTouchesPlan reports whether an Edit may have changed the plan
-// block: either string names the block or one of its keys, or a non-empty
+// editTouchesPlan reports whether an Edit may have changed the plan block:
+// either string names the block or one of its keys, or a non-empty
 // new_string occurs inside the block of the edited file.
-func postEditTouchesPlan(md []byte, oldS, newS string) bool {
-	for _, k := range postKeys {
+func editTouchesPlan(md []byte, oldS, newS string) bool {
+	for _, k := range planKeys {
 		if strings.Contains(oldS, k) || strings.Contains(newS, k) {
 			return true
 		}

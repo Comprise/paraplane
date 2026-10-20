@@ -4,12 +4,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"paraplane/internal/config"
+	"paraplane/internal/fsx"
 	"paraplane/internal/hooks"
 	"paraplane/internal/layout"
 	"paraplane/internal/rules"
@@ -21,9 +24,8 @@ const maxPlanFile = 1 << 20
 
 // Text limits for values that come from the plan, the config or the file system.
 const (
-	maxLine   = 1000     // runes in one finding line
-	maxName   = 300      // runes in a file name
-	maxLayout = 64 << 10 // bytes of the shorter layout
+	maxLine = 1000 // runes in one finding line
+	maxName = 300  // runes in a file name
 )
 
 func runCheck(args []string, stdin io.Reader, stdout, stderr io.Writer, cwd string) int {
@@ -65,7 +67,7 @@ func runCheck(args []string, stdin io.Reader, stdout, stderr io.Writer, cwd stri
 	}
 	if suggest && r.Suggested != nil && r.Plan != nil {
 		fmt.Fprintln(stdout, "Shorter layout:")
-		fmt.Fprint(stdout, strings.TrimSuffix(textx.Block(layout.Render(r.Plan, r.Suggested), maxLayout), "\n")+"\n")
+		fmt.Fprint(stdout, strings.TrimSuffix(textx.Block(layout.Render(r.Plan, r.Suggested), math.MaxInt), "\n")+"\n")
 	}
 	fmt.Fprintln(stdout, r.Summary())
 	if r.Errors() > 0 {
@@ -115,7 +117,7 @@ func readLimited(r io.Reader, name string) ([]byte, error) {
 }
 
 // readPlanFile reads the plan name (relative to cwd): a regular file, not a
-// symlink or a FIFO, inside root, of at most maxPlanFile bytes. rel is its
+// symlink or a FIFO (read through fsx), inside root, of at most maxPlanFile bytes. rel is its
 // path from root with "/" separators.
 func readPlanFile(name, cwd, root string) (data []byte, rel string, err error) {
 	shown := textx.Line(name, maxName)
@@ -138,43 +140,18 @@ func readPlanFile(name, cwd, root string) (data []byte, rel string, err error) {
 	if err != nil || r == "." || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) || filepath.IsAbs(r) {
 		return nil, "", fmt.Errorf("%s is outside the project root", shown)
 	}
-	full := filepath.Join(realRoot, r)
-	fi, err := os.Lstat(full)
-	if err != nil {
-		return nil, "", fmt.Errorf("%s: %w", shown, unwrapPath(err))
-	}
-	if err := regular(fi, shown); err != nil {
-		return nil, "", err
-	}
-	f, err := os.Open(full)
-	if err != nil {
-		return nil, "", fmt.Errorf("%s: %w", shown, unwrapPath(err))
-	}
-	defer f.Close()
-	// The file may have been swapped between Lstat and Open.
-	if fi2, err := f.Stat(); err != nil || !os.SameFile(fi, fi2) {
-		return nil, "", fmt.Errorf("%s changed while it was read", shown)
-	}
-	data, err = readLimited(f, shown)
-	if err != nil {
-		return nil, "", err
-	}
-	return data, filepath.ToSlash(r), nil
-}
-
-// regular checks that fi is a regular file of at most maxPlanFile bytes.
-func regular(fi os.FileInfo, shown string) error {
+	data, err = fsx.ReadRegular(filepath.Join(realRoot, r), maxPlanFile)
 	switch {
-	case fi.Mode()&os.ModeSymlink != 0:
-		return fmt.Errorf("%s is a symlink, not a regular file", shown)
-	case fi.IsDir():
-		return fmt.Errorf("%s is a directory, not a regular file", shown)
-	case !fi.Mode().IsRegular():
-		return fmt.Errorf("%s is not a regular file", shown)
-	case fi.Size() > maxPlanFile:
-		return fmt.Errorf("%s is larger than %d bytes", shown, maxPlanFile)
+	case err == nil:
+		return data, filepath.ToSlash(r), nil
+	case errors.Is(err, fsx.ErrTooLarge):
+		return nil, "", fmt.Errorf("%s is larger than %d bytes", shown, maxPlanFile)
+	case errors.Is(err, fsx.ErrNotRegular):
+		return nil, "", fmt.Errorf("%s is not a regular file (a symlink, directory or special file)", shown)
+	case errors.Is(err, fs.ErrNotExist):
+		return nil, "", fmt.Errorf("%s: no such file", shown)
 	}
-	return nil
+	return nil, "", fmt.Errorf("%s: %w", shown, unwrapPath(err))
 }
 
 // unwrapPath drops the path from a *fs.PathError: the caller names the file.

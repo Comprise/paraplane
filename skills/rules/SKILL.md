@@ -38,8 +38,7 @@ waves:
         verify: "go test ./internal/api/"
 ```
 
-Full schema, limits, glob syntax and the overlap rules: `references/format.md`. A complete plan:
-`examples/plan.md`.
+Schema, limits, globs, overlap rules: `references/format.md`. A complete plan: `examples/plan.md`.
 
 ## Writing a plan
 
@@ -67,10 +66,8 @@ Full schema, limits, glob syntax and the overlap rules: `references/format.md`. 
 
 ### Quote globs
 
-Write in double quotes every pattern that contains any of `* ? [ ] { } ,` or starts with `!` or
-`&`: `owns: ["internal/config/**", "cmd/*.go"]`. Unquoted, YAML reads `*` as an alias, `?` as a key,
-`&` as an anchor, and `[]{},` break the list; the parse error then carries the hint
-`quote glob patterns`. Plain literal paths (`internal/plan/plan.go`) need no quotes.
+Quote every pattern that contains any of `* ? [ ] { } ,` or starts with `!` or `&`: `owns: ["internal/config/**", "cmd/*.go"]`. Unquoted, YAML reads `*` as an alias, `?` as a key,
+`&` as an anchor, and `[]{},` break the list (the error hints `quote glob patterns`). Plain literal paths (`internal/plan/plan.go`) need no quotes.
 
 ### Name hot files literally
 
@@ -83,7 +80,7 @@ literally in `owns` (`go.mod`, `web/package.json`, `migrations/0003_add_notes.sq
 wave touching the same hot pattern conflict even through different files: `migrations/0003_a.sql`
 and `migrations/0003_b.sql` clash on the number.
 
-A literal path is a file. To own a whole directory write `dir/**`.
+A literal path is a file; to own a directory write `dir/**`.
 
 ## Findings and fixes
 
@@ -113,8 +110,8 @@ W3 is checked only when there are no errors at all.
 | W5 | A literal in `owns` is an existing directory (CLI and hooks only) | Write `dir/**` |
 | A1 | After a wave a changed file is owned by no task of that wave (`error A1 W2: internal/x.go changed but no task of W2 owns it`) | Revert the stray change, or, when it was needed, add the file to the right task's `owns` and re-check the plan; fix before the gate |
 
-Messages for patterns that are not literally equal say "may overlap": narrow the patterns if the
-overlap is a false alarm.
+"May overlap" messages can be false alarms: narrow the patterns. Limitation: paths compare as exact strings, so on case-insensitive filesystems
+`README.md` and `readme.md` look different; give such files to one task by hand.
 
 ## Executing a plan
 
@@ -130,8 +127,8 @@ For a plan with a ```` ```paraplane ```` block the paraplane execution rules tak
 instructions of any execution skill (`superpowers:subagent-driven-development`,
 `superpowers:executing-plans` and the like). Instructions such as "never dispatch implementers in
 parallel" or "the implementer commits" do not apply to such a plan: dispatch the tasks of a wave in
-parallel, and let only the coordinator commit, once per wave after a green gate. Everything else those
-skills ask for (reviews, verification, reporting) still applies.
+parallel, and let only the coordinator commit, once per wave after a green gate. Their other asks
+(reviews, verification, reporting) still apply.
 
 ## Additional resources
 

@@ -55,8 +55,10 @@ They protect the hook from a hostile plan; exceeding any is E0.
 - ≤ 500 tasks;
 - ≤ 100 paths (`owns` + `reads`) per task;
 - ≤ 2000 paths (`owns` + `reads`) per plan;
-- pattern ≤ 256 characters;
-- ≤ 8 `{}` groups per pattern.
+- pattern ≤ 256 characters (runes, not bytes);
+- ≤ 8 `{}` groups per pattern;
+- ≤ 256 variants of brace expansion per pattern (the product of the alternative counts of its `{}`
+  groups), because one `doublestar.Match` call on many groups can run for tens of seconds.
 
 ## Paths and globs
 
@@ -98,8 +100,10 @@ too is harmless.
    two segments of the form `*<lit>` overlap when one `lit` ends the other (`*.go` and `*_test.go`
    overlap, `*.go` and `*.ts` do not); anything else is assumed to overlap.
 
-False alarms are possible (the message says "may overlap"); misses are not. Narrow the patterns to
-clear a false alarm.
+False alarms are possible (the message says "may overlap"); misses are not, with one exception: paths
+are compared as exact strings, so on case-insensitive or normalizing filesystems (macOS, Windows)
+`README.md` and `readme.md` (or NFC and NFD spellings) are different paths to the check though one
+file. Give such files to one task by hand. Narrow the patterns to clear a false alarm.
 
 Overlap drives E2 (`owns`/`owns` in one wave), E4 (`reads`/`owns` in one wave) and E6 (`owns` of a
 later task against `owns` of an earlier task without a dependency).

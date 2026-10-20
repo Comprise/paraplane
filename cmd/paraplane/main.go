@@ -40,7 +40,7 @@ func start(args []string, stdin io.Reader, stdout, stderr io.Writer, getwd func(
 			// Hooks always exit 0; the project dir, if given, still gives a root.
 			return run(args, stdin, stdout, stderr, os.Getenv("CLAUDE_PROJECT_DIR"))
 		}
-		fmt.Fprintln(stderr, "error:", textx.Line(err.Error(), maxErr))
+		printErr(stdout, err)
 		return 1
 	}
 	return run(args, stdin, stdout, stderr, cwd)
@@ -100,9 +100,6 @@ var hookHandlers = map[string]func(hooks.Env, hooks.Input) ([]byte, error){
 
 // maxHookInput caps the hook payload read from stdin (spec section 8).
 const maxHookInput = 4 << 20
-
-// maxErr caps the runes of an error message printed by the binary.
-const maxErr = 500
 
 // hookRoot picks the project root for a hook: the project dir Claude Code
 // passes (stable for the whole session), else the payload's cwd, else the

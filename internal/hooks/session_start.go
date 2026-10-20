@@ -13,7 +13,7 @@ func SessionStart(env Env, in Input) ([]byte, error) {
 	}
 	out := hookOutput{Hook: &hookSpecific{EventName: "SessionStart", AdditionalContext: env.Agent.text(SessionContext)}}
 	if env.ConfigErr != nil {
-		out.SystemMessage = "paraplane: " + textx.Line(env.ConfigErr.Error(), 300) + " (defaults are used for those settings)."
+		out.SystemMessage = "paraplane: " + textx.Line(env.ConfigErr.Error(), maxPath) + " (defaults are used for those settings)."
 	}
 	return encodeJSON(out)
 }

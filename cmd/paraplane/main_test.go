@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -74,6 +76,15 @@ func project(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	write(t, dir, ".paraplane/config.yaml", "mode: block\n")
+	return dir
+}
+
+// notRepo is project(t) that git cannot find a repository above: the
+// ceiling stops the search at the temp dir's parent.
+func notRepo(t *testing.T) string {
+	t.Helper()
+	dir := project(t)
+	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(dir))
 	return dir
 }
 
@@ -230,7 +241,7 @@ func TestAuditCLI(t *testing.T) {
 		}
 	}
 
-	nr := project(t)
+	nr := notRepo(t)
 	write(t, nr, "plan.md", validPlan)
 	code, out, _ = cli(t, nr, "", "audit", "plan.md", "W1")
 	if code != 1 || !strings.HasPrefix(out, "error: ") {
@@ -285,7 +296,7 @@ func TestProgressCLI(t *testing.T) {
 		t.Errorf("no args: code %d", code)
 	}
 
-	nr := project(t)
+	nr := notRepo(t)
 	write(t, nr, "plan.md", validPlan)
 	if code, out, _ := cli(t, nr, "", "progress", "plan.md"); code != 1 || !strings.HasPrefix(out, "error: ") {
 		t.Errorf("not a repo: code %d, out %q", code, out)
@@ -579,10 +590,17 @@ func TestHookAgentFlag(t *testing.T) {
 		t.Errorf("prompt-submit: code %d, out %q", code, out)
 	}
 
+	t.Setenv("CLAUDE_PLUGIN_ROOT", "/opt/p")
 	code, out, _ = codexHook(t, dir, "permission-request", map[string]any{"cwd": dir, "tool_name": "Bash",
-		"tool_input": map[string]any{"command": "paraplane check docs/plans/x.md"}})
+		"tool_input": map[string]any{"command": "/opt/p/bin/paraplane check docs/plans/x.md"}})
 	if code != 0 || out != `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}`+"\n" {
 		t.Errorf("permission-request: code %d, out %q", code, out)
+	}
+	// The bare name is never approved under Codex.
+	code, out, _ = codexHook(t, dir, "permission-request", map[string]any{"cwd": dir, "tool_name": "Bash",
+		"tool_input": map[string]any{"command": "paraplane check docs/plans/x.md"}})
+	if code != 0 || out != "" {
+		t.Errorf("bare permission-request: code %d, out %q", code, out)
 	}
 }
 
@@ -651,3 +669,82 @@ func TestCheckFIFO(t *testing.T) {
 		t.Fatal("check blocked on a FIFO")
 	}
 }
+
+// bigShorterPlan has n independent one-task waves: W3 suggests one wave whose
+// layout is far larger than 64 KB.
+func bigShorterPlan(n int) string {
+	title := strings.Repeat("long title ", 15)
+	var b strings.Builder
+	b.WriteString("gate: go test ./...\nwaves:\n")
+	for i := 1; i <= n; i++ {
+		fmt.Fprintf(&b, "  - id: W%d\n    tasks:\n      - {id: T%d, title: %s, owns: [internal/some/package/pkg%d/file.go], verify: go test}\n", i, i, title, i)
+	}
+	return planMD(b.String())
+}
+
+func TestCheckSuggestFullLayout(t *testing.T) {
+	dir := project(t)
+	md := bigShorterPlan(500)
+	if len(md) < 100<<10 || len(md) > 1<<20 {
+		t.Fatalf("plan is %d bytes", len(md))
+	}
+	write(t, dir, "big.md", md)
+	code, out, _ := cli(t, dir, "", "check", "--suggest", "big.md")
+	i := strings.Index(out, "Shorter layout:\n")
+	if code != 0 || i < 0 {
+		t.Fatalf("code %d, out %.200q", code, out)
+	}
+	block := out[i:]
+	if len(block) < 70<<10 {
+		t.Fatalf("layout is only %d bytes", len(block))
+	}
+	if !strings.Contains(block, "T500") || strings.Contains(block, "…") {
+		t.Error("layout is cut")
+	}
+	if !strings.HasSuffix(block, "```\nplan ok with 1 warning(s): 500 waves, 500 tasks\n") {
+		t.Errorf("block does not end with a closed fence and the summary: %q", block[len(block)-120:])
+	}
+}
+
+func TestStartNoCwd(t *testing.T) {
+	gone := func() (string, error) { return "", errors.New("gone") }
+	var o, e bytes.Buffer
+	if code := start([]string{"version"}, strings.NewReader(""), &o, &e, gone); code != 1 ||
+		!strings.HasPrefix(o.String(), "error: gone") || e.Len() != 0 {
+		t.Errorf("non-hook: code %d, stdout %q, stderr %q", code, o.String(), e.String())
+	}
+	// A hook falls back to CLAUDE_PROJECT_DIR for the root.
+	dir := project(t)
+	t.Setenv("CLAUDE_PROJECT_DIR", dir)
+	o.Reset()
+	e.Reset()
+	if code := start([]string{"hook", "session-start"}, strings.NewReader(`{"hook_event_name":"SessionStart"}`), &o, &e, gone); code != 0 ||
+		!strings.Contains(o.String(), "paraplane") || e.Len() != 0 {
+		t.Errorf("hook: code %d, stdout %q, stderr %q", code, o.String(), e.String())
+	}
+}
+
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) { return 0, errors.New("boom read") }
+
+type errWriter struct{}
+
+func (errWriter) Write([]byte) (int, error) { return 0, errors.New("boom write") }
+
+func TestHookIOErrors(t *testing.T) {
+	dir := project(t)
+	t.Setenv("CLAUDE_PROJECT_DIR", dir)
+	var o, e bytes.Buffer
+	if code := run([]string{"hook", "session-start"}, errReader{}, &o, &e, dir); code != 0 || o.Len() != 0 ||
+		!strings.Contains(e.String(), "bad input") || !strings.Contains(e.String(), "boom read") {
+		t.Errorf("stdin error: code %d, stdout %q, stderr %q", code, o.String(), e.String())
+	}
+	e.Reset()
+	if code := run([]string{"hook", "session-start"}, strings.NewReader(`{"hook_event_name":"SessionStart"}`), errWriter{}, &e, dir); code != 0 ||
+		!strings.Contains(e.String(), "writing the answer") || !strings.Contains(e.String(), "boom write") {
+		t.Errorf("stdout error: code %d, stderr %q", code, e.String())
+	}
+}
+
+var _ io.Reader = errReader{}

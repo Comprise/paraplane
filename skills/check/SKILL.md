@@ -32,7 +32,7 @@ Validate and restructure the plan: $ARGUMENTS
      independent stages into earlier waves;
    - keep the block and the prose in sync: stage headings, task titles and wave numbers in the text follow
      the block.
-5. Run `paraplane check --suggest <file>` again. Repeat step 5 until the last line is `plan ok`
+5. Run `paraplane check --suggest <file>` again. Repeat steps 4–5 until the last line is `plan ok`
    (possibly `plan ok with N warning(s)`); re-run the auditor only if task boundaries changed.
 6. Report: which E and W findings you fixed (code, place, what changed); which stages you reordered and the
    reason (dependency, shared file, hot file, shorter layout); remaining warnings; the final summary line.

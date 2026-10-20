@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -117,7 +118,7 @@ func TestCodexCLIPath(t *testing.T) {
 	}
 	golden(t, "base_session_start", out)
 
-	for _, bad := range []string{"", "/home/u/my plugin", "relative/path", "/x;rm", "/x$(id)", "/x`id`"} {
+	for _, bad := range []string{"", "/", "//", "/.", "/home/u/my plugin", "relative/path", "/x;rm", "/x$(id)", "/x`id`"} {
 		t.Setenv("CLAUDE_PLUGIN_ROOT", bad)
 		if got := Codex.CLI(); got != "paraplane" {
 			t.Errorf("root %q: Codex.CLI = %q, want the bare name", bad, got)
@@ -412,6 +413,9 @@ func TestCodexPromptDigest(t *testing.T) {
 		{"run $plan_file and $EXECUTOR", ""},
 		{"$superpowers:Executing-Plans", ""},
 		{"$superpowers:writing-plans then $superpowers:executing-plans", "codex_prompt_exec"},
+		{"$superpowers:writing-plans$superpowers:executing-plans", "codex_prompt_exec"},
+		{"$x$superpowers:writing-plans", "codex_prompt_digest"},
+		{"$plan_file$superpowers:writing-plans", "codex_prompt_digest"},
 		{"$paraplane:rules about the plan", ""},
 		{"$paraplane:create a plan", ""},
 		{"write a plan and execute it", ""},
@@ -448,14 +452,10 @@ func permIn(t *testing.T, command string) Input {
 }
 
 func TestPermissionRequestAllows(t *testing.T) {
-	t.Setenv("CLAUDE_PLUGIN_ROOT", "")
+	t.Setenv("CLAUDE_PLUGIN_ROOT", safeRoot)
 	env := codexEnv(t)
-	out, err := PermissionRequest(env, codexPayload(t, "codex_permission_request", nil))
-	if err != nil {
-		t.Fatal(err)
-	}
-	golden(t, "codex_permission_allow", out)
-	for _, cmd := range []string{"paraplane version", "paraplane audit docs/p.md W1", "paraplane progress docs/p.md", "paraplane check --suggest p.md"} {
+	cli := safeRoot + "/bin/paraplane "
+	for _, cmd := range []string{cli + "version", cli + "check docs/plans/x.md", cli + "audit docs/p.md W1", cli + "progress docs/p.md", cli + "check --suggest p.md"} {
 		out, err := PermissionRequest(env, permIn(t, cmd))
 		if err != nil {
 			t.Fatal(err)
@@ -465,23 +465,32 @@ func TestPermissionRequestAllows(t *testing.T) {
 }
 
 func TestPermissionRequestSilent(t *testing.T) {
-	t.Setenv("CLAUDE_PLUGIN_ROOT", "")
-	env := codexEnv(t)
-	for _, cmd := range []string{
-		"paraplane check ../x.md", "paraplane check a.md; rm -rf ~", "paraplane check  a.md", " paraplane version",
-		"paraplane version\n", "rm -rf /", "paraplane hook stop", "paraplane check $(id).md",
-	} {
-		out, err := PermissionRequest(env, permIn(t, cmd))
-		if err != nil || out != nil {
-			t.Errorf("%q: got %q, %v; want nil, nil", cmd, out, err)
-		}
+	for _, root := range []string{"", safeRoot, "/home/u/my plugin"} {
+		t.Run("root "+root, func(t *testing.T) {
+			t.Setenv("CLAUDE_PLUGIN_ROOT", root)
+			env := codexEnv(t)
+			// The captured payload runs the bare name: never approved for Codex.
+			nilOut(t)(PermissionRequest(env, codexPayload(t, "codex_permission_request", nil)))
+			for _, cmd := range []string{
+				"paraplane version", "paraplane check docs/plans/x.md", "paraplane audit docs/p.md W1",
+				"paraplane check ../x.md", "paraplane check a.md; rm -rf ~", "paraplane check  a.md", " paraplane version",
+				"paraplane version\n", "rm -rf /", "paraplane hook stop", "paraplane check $(id).md",
+				"/home/u/my plugin/bin/paraplane version",
+			} {
+				out, err := PermissionRequest(env, permIn(t, cmd))
+				if err != nil || out != nil {
+					t.Errorf("%q: got %q, %v; want nil, nil", cmd, out, err)
+				}
+			}
+			other := codexPayload(t, "codex_permission_request", map[string]any{"tool_name": "apply_patch"})
+			nilOut(t)(PermissionRequest(env, other))
+		})
 	}
-	other := codexPayload(t, "codex_permission_request", map[string]any{"tool_name": "apply_patch"})
-	nilOut(t)(PermissionRequest(env, other))
+	t.Setenv("CLAUDE_PLUGIN_ROOT", safeRoot)
 	off := codexEnv(t)
 	off.Config.Enabled = false
-	nilOut(t)(PermissionRequest(off, permIn(t, "paraplane version")))
-	nilOut(t)(PermissionRequest(testEnv(t), permIn(t, "paraplane version")))
+	nilOut(t)(PermissionRequest(off, permIn(t, safeRoot+"/bin/paraplane version")))
+	nilOut(t)(PermissionRequest(testEnv(t), permIn(t, safeRoot+"/bin/paraplane version")))
 }
 
 func TestPermissionRequestAbsolutePath(t *testing.T) {
@@ -538,15 +547,58 @@ func TestCodexBashReadVsWrite(t *testing.T) {
 		{"printf x >>docs/plans/noblock.md", e0},
 		{"printf x 2>/dev/null >| docs/plans/noblock.md", e0},
 		{"echo x | tee -a docs/plans/noblock.md", e0},
-		{"sed -i 's/a/b/' docs/plans/noblock.md", e0},
-		{"sed -i.bak -e s/a/b/ docs/plans/noblock.md", e0},
-		{"sed --in-place -n p docs/plans/noblock.md", e0},
+		{"printf x &> docs/plans/noblock.md", e0},
+		{"printf x &>>docs/plans/noblock.md", e0},
+		{"cat > 'docs/plans/noblock.md", e0}, // unterminated quote
+		{`cat > "docs/plans/noblock.md`, e0},
 		{"cp /tmp/x docs/plans/noblock.md", e0},
+		// cp/mv/install -t DIR: DIR is the destination, the sources are reads.
+		{"cp -t /tmp/out docs/plans/noblock.md", none},
+		{"cp -rt /tmp/out docs/plans/noblock.md", none},
+		{"mv -t/tmp/out docs/plans/noblock.md", none},
+		{"mv --target-directory=/tmp/out docs/plans/noblock.md", none},
+		{"install --target-directory /tmp/out docs/plans/noblock.md docs/plans/warn.md", none},
+		{"cp -t /tmp/out docs/plans/e2.md", block},
+		{"cp -t docs/plans /tmp/x/noblock.md", e0}, // writes docs/plans/noblock.md
+		{"mv --target-directory=docs/plans/ src/noblock.md", e0},
+		{"install -t docs/plans /tmp/warn.md", warn},
 		{"mv -f /tmp/x docs/plans/noblock.md", e0},
 		{"install -m 644 /tmp/x docs/plans/noblock.md", e0},
 		{"LC_ALL=C tee docs/plans/noblock.md </dev/null", e0},
 		{"cat docs/plans/noblock.md; printf x > docs/plans/noblock.md", e0},
 		{"printf x >> docs/plans/warn.md", warn},
+		// sed -i is an Edit: checked only when the script names a key or
+		// inserts text found inside the block, and warnings are not repeated.
+		{"sed -i 's/a/b/' docs/plans/noblock.md", none},
+		{"sed -i.bak -e s/a/b/ docs/plans/noblock.md", none},
+		{"sed --in-place -n p docs/plans/noblock.md", e0}, // not an s command: a write
+		{`sed -i 's/- \[ \] step/- [x] step/' docs/plans/e2.md`, none},
+		{"sed -i s/T9/T8/ docs/plans/e2.md", none},
+		{"sed -i 's/x/a.go/' docs/plans/e2.md", block},
+		{"sed -i -e 1p --expression='s|x|a.go|' docs/plans/e2.md", block},
+		{"sed -i '/owns:/d' docs/plans/e2.md", block},
+		{"sed -i -f fix.sed docs/plans/e2.md", block},
+		{"sed -i --file=fix.sed docs/plans/e2.md", block},
+		{"sed -i 's/waves:/waves:/' docs/plans/noblock.md", e0},
+		{"sed -i 's/x/verify: v/' docs/plans/warn.md", none},
+		{"sed -n 's/x/a.go/p' docs/plans/e2.md", block}, // a read: E2 still blocks
+		{"sed -i '3s/x/QQ/g;/z/,$s,a,ZZ,' docs/plans/e2.md", none},
+		{`sed -i 's/x/\&/' docs/plans/e2.md`, none}, // an escaped & is literal
+		// The script does not show the inserted text: the full Write verdict.
+		{"sed -i '/T1,/d' docs/plans/e2.md", block},
+		{"sed -i 8d docs/plans/e2.md", block},
+		{"sed -i '9i foo: [' docs/plans/e2.md", block},
+		{"sed -i '/T1,/a x' docs/plans/e2.md", block},
+		{"sed -i '9c x' docs/plans/e2.md", block},
+		{"sed -i 'y/b/a/' docs/plans/e2.md", block},
+		{"sed -i 's/T2/&/' docs/plans/e2.md", block},
+		{`sed -E -i 's/(T)2/\11/' docs/plans/e2.md`, block},
+		{"sed -i -nf fix.sed docs/plans/e2.md", block},
+		{"sed -i 's/x/y/w out' docs/plans/e2.md", block},
+		{"sed -i 9d docs/plans/warn.md", warn},
+		// Read and an edit that misses the block: the read verdict stays.
+		{"cat docs/plans/e2.md; sed -i s/T9/T8/ docs/plans/e2.md", block},
+		{"cat docs/plans/noblock.md; sed -i s/a/b/ docs/plans/noblock.md", none},
 		{"printf x > docs/plans/e2.md", block},
 	} {
 		out, err := PostToolUse(env, bashIn(t, env.Root, c.cmd))
@@ -561,11 +613,173 @@ func TestCodexBashReadVsWrite(t *testing.T) {
 		}
 	}
 
-	// apply_patch headers are writes.
-	in := codexPayload(t, "codex_post_bash", map[string]any{"cwd": env.Root, "tool_name": "apply_patch",
-		"tool_input": map[string]any{"input": "*** Begin Patch\n*** Add File: docs/plans/noblock.md\n+x\n*** End Patch\n"}})
-	out, err := PostToolUse(env, in)
-	if err != nil || !strings.Contains(string(out), e0) {
-		t.Errorf("apply_patch: got %s, %v", out, err)
+	// apply_patch: Add File and Move to are writes, Update File is an edit.
+	for _, c := range []struct{ patch, want string }{
+		{"*** Add File: docs/plans/noblock.md\n+x\n", e0},
+		{"*** Add File: docs/plans/warn.md\n+x\n", warn},
+		{"*** Update File: docs/plans/noblock.md\n@@\n-- [ ] step 1\n+- [x] step 1\n", none},
+		{"*** Update File: docs/plans/noblock.md\r\n@@\r\n+waves:\r\n", e0},
+		{"*** Update File: docs/plans/e2.md\n@@\n- [ ] step\n+- [x] step\n", none},
+		{"*** Update File: docs/plans/e2.md\n@@\n-      - {id: T2, title: b, owns: [b.go], verify: v}\n+x\n", block},
+		{"*** Update File: docs/plans/e2.md\n@@\n-x\n+a.go\n", block},
+		{"*** Update File: docs/plans/e2.md\n*** End of File\n*** Delete File: docs/plans/noblock.md\n+owns:\n", none},
+		{"*** Update File: docs/plans/warn.md\n@@\n+verify: v\n", none},
+		{"*** Update File: docs/plans/x.md\n*** Move to: docs/plans/noblock.md\n@@\n-a\n+b\n", e0},
+	} {
+		in := codexPayload(t, "codex_post_bash", map[string]any{"cwd": env.Root, "tool_name": "apply_patch",
+			"tool_input": map[string]any{"input": "*** Begin Patch\n" + c.patch + "*** End Patch\n"}})
+		out, err := PostToolUse(env, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		switch {
+		case c.want == none && out != nil:
+			t.Errorf("patch %q: got %s, want nil", c.patch, out)
+		case c.want != none && !strings.Contains(string(out), c.want):
+			t.Errorf("patch %q: got %s, want %q", c.patch, out, c.want)
+		}
+	}
+}
+
+func TestShellWordsCopyTarget(t *testing.T) {
+	kinds := func(cmd string) map[string]postKind {
+		got := map[string]postKind{}
+		for _, w := range shellWords(cmd) {
+			got[w.text] = w.kind
+		}
+		return got
+	}
+	for _, cmd := range []string{"cp -t D a x/b", "mv -tD a x/b", "install --target-directory=D/ a x/b", "cp -vt D a x/b"} {
+		k := kinds(cmd)
+		if k["D/a"] != postWrite || k["D/b"] != postWrite || k["a"] != postRead || k["x/b"] != postRead {
+			t.Errorf("%q: kinds %v; want D/a and D/b written, the sources read", cmd, k)
+		}
+	}
+	if k := kinds("cp a b"); k["a"] != postRead || k["b"] != postWrite {
+		t.Errorf("cp a b: kinds %v", k)
+	}
+}
+
+func TestSedPlain(t *testing.T) {
+	for script, want := range map[string]string{
+		"s/a/b/":                   "b",
+		"s|a|b/c|g":                "b/c",
+		`s/a\/b/c\/d/`:             "c/d",
+		"/x/s/a/b/;3s,c,d,":        "b d",
+		"1,$ s/a/b/2\n/x/!s/c/d/I": "b d",
+		`\#x#s/a/b/`:               "b",
+		`s/a/\&/`:                  `\&`,
+	} {
+		got, ok := sedPlain(script)
+		if !ok || strings.Join(got, " ") != want {
+			t.Errorf("%q: got %q, %v; want %q", script, got, ok, want)
+		}
+	}
+	for _, script := range []string{"p", "8d", "s/unterminated", "s/a/&/", `s/(a)/\1/`, "y/a/b/", "s/a/b/w f", "s/a/b/e", "{s/a/b/}", "/x/d", "s/a/b/;d", ""} {
+		if script == "" {
+			continue // an empty script is checked by markSed (no scripts)
+		}
+		if got, ok := sedPlain(script); ok {
+			t.Errorf("%q: plain with %q", script, got)
+		}
+	}
+}
+
+func TestCodexMaxPlans(t *testing.T) {
+	// Only the first codexMaxPlans plan files of one command are checked.
+	env := codexEnv(t)
+	var files []string
+	for i := range codexMaxPlans {
+		files = append(files, fmt.Sprintf("docs/plans/ok%d.md", i))
+		writePlan(t, env, files[i], planOK)
+	}
+	writePlan(t, env, "docs/plans/bad.md", planE2)
+	cmd := "cat " + strings.Join(files, " ") + " docs/plans/bad.md"
+	nilOut(t)(PostToolUse(env, bashIn(t, env.Root, cmd)))
+	// A plan file mentioned again does not take a new slot.
+	cmd = "cat docs/plans/bad.md " + strings.Join(files, " ") + " docs/plans/bad.md"
+	out, err := PostToolUse(env, bashIn(t, env.Root, cmd))
+	if err != nil || !strings.Contains(string(out), `"decision":"block"`) {
+		t.Errorf("bad first: got %s, %v", out, err)
+	}
+}
+
+func TestCodexPatchTextFallbacks(t *testing.T) {
+	env := codexEnv(t)
+	writePlan(t, env, "docs/plans/x.md", planBad)
+	patch := "*** Begin Patch\n*** Add File: docs/plans/x.md\n+# Plan\n*** End Patch\n"
+	for name, raw := range map[string]string{
+		"command not a string": `{"command":5,"input":` + strconvQuote(patch) + `}`,
+		"empty command":        `{"command":"","patch":` + strconvQuote(patch) + `}`,
+	} {
+		in := Input{ToolName: "apply_patch", Cwd: env.Root, ToolInput: json.RawMessage(raw)}
+		out, err := PostToolUse(env, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Run(name, func(t *testing.T) { golden(t, "codex_post_block", out) })
+	}
+	for name, raw := range map[string]string{"bad json": `[1`, "no field": `{"text":"x"}`, "array": `["x"]`} {
+		t.Run(name, func(t *testing.T) {
+			nilOut(t)(PostToolUse(env, Input{ToolName: "apply_patch", Cwd: env.Root, ToolInput: json.RawMessage(raw)}))
+		})
+	}
+}
+
+func strconvQuote(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
+func TestCodexStopTailWithoutNewline(t *testing.T) {
+	// A transcript longer than the tail whose tail holds no newline: the
+	// tail is one cut line, so nothing is checked and nothing is said.
+	p := filepath.Join(t.TempDir(), "one-line.jsonl")
+	line := `{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"` +
+		strings.Repeat("x", codexMaxTranscript) + turnBad + `"}]}}`
+	if err := os.WriteFile(p, []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	in := stopIn(t, turnBad)
+	in.TranscriptPath = p
+	nilOut(t)(Stop(codexEnv(t), in))
+}
+
+func TestCodexTextsUseCLIPath(t *testing.T) {
+	// Every Codex text names the CLI by its absolute path (spec 12a).
+	t.Setenv("CLAUDE_PLUGIN_ROOT", safeRoot)
+	env := codexEnv(t)
+	writePlan(t, env, "docs/plans/w3.md", planW3)
+	out, err := PostToolUse(env, bashIn(t, env.Root, "printf x > docs/plans/w3.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "run `"+safeRoot+"/bin/paraplane check --suggest` on the plan file") ||
+		strings.Contains(string(out), "`paraplane ") {
+		t.Errorf("post W3: %s", out)
+	}
+	out, err = PostToolUse(env, bashIn(t, env.Root, "printf x > "+writePlan(t, env, "docs/plans/long.md", planLongW3())))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "run `"+safeRoot+"/bin/paraplane check --suggest <file>` for the shorter layout") {
+		t.Errorf("post long W3: %s", out)
+	}
+	// Plan-derived text is never rewritten: a plan path quoting the bare
+	// command stays as it is.
+	writePlan(t, env, "docs/plans/`paraplane check x`.md", planBad)
+	out, err = PostToolUse(env, bashIn(t, env.Root, "printf x > 'docs/plans/`paraplane check x`.md'"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "docs/plans/`paraplane check x`.md is not ready") || !strings.Contains(string(out), "skill $paraplane:rules.") {
+		t.Errorf("quoted path: %s", out)
+	}
+	stop := codexPayload(t, "codex_stop", map[string]any{
+		"transcript_path": nil, "last_assistant_message": "<proposed_plan>\n" + planBad + "</proposed_plan>",
+	})
+	out, err = Stop(env, stop)
+	if err != nil || !strings.Contains(string(out), "skill $paraplane:rules.") {
+		t.Errorf("stop: %s, %v", out, err)
 	}
 }

@@ -25,17 +25,17 @@ spec, read that file first.
    `paraplane` (see `paraplane:rules` for the format). Give every task `owns`, `reads`, `depends` and `verify`;
    set a gate for the plan or each wave. Order tasks by dependencies, not by the natural order of stages:
    an independent stage goes into the earliest wave it can run in. Quote glob patterns in YAML.
-5. When a wave has two or more tasks, dispatch the `paraplane:conflict-auditor` agent with the draft plan
-   (path or full text) and the project root. Wait for its report (a list of findings and a verdict
-   `clean` / `conflicts`). In Codex plugin agents are not loaded: read `agents/conflict-auditor.md` in the
-   plugin directory and perform the audit yourself, read-only, with exactly that output format.
-6. Fix the plan yourself for every finding (narrow `owns`, add `depends`, move a task to another wave, merge
-   tasks). Keep the block and the prose in sync: a task renamed or moved in the block is renamed or moved in
-   the text.
-7. Write the draft directly at its final path: `<plans_dir>/YYYY-MM-DD-<slug>.md`, where `plans_dir` comes from
-   `.paraplane/config.yaml` (default `docs/plans`; create the directory if it does not exist), the date is
+5. Save the draft directly at its final path before the audit: `<plans_dir>/YYYY-MM-DD-<slug>.md`, where
+   `plans_dir` comes from `.paraplane/config.yaml` (default `docs/plans`; create the directory if it does not exist), the date is
    today's, and the slug is a short lowercase kebab-case name of the task. The file must be inside the project
    root: `paraplane check` rejects files elsewhere (for example in /tmp) with `error:`.
+6. When a wave has two or more tasks, dispatch the `paraplane:conflict-auditor` agent with the path of the
+   saved file and the project root. Wait for its report (a list of findings and a verdict
+   `clean` / `conflicts`). In Codex plugin agents are not loaded: read `agents/conflict-auditor.md` in the
+   plugin directory and perform the audit yourself, read-only, with exactly that output format.
+7. Fix the plan yourself for every finding (narrow `owns`, add `depends`, move a task to another wave, merge
+   tasks). Keep the block and the prose in sync: a task renamed or moved in the block is renamed or moved in
+   the text.
 8. Validate it: `paraplane check --suggest <file>`. Repeat the fixes and the check until the last line is
    `plan ok` (possibly `plan ok with N warning(s)`).
    - The first line that is not a `warning:` line starts with `error:`, or the exit code is 2: report the

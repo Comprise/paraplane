@@ -62,7 +62,8 @@ waves:
   (`"**/x.go"`), otherwise YAML reads it as an alias, a key or an anchor. If YAML fails to parse for this
   reason, the check suggests `quote glob patterns`.
 - Limits (protection of the hook against a hostile plan): block ≤ 256 KB, ≤ 500 tasks, ≤ 100 paths per task,
-  ≤ 2000 paths (`owns` + `reads`) per plan, pattern ≤ 256 characters, ≤ 8 `{}` groups in a pattern.
+  ≤ 2000 paths (`owns` + `reads`) per plan, pattern ≤ 256 characters (runes), ≤ 8 `{}` groups in a pattern and ≤ 256 variants of brace expansion
+  (the product of the alternative counts of its `{}` groups).
 
 ## Validation rules
 
@@ -141,7 +142,7 @@ plan invalid: 1 error(s), 2 warning(s)
 Summaries: `plan ok: 3 waves, 7 tasks`, `plan ok with 2 warning(s): 3 waves, 7 tasks` or
 `plan invalid: 1 error(s), 2 warning(s)`. With `--suggest`, on W3 the line `Shorter layout:` and a ready
 `paraplane` block with a shorter layout are printed before the summary (an independent "third" stage moves to
-W1). Exit code: 0 — no errors, 1 — there are errors or the file is unreadable, 2 — bad arguments. Config
+W1). The W3 text is ``warning W3: the layout can be shorter: 2 waves instead of 3; run `paraplane check --suggest` on the plan file`` (`1 wave` in the singular). Exit code: 0 — no errors, 1 — there are errors or the file is unreadable, 2 — bad arguments. Config
 problems are `warning: config: …` lines before the violations. The plan file must be a regular file (not a
 symlink or FIFO) inside the project root and at most 1 MB.
 
@@ -168,10 +169,14 @@ approved by the hook without a prompt, therefore:
 - before `status`, filter drivers (`filter.*.clean|smudge|process`) are checked; any defined in the `local` or
   `worktree` scope (including ones pulled in via `include`/`includeIf`) is a refusal
   `error: the repository config defines filter drivers; paraplane audit does not run git status here`
-  (exit code 1). Filters from `global`/`system` (for example git-lfs) are trusted user setup;
-- git runs with `GIT_NO_LAZY_FETCH=1`, `GIT_OPTIONAL_LOCKS=0` (the index is not written, index hooks do not
-  fire) and `-c core.fsmonitor=false`, without `GIT_DIR`, `GIT_CONFIG` and other repository variables;
-  `status` runs with `--no-renames` and `--ignore-submodules=all`.
+  (exit code 1). Only filters from the user's global git config (for example git-lfs) are trusted; git runs with
+  `GIT_CONFIG_NOSYSTEM=1`, so the system config is not read at all;
+- every git call runs with `GIT_NO_LAZY_FETCH=1`, `GIT_OPTIONAL_LOCKS=0` (the index is not written, index hooks do
+  not fire) and `GIT_CONFIG_NOSYSTEM=1`, without `GIT_DIR`, `GIT_CONFIG` and other repository variables, and with
+  `-c core.fsmonitor=false -c core.pager=cat --no-pager -c log.showSignature=false -c gpg.program=false
+  -c gpg.ssh.program=false -c gpg.x509.program=false -c core.hooksPath=/dev/null` (no pager, signature programs
+  or hooks can start);
+- `status` runs with `--no-renames` and `--ignore-submodules=all`, `git log` with `--no-show-signature`.
 
 ### `paraplane progress`
 
@@ -321,6 +326,11 @@ trusted, Codex does not run them).
 - Hidden conflicts (files not named in the plan) are invisible to the deterministic check — that is what the
   `conflict-auditor` agent is for; it is started from skills, not from hooks.
 - Hooks do not use an LLM.
+- Paths are compared as exact strings: on case-insensitive or normalizing filesystems (macOS, Windows) `README.md`
+  and `readme.md`, or NFC and NFD spellings, are one file but different paths to the check, so the overlap is not
+  detected (documented in the skill `rules`).
+- Codex: returning a plan through `Stop` in Plan Mode (`decision: block`) has not been verified live (Codex avoided
+  the conflict itself); recheck after Codex updates (spec, section 13).
 - A user's `/skill` call does not pass through `PreToolUse`; such plans are caught by `ExitPlanMode` and `PostToolUse`.
 - Whether the session stays in plan mode after leaving is denied is not specified in the Claude Code
   documentation; the behavior is verified manually.
@@ -335,13 +345,24 @@ trusted, Codex does not run them).
 
 ```sh
 make test                                    # tests
-make dist                                    # binaries for 6 platforms
+make dist                                    # binaries for 6 platforms into libexec/ (needed before --plugin-dir)
+make tree DIR=/tmp/paraplane-tree            # the shipped tree: exactly the paths of ship.txt
 claude --plugin-dir /path/to/paraplane       # run Claude Code with the local version
 ```
 
-A release is a tag `vX.Y.Z` on a commit from `main`: the workflow builds the binaries and updates the `release`
-branch the plugin is installed from. Specification —
-[`docs/superpowers/specs/2026-10-20-paraplane-design.md`](docs/superpowers/specs/2026-10-20-paraplane-design.md) (in Russian).
+Without `make dist` the shim `bin/paraplane` finds no binary in `libexec/` (see `bin/README.md`).
+
+- `.gitattributes` forces LF line endings, so Windows checkouts and installs keep a working POSIX shim; it is shipped too.
+- `ship.txt` is the single list of shipped paths. `make tree DIR=<dir>` assembles the tree from it (skipping `libexec`
+  when it is absent); the CI strict validation, the release tarball and the `release` branch all read the same file.
+- CI runs `go test` on three platforms, a separate `go test -race ./...` job on ubuntu and plugin validation;
+  changes under `docs/` trigger CI too.
+- A release is a tag `vX.Y.Z` on a commit from `main`: the workflow builds the binaries and updates the `release`
+  branch the plugin is installed from. The binary version has no `v` prefix (`paraplane version` prints `0.9.1`
+  for the tag `v0.9.1`). Before publishing, the release smoke-tests the shipped binary and the shim: both must
+  print the tag version.
+- Specification (in Russian):
+  [`docs/superpowers/specs/2026-10-20-paraplane-design.md`](https://github.com/Comprise/paraplane/blob/main/docs/superpowers/specs/2026-10-20-paraplane-design.md).
 
 ## Author and license
 

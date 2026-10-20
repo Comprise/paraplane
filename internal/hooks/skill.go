@@ -20,7 +20,7 @@ func skill(env Env, in Input) ([]byte, error) {
 	if digest == "" {
 		return nil, nil
 	}
-	return encodeJSON(hookOutput{Hook: &hookSpecific{EventName: "PreToolUse", AdditionalContext: digest}})
+	return encodeJSON(hookOutput{Hook: &hookSpecific{EventName: "PreToolUse", AdditionalContext: env.Agent.text(digest)}})
 }
 
 // skillDigest is the digest for another plugin's skill name: ExecDigest for

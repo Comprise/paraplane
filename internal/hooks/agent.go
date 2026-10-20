@@ -7,7 +7,9 @@ import (
 	"strings"
 )
 
-// Agent is the coding agent that runs the hooks. Its zero value means Claude.
+// Agent is the coding agent that runs the hooks. The zero value "" is not
+// the Claude constant but behaves like it: only Codex changes any text or
+// check.
 type Agent string
 
 const (
@@ -38,7 +40,14 @@ func (a Agent) Skill(name string) string {
 
 // pluginRootSafe limits the plugin root put into suggested commands: the text
 // is pasted into a shell, so nothing but plain path characters may appear.
+// pluginRootOK also refuses a root that cleans to "/".
 var pluginRootSafe = regexp.MustCompile(`^/[A-Za-z0-9_./-]*$`)
+
+// pluginRootOK reports whether root is a safe absolute plugin root with at
+// least one path segment.
+func pluginRootOK(root string) bool {
+	return pluginRootSafe.MatchString(root) && path.Clean(root) != "/"
+}
 
 // CLI is how texts for this agent name the plugin binary. Codex's shell tool
 // has no plugin bin/ on PATH, so it gets the absolute path under
@@ -47,7 +56,7 @@ var pluginRootSafe = regexp.MustCompile(`^/[A-Za-z0-9_./-]*$`)
 // every OS: the text goes to a shell, not to the file system API.
 func (a Agent) CLI() string {
 	if a == Codex {
-		if root := os.Getenv("CLAUDE_PLUGIN_ROOT"); pluginRootSafe.MatchString(root) {
+		if root := os.Getenv("CLAUDE_PLUGIN_ROOT"); pluginRootOK(root) {
 			return path.Join(root, "bin", "paraplane")
 		}
 	}

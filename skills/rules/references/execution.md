@@ -41,8 +41,10 @@ The coordinator is the main Claude session. Subagents implement tasks.
    audit cannot tell tasks of one wave apart (T1 writing a file of T2 is not visible); the gate's
    tests catch that.
    The audit runs `git status` with `--ignore-submodules=all`. Because `git status` may run filter
-   drivers and the audit is approved without a prompt, it refuses to run when the local repository
-   config defines `filter.<name>.clean`, `.smudge` or `.process`:
+   drivers and the audit is approved without a prompt, it refuses to run when the local or worktree
+   repository config (including files pulled in with `include`/`includeIf`) defines
+   `filter.<name>.clean`, `.smudge` or `.process`. Only the user's global git config is trusted
+   (git-lfs and the like); the system config is not read:
    `error: the repository config defines filter drivers; paraplane audit does not run git status here`
    (exit 1). Report it to the user and check the wave's files against `owns` by hand.
 2. **Gate:** run the wave's gate (`wave.gate`, else `plan.gate`, else `default_gate`) — the full

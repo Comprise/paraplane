@@ -2,12 +2,15 @@ package hooks
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
+	"errors"
 	"io"
-	"os"
+	"io/fs"
 	"path/filepath"
 	"strings"
 
+	"paraplane/internal/fsx"
 	"paraplane/internal/rules"
 )
 
@@ -54,7 +57,7 @@ func Stop(env Env, in Input) ([]byte, error) {
 			return nil, nil
 		}
 	}
-	if len(md) > postMaxFile {
+	if len(md) > fsx.MaxFile {
 		return nil, nil
 	}
 	r := rules.Check([]byte(md), Options(env))
@@ -62,7 +65,7 @@ func Stop(env Env, in Input) ([]byte, error) {
 		return nil, nil
 	}
 	reason := "paraplane: the proposed plan is not ready for parallel execution. Fix these and propose the revised plan again:\n" +
-		postFindings(r.Findings) + "\nFormat and rules: skill " + env.Agent.Skill("rules") + "."
+		planFindings(env.Agent, r.Findings) + env.Agent.text("\nFormat and rules: skill paraplane:rules.")
 	if env.Config.Mode == "warn" {
 		return encodeJSON(hookOutput{SystemMessage: reason})
 	}
@@ -85,35 +88,21 @@ func codexTagPlan(s string) (string, bool) {
 
 // codexReadTail reads at most the last codexMaxTranscript bytes of the
 // transcript; a cut first line is dropped. ok is false when name is not an
-// absolute path to a regular file: the type is checked with Lstat before
-// opening, so a symlink or a FIFO is never opened.
+// absolute path to an existing regular file (fsx never opens a symlink or a
+// FIFO).
 func codexReadTail(name string) (data []byte, ok bool, err error) {
 	if name == "" || !filepath.IsAbs(name) {
 		return nil, false, nil
 	}
-	fi, err := os.Lstat(name)
-	if err != nil || !fi.Mode().IsRegular() {
-		if err != nil && !os.IsNotExist(err) {
-			return nil, false, err
-		}
-		return nil, false, nil
-	}
-	f, err := os.Open(name)
+	f, fi, err := fsx.OpenRegular(name)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fsx.ErrNotRegular) {
 			return nil, false, nil
 		}
 		return nil, false, err
 	}
 	defer f.Close()
-	opened, err := f.Stat()
-	if err != nil {
-		return nil, false, err
-	}
-	if !opened.Mode().IsRegular() || !os.SameFile(fi, opened) {
-		return nil, false, nil
-	}
-	off := opened.Size() - codexMaxTranscript
+	off := fi.Size() - codexMaxTranscript
 	if off > 0 {
 		if _, err := f.Seek(off, io.SeekStart); err != nil {
 			return nil, false, err
@@ -182,7 +171,7 @@ func codexTranscriptPlan(tail []byte, turn string) (plan string, known bool) {
 			}
 		case r.Type == "response_item" && p.Type == "message":
 			known = true
-			id := firstNonEmpty(p.Passthrough.TurnID, r.Metadata.RetainedSource.ID.TurnID, current)
+			id := cmp.Or(p.Passthrough.TurnID, r.Metadata.RetainedSource.ID.TurnID, current)
 			if p.Role != "assistant" || turn == "" || id != turn {
 				continue
 			}
@@ -190,7 +179,7 @@ func codexTranscriptPlan(tail []byte, turn string) (plan string, known bool) {
 				plan = s
 			}
 		case r.Type == "event_msg" && p.Type == "item_completed" && p.Item.Type == "Plan":
-			if turn != "" && firstNonEmpty(p.TurnID, current) == turn && p.Item.Text != "" {
+			if turn != "" && cmp.Or(p.TurnID, current) == turn && p.Item.Text != "" {
 				plan = p.Item.Text
 			}
 		}
@@ -214,13 +203,4 @@ func codexMessageText(raw json.RawMessage) string {
 		}
 	}
 	return b.String()
-}
-
-func firstNonEmpty(ss ...string) string {
-	for _, s := range ss {
-		if s != "" {
-			return s
-		}
-	}
-	return ""
 }

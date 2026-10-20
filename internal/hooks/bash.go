@@ -28,20 +28,20 @@ func bash(env Env, in Input) ([]byte, error) {
 }
 
 // bashApprovable reports whether the tool call is a Bash run of the plugin's
-// own CLI that the hook may approve. Codex runs it by absolute path (its shell
-// has no plugin bin/ on PATH); that path points at the plugin's binary itself,
-// so PATH shadowing does not matter for it.
+// own CLI that the hook may approve. Codex's shell has no plugin bin/ on
+// PATH, so for Codex only the absolute Codex.CLI() form is approved (it names
+// the plugin's binary itself) and the bare name never is, nor anything when
+// the plugin root is unset or unsafe. For Claude the bare name is approved
+// unless PATH shadows the plugin's binary.
 func bashApprovable(env Env, in Input) bool {
 	if in.ToolName != "Bash" {
 		return false
 	}
 	cmd := bashCommand(in)
 	if env.Agent == Codex {
-		if abs := Codex.CLI(); abs != "paraplane" {
-			if rest, ok := strings.CutPrefix(cmd, abs+" "); ok {
-				return bashAllowed("paraplane " + rest)
-			}
-		}
+		abs := Codex.CLI()
+		rest, ok := strings.CutPrefix(cmd, abs+" ")
+		return abs != "paraplane" && ok && bashAllowed("paraplane "+rest)
 	}
 	return bashAllowed(cmd) && !bashShadowed()
 }
@@ -67,12 +67,15 @@ func bashAllowed(cmd string) bool {
 }
 
 // bashShadowed reports whether "paraplane" on PATH is not the plugin's own
-// binary, so the approval would run someone else's program. Best effort: the
-// hook sees Claude Code's PATH, which is close to the Bash tool's.
+// binary, so the approval would run someone else's program. Without an
+// absolute CLAUDE_PLUGIN_ROOT there is nothing to compare with, so it fails
+// closed.
+// Best effort: the hook sees Claude Code's PATH, which is close to the Bash
+// tool's.
 func bashShadowed() bool {
 	pluginRoot := os.Getenv("CLAUDE_PLUGIN_ROOT")
-	if pluginRoot == "" {
-		return false
+	if !filepath.IsAbs(pluginRoot) {
+		return true
 	}
 	found, err := exec.LookPath("paraplane")
 	if errors.Is(err, exec.ErrDot) {

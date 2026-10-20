@@ -1,6 +1,8 @@
 package hooks
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -309,7 +311,7 @@ func TestPostToolUseWindowsPath(t *testing.T) {
 }
 
 func TestPreToolUseDispatch(t *testing.T) {
-	t.Setenv("CLAUDE_PLUGIN_ROOT", "") // no shadow check
+	noShadow(t)
 	env := testEnv(t)
 	out, err := PreToolUse(env, toolInput(t, "Skill", map[string]any{"skill": "superpowers:writing-plans"}))
 	if err != nil {
@@ -327,17 +329,80 @@ func TestPreToolUseDispatch(t *testing.T) {
 }
 
 func TestDisabled(t *testing.T) {
-	t.Setenv("CLAUDE_PLUGIN_ROOT", "")
-	env := testEnv(t)
-	env.Config.Enabled = false
-	abs := writePlan(t, env, "docs/plans/a.md", planBad)
-	nilOut(t)(PreToolUse(env, exitPlanIn(t, map[string]any{"plan": planBad})))
-	nilOut(t)(PreToolUse(env, toolInput(t, "Skill", map[string]any{"skill": "superpowers:writing-plans"})))
-	nilOut(t)(PreToolUse(env, toolInput(t, "Bash", map[string]any{"command": "paraplane version"})))
-	nilOut(t)(PostToolUse(env, postIn(t, "Write", map[string]any{"file_path": abs})))
+	// With enabled: false every handler is silent for both agents, even for
+	// input that would otherwise get an answer.
+	t.Setenv("CLAUDE_PLUGIN_ROOT", safeRoot)
+	t.Setenv("PATH", t.TempDir())
+	cli := safeRoot + "/bin/paraplane"
+	for _, agent := range []Agent{Claude, Codex} {
+		env := testEnv(t)
+		env.Agent = agent
+		env.ConfigErr = errors.New("config.yaml: ignored mode (bad)")
+		abs := writePlan(t, env, "docs/plans/a.md", planBad)
+		cases := map[string]func(Env) ([]byte, error){
+			"SessionStart": func(e Env) ([]byte, error) { return SessionStart(e, Input{HookEventName: "SessionStart"}) },
+			"ExitPlanMode": func(e Env) ([]byte, error) { return PreToolUse(e, exitPlanIn(t, map[string]any{"plan": planBad})) },
+			"Skill": func(e Env) ([]byte, error) {
+				return PreToolUse(e, toolInput(t, "Skill", map[string]any{"skill": "superpowers:writing-plans"}))
+			},
+			"Bash": func(e Env) ([]byte, error) {
+				return PreToolUse(e, toolInput(t, "Bash", map[string]any{"command": "paraplane version"}))
+			},
+			"Write": func(e Env) ([]byte, error) {
+				return PostToolUse(e, postIn(t, "Write", map[string]any{"file_path": abs}))
+			},
+			"Codex Bash": func(e Env) ([]byte, error) {
+				return PostToolUse(e, bashIn(t, e.Root, "printf x > docs/plans/a.md"))
+			},
+			"apply_patch": func(e Env) ([]byte, error) {
+				return PostToolUse(e, Input{ToolName: "apply_patch", Cwd: e.Root,
+					ToolInput: json.RawMessage(`{"input":"*** Add File: docs/plans/a.md\n"}`)})
+			},
+			"Stop": func(e Env) ([]byte, error) { return Stop(e, stopIn(t, turnBad)) },
+			"PromptSubmit": func(e Env) ([]byte, error) {
+				return PromptSubmit(e, Input{Prompt: "$superpowers:executing-plans"})
+			},
+			"PermissionRequest": func(e Env) ([]byte, error) { return PermissionRequest(e, permIn(t, cli+" version")) },
+		}
+		for name, call := range cases {
+			t.Run(string(agent)+" "+name, func(t *testing.T) {
+				off := env
+				off.Config.Enabled = false
+				nilOut(t)(call(off))
+			})
+		}
+	}
+}
+
+// TestDisabledInputsAreLive guards TestDisabled: each of its Codex inputs
+// gets an answer while the plugin is enabled (the Claude ones are covered by
+// the tests of each handler).
+func TestDisabledInputsAreLive(t *testing.T) {
+	t.Setenv("CLAUDE_PLUGIN_ROOT", safeRoot)
+	env := codexEnv(t)
+	writePlan(t, env, "docs/plans/a.md", planBad)
+	for name, call := range map[string]func() ([]byte, error){
+		"SessionStart": func() ([]byte, error) { return SessionStart(env, Input{}) },
+		"Codex Bash":   func() ([]byte, error) { return PostToolUse(env, bashIn(t, env.Root, "printf x > docs/plans/a.md")) },
+		"apply_patch": func() ([]byte, error) {
+			return PostToolUse(env, Input{ToolName: "apply_patch", Cwd: env.Root,
+				ToolInput: json.RawMessage(`{"input":"*** Add File: docs/plans/a.md\n"}`)})
+		},
+		"Stop":              func() ([]byte, error) { return Stop(env, stopIn(t, turnBad)) },
+		"PromptSubmit":      func() ([]byte, error) { return PromptSubmit(env, Input{Prompt: "$superpowers:executing-plans"}) },
+		"PermissionRequest": func() ([]byte, error) { return PermissionRequest(env, permIn(t, safeRoot+"/bin/paraplane version")) },
+	} {
+		if out, err := call(); err != nil || out == nil {
+			t.Errorf("%s: got %q, %v while enabled", name, out, err)
+		}
+	}
 }
 
 func TestOptions(t *testing.T) {
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	old := postNow
+	postNow = func() time.Time { return now }
+	t.Cleanup(func() { postNow = old })
 	env := testEnv(t)
 	env.Config.HotFiles = []string{"go.mod"}
 	env.Config.DefaultGate = "make"
@@ -346,16 +411,38 @@ func TestOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	writePlan(t, env, "a/f.go", "x")
-	before := time.Now()
 	o := Options(env)
 	if len(o.HotFiles) != 1 || o.HotFiles[0] != "go.mod" || o.DefaultGate != "make" || o.MaxParallel != 3 {
 		t.Errorf("Options = %+v", o)
 	}
-	if d := o.Deadline.Sub(before); d < 5*time.Second || d > 6*time.Second {
-		t.Errorf("deadline in %v, want 5s", d)
+	if want := now.Add(5 * time.Second); !o.Deadline.Equal(want) {
+		t.Errorf("deadline %v, want %v", o.Deadline, want)
 	}
 	if o.IsDir == nil || !o.IsDir("a/b") || !o.IsDir("a") || o.IsDir("a/f.go") || o.IsDir("nope") {
 		t.Error("IsDir does not follow the file system under Root")
+	}
+}
+
+// planLongW3 is planW3 with a title so long that the shorter layout is over
+// maxLayout.
+func planLongW3() string {
+	return strings.Replace(planW3, "title: a,", "title: "+strings.Repeat("a", maxLayout)+",", 1)
+}
+
+func TestExitPlanModeLongLayout(t *testing.T) {
+	// A shorter layout over the cap is not cut (a cut block is not valid
+	// YAML): the text points at `paraplane check --suggest` instead.
+	out, err := PreToolUse(testEnv(t), exitPlanIn(t, map[string]any{"plan": planLongW3()}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if !strings.Contains(s, "warning W3: ") || strings.Contains(s, "Shorter layout:") || strings.Contains(s, "```paraplane\\nversion") ||
+		!strings.HasSuffix(s, `\nThe shorter layout is too long to show here: run `+"`paraplane check --suggest <file>`"+` for the shorter layout."}}`) {
+		t.Errorf("got %.500s … %s", s, s[max(0, len(s)-300):])
+	}
+	if len(out) > 8<<10 {
+		t.Errorf("answer is %d bytes", len(out))
 	}
 }
 
