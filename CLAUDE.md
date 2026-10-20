@@ -1,14 +1,14 @@
 # paraplane
-Плагин Claude Code на Go: проверяет, что план реализации пригоден для параллельного исполнения субагентами (блок `paraplane`, владение файлами `owns`, волны, gate).
+Плагин Claude Code и Codex CLI на Go: проверяет, что план реализации пригоден для параллельного исполнения субагентами (блок `paraplane`, владение файлами `owns`, волны, gate).
 
 - `cmd/paraplane/` — бинарник (check, audit, progress, hook, version)
-- `internal/` — ядро: `config`, `plan`, `pathset`, `rules` (E0–E7, W1–W5, аудит A1), `layout`, `gitx`, `progress`, `hooks`, `textx`, `plugintest`
-- `hooks/`, `skills/`, `agents/`, `bin/`, `.claude-plugin/` — упаковка плагина; `Makefile`, `.github/workflows/` — сборка, CI, релиз
-- `docs/superpowers/` — спецификация и план (источник правды по поведению)
+- `internal/` — ядро: `config`, `plan`, `pathset`, `rules` (E0–E7, W1–W5, аудит A1), `layout`, `gitx`, `fsx`, `progress`, `hooks`, `textx`, `plugintest`
+- `hooks/`, `skills/`, `agents/`, `bin/`, `.claude-plugin/`, `.codex-plugin/`, `.agents/` — упаковка плагина; `ship.txt` — что попадает в релиз
+- `Makefile`, `.github/workflows/` — сборка, CI, релиз
+- `docs/superpowers/` — спецификация и планы (источник правды по поведению)
 
-Подробно: docs/superpowers/specs/2026-10-20-paraplane-design.md
+Details: context/_root.md
 
-<!-- code-review-graph MCP tools -->
 ## MCP Tools: code-review-graph
 
 **This project has a knowledge graph. Start with the code-review-graph
@@ -53,3 +53,19 @@ gives you structural context (callers, dependents, test coverage) that file sear
 3. Use `get_affected_flows_tool` to understand impact.
 4. Use `query_graph_tool` pattern="tests_for" to check coverage.
 <!-- /code-review-graph MCP tools -->
+
+<!-- auto-context:units -->
+## Units (details: context/<unit>.md)
+- `cmd/paraplane` — Бинарник paraplane: CLI check, audit, progress, version и диспетчер хуков `hook <event> [--agent codex]`.
+- `internal/config` — Загрузка .paraplane/config.yaml с поключевой валидацией (неверное значение → дефолт + Problems) и FindRoot.
+- `internal/fsx` — Чтение только обычных файлов: симлинк, FIFO, устройство, каталог или подмена файла дают ErrNotRegular.
+- `internal/gitx` — Changed и WaveCommits поверх git, запускаемого так, чтобы конфиг чужого репозитория не исполнил программ.
+- `internal/hooks` — Обработчики хуков Claude Code и Codex: проверка плана, дайджесты правил, автоодобрение CLI paraplane.
+- `internal/layout` — Находит конфликты пар задач под дедлайном, строит кратчайшую раскладку (ASAP) и рендерит её блоком paraplane.
+- `internal/pathset` — Валидирует пути плана и консервативно решает, могут ли два глоба описать один файл (без учёта регистра).
+- `internal/plan` — Извлекает блок ```paraplane из Markdown и строго разбирает YAML в Plan с лимитами и типизированными ошибками.
+- `internal/plugintest` — Тесты упаковки плагина: frontmatter скиллов и агентов, POSIX-шим, манифесты Claude/Codex, ship.txt, примеры планов.
+- `internal/progress` — Рендер прогресса плана: шапка 72 колонки, полоса задач, строка на волну с эмодзи-квадратами, предупреждения.
+- `internal/rules` — Валидирует блок paraplane по правилам E0–E7, W1–W5 и проверяет изменения волны против owns (A1).
+- `internal/textx` — Очистка недоверенного текста перед выводом: `Line` — одна строка по рунам, `Block` — многострочный текст по байтам.
+<!-- /auto-context:units -->

@@ -1,0 +1,9 @@
+language: ru
+include:
+  - internal/config
+  - internal/gitx
+  - internal/layout
+  - internal/pathset
+  - internal/plan
+  - internal/progress
+  - internal/textx
