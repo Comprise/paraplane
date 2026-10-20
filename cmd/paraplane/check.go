@@ -126,6 +126,11 @@ func readPlanFile(name, cwd, root string) (data []byte, rel string, err error) {
 		abs = filepath.Join(cwd, abs)
 	}
 	abs = filepath.Clean(abs)
+	// A directory (".", "..", the root itself) gets a plain message, not
+	// "outside the project root" or "not a regular file".
+	if fi, err := os.Lstat(abs); err == nil && fi.IsDir() {
+		return nil, "", fmt.Errorf("%s is a directory, not a plan file", shown)
+	}
 	// The directories on the way may be symlinks (macOS /var → /private/var):
 	// compare the real paths. The file itself must not be one.
 	dir, err := filepath.EvalSymlinks(filepath.Dir(abs))

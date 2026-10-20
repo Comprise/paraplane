@@ -18,7 +18,9 @@ hook text gives, `<plugin dir>/bin/paraplane` (the plugin directory in the Codex
   finish again. The second `Stop` of the same turn (`stop_hook_active`) stays silent, so run
   `paraplane check` yourself on the final text.
 - **Plan files.** Codex writes files through `Bash` (`printf … > docs/plans/x.md`) or `apply_patch`. The
-  `PostToolUse` hook checks existing files that match `plan_paths`: E0 is a hint, E1–E7 block. A file written
+  `PostToolUse` hook checks existing files that match `plan_paths`: E0 is a hint, E1–E7 block a file the command
+  writes; a file the command only reads (`cat plan.md`) gets E1–E7 as context, never a block, and E0 gives
+  nothing. A file written
   indirectly can be missed, so always run `paraplane check <file>` before declaring the plan final.
 - **Skills.** `UserPromptSubmit` sees `$…` mentions in the prompt: an execution skill (`execut`,
   `subagent-driven`) brings the execution rules, a skill with `plan` in its name brings the planning rules.
@@ -27,8 +29,10 @@ hook text gives, `<plugin dir>/bin/paraplane` (the plugin directory in the Codex
 
 Codex does not load plugin agents. When these rules say "run `paraplane:conflict-auditor`", read
 `agents/conflict-auditor.md` from the plugin directory and do the audit yourself, as that text describes:
-read-only (read and search files, no edits), the same finding kinds and the same output (`verdict: clean` or
-`verdict: conflicts` plus findings with file and line evidence). Fix the plan afterwards as usual.
+read-only (read and search files, no edits), the same finding kinds and the same output (`verdict: clean`,
+`verdict: conflicts` plus findings with file and line evidence, or `verdict: error` with one `- kind: input`
+item when the plan cannot be read, has zero or several `paraplane` blocks, or its YAML is invalid). Fix the
+plan afterwards as usual; `error` is never `clean`: fix the input and audit again, or report it to the user.
 
 ## Subagents
 

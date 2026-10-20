@@ -16,6 +16,8 @@ func checkClean(t *testing.T, md []byte) {
 	for _, f := range res.Findings {
 		if f.Severity == rules.Error {
 			t.Errorf("%s", f)
+		} else {
+			t.Logf("%s (warnings do not fail)", f)
 		}
 	}
 	if res.Plan == nil {

@@ -117,3 +117,33 @@ func TestShimSessionStartPassesOutput(t *testing.T) {
 		t.Errorf("code=%d out=%q", code, out)
 	}
 }
+
+// A binary that exists but lost its executable bit is reported as such, not
+// as missing, and hooks still exit 0.
+func TestShimBinaryNotExecutable(t *testing.T) {
+	dir := plugin(t, `echo '{"ok":true}'`)
+	name := filepath.Join(dir, "libexec", "paraplane-"+runtime.GOOS+"-"+runtime.GOARCH)
+	if err := os.Chmod(name, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out, _ := shim(t, dir, t.TempDir(), "hook", "session-start")
+	if code != 0 || !strings.Contains(out, "is not executable") || strings.Contains(out, `"ok"`) {
+		t.Errorf("session-start: code=%d out=%q", code, out)
+	}
+	if code, out, _ := shim(t, dir, t.TempDir(), "hook", "pre-tool-use"); code != 0 || out != "" {
+		t.Errorf("other hook: code=%d out=%q", code, out)
+	}
+	if code, _, errs := shim(t, dir, t.TempDir(), "check", "x.md"); code != 1 || !strings.Contains(errs, "is not executable") {
+		t.Errorf("CLI: code=%d stderr=%q", code, errs)
+	}
+}
+
+// Hooks other than session-start pass a healthy answer through unchanged.
+func TestShimOtherHooksPassOutput(t *testing.T) {
+	dir := plugin(t, `echo '{"ok":true}'`)
+	for _, h := range []string{"pre-tool-use", "post-tool-use", "permission-request", "prompt-submit", "stop"} {
+		if code, out, _ := shim(t, dir, t.TempDir(), "hook", h); code != 0 || strings.TrimSpace(out) != `{"ok":true}` {
+			t.Errorf("%s: code=%d out=%q", h, code, out)
+		}
+	}
+}

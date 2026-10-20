@@ -51,9 +51,10 @@ func (c planChange) touches(md []byte) bool {
 // File or Move to) gets the verdict of a Write; an in-place edit (sed -i, a
 // patch Update File) gets the verdict of an Edit, and only when the change
 // touches the block or its keys; a file that is only mentioned, as by a
-// read, blocks on E1–E7 alone (also when the same command edits it without
-// touching the block). A file written indirectly is missed; Stop and
-// the skills catch that. The first plan file with an answer wins.
+// read, gets context on E1–E7 alone and is never blocked (also when the same
+// command edits it without touching the block). A file written indirectly is
+// missed; Stop and the skills catch that. The first plan file with an answer
+// wins.
 func codexPost(env Env, in Input) ([]byte, error) {
 	var cands []shellWord
 	if in.ToolName == "Bash" {
@@ -139,21 +140,68 @@ type shellToken struct {
 	text string
 }
 
+// heredoc is a here-document of a command line: its delimiter word and
+// whether leading tabs are stripped (<<-).
+type heredoc struct {
+	delim string
+	strip bool
+}
+
 // shellLex splits a command into words and operators: blanks separate words;
 // ; & | ( ) newline and backtick end a simple command; quotes and
 // backslashes are removed. Expansions are left as text: this only has to
-// find literal file names.
+// find literal file names. A here-document (<< or <<- WORD) is not a file:
+// its delimiter is dropped and its body, the lines after the next newline up
+// to the delimiter line, is skipped. Inside arithmetic (( )), $(( )) and
+// $[ ] the operators < << <<= > >> and parentheses are arithmetic, not
+// redirections, heredocs or command ends.
 func shellLex(cmd string) []shellToken {
 	var toks []shellToken
 	var cur strings.Builder
 	in := false // cur holds a word, possibly empty ("")
 	digits := true
+	wantDelim, strip := false, false // the next word is a heredoc delimiter
+	var docs []heredoc               // heredocs whose bodies start after the next newline
+	arith, parens := false, 0        // inside (( )) or $(( )); open inner parentheses
+	brackets := 0                    // open $[ ] groups
 	flush := func() {
 		if in {
-			toks = append(toks, shellToken{text: cur.String()})
+			if wantDelim {
+				docs = append(docs, heredoc{delim: cur.String(), strip: strip})
+				wantDelim = false
+			} else {
+				toks = append(toks, shellToken{text: cur.String()})
+			}
 			cur.Reset()
 			in, digits = false, true
 		}
+	}
+	// skipBodies skips the bodies of docs; nl is the index of the newline
+	// that ends their command line. It returns the index of the newline that
+	// ends the last delimiter line, or len(cmd).
+	skipBodies := func(nl int) int {
+		i := nl
+		for _, d := range docs {
+			for i < len(cmd) {
+				start := i + 1
+				end := strings.IndexByte(cmd[start:], '\n')
+				if end < 0 {
+					end = len(cmd)
+				} else {
+					end += start
+				}
+				line := strings.TrimSuffix(cmd[start:end], "\r")
+				if d.strip {
+					line = strings.TrimLeft(line, "\t")
+				}
+				i = end
+				if line == d.delim {
+					break
+				}
+			}
+		}
+		docs = docs[:0]
+		return i
 	}
 	add := func(c byte) {
 		in = true
@@ -164,6 +212,10 @@ func shellLex(cmd string) []shellToken {
 	}
 	for i := 0; i < len(cmd); i++ {
 		c := cmd[i]
+		if (arith || brackets > 0) && (c == '<' || c == '>') {
+			flush() // an arithmetic operator
+			continue
+		}
 		switch c {
 		case '\'':
 			in, digits = true, false
@@ -192,7 +244,7 @@ func shellLex(cmd string) []shellToken {
 				}
 			}
 		case '>':
-			if in && digits {
+			if in && digits && !wantDelim {
 				cur.Reset() // a file descriptor, as in 2>file
 				in = false
 			}
@@ -208,6 +260,18 @@ func shellLex(cmd string) []shellToken {
 			toks = append(toks, shellToken{op: ">"})
 		case '<':
 			flush()
+			switch {
+			case strings.HasPrefix(cmd[i:], "<<<"):
+				i += 2 // a here-string: the next word is text, read like a file
+			case strings.HasPrefix(cmd[i:], "<<"):
+				i++
+				strip = i+1 < len(cmd) && cmd[i+1] == '-'
+				if strip {
+					i++
+				}
+				wantDelim = true
+				continue
+			}
 			toks = append(toks, shellToken{op: "<"})
 		case '&':
 			flush()
@@ -215,7 +279,48 @@ func shellLex(cmd string) []shellToken {
 				continue // &> file
 			}
 			toks = append(toks, shellToken{op: "sep"})
-		case ';', '|', '(', ')', '`', '\n':
+		case '\n':
+			flush()
+			wantDelim = false
+			toks = append(toks, shellToken{op: "sep"})
+			if len(docs) > 0 {
+				i = skipBodies(i)
+			}
+		case '(':
+			flush()
+			switch {
+			case arith:
+				parens++
+			case i+1 < len(cmd) && cmd[i+1] == '(':
+				arith, parens = true, 0 // (( or $((
+				i++
+			default:
+				toks = append(toks, shellToken{op: "sep"})
+			}
+		case ')':
+			flush()
+			switch {
+			case arith && parens > 0:
+				parens--
+			case arith:
+				arith = false // the first ) of ))
+				if i+1 < len(cmd) && cmd[i+1] == ')' {
+					i++
+				}
+			default:
+				toks = append(toks, shellToken{op: "sep"})
+			}
+		case '[':
+			if i > 0 && cmd[i-1] == '$' {
+				brackets++ // $[ ]
+			}
+			add(c)
+		case ']':
+			if brackets > 0 {
+				brackets--
+			}
+			add(c)
+		case ';', '|', '`':
 			flush()
 			toks = append(toks, shellToken{op: "sep"})
 		case ' ', '\t', '\r':

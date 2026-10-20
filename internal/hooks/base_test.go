@@ -256,6 +256,52 @@ func TestBashAllowPathShadow(t *testing.T) {
 	}
 }
 
+// TestOwnBinary runs the shadow comparison for every OS with a fake
+// resolver: on Windows bin/paraplane.exe counts too and case is ignored.
+func TestOwnBinary(t *testing.T) {
+	root := "/p"
+	bin := filepath.Join(root, "bin")
+	links := map[string]string{filepath.Join("/usr", "local", "bin", "paraplane"): filepath.Join(bin, "paraplane")}
+	resolve := func(p string) (string, error) {
+		if p == filepath.Join("/", "missing") {
+			return "", os.ErrNotExist
+		}
+		if to, ok := links[p]; ok {
+			return to, nil
+		}
+		return p, nil
+	}
+	for _, c := range []struct {
+		found, goos string
+		want        bool
+	}{
+		{filepath.Join(bin, "paraplane"), "linux", true},
+		{filepath.Join(bin, "paraplane"), "windows", true},
+		{filepath.Join(bin, "paraplane.exe"), "windows", true},
+		{filepath.Join(bin, "paraplane.exe"), "linux", false},
+		{filepath.Join(bin, "paraplane.exe"), "darwin", false},
+		{filepath.Join(root, "BIN", "Paraplane.EXE"), "windows", true},
+		{filepath.Join(root, "BIN", "paraplane"), "linux", false},
+		{filepath.Join("/usr", "local", "bin", "paraplane"), "darwin", true},
+		{filepath.Join("/other", "paraplane.exe"), "windows", false},
+		{filepath.Join("/", "missing"), "linux", false},
+	} {
+		if got := ownBinary(c.found, root, c.goos, resolve); got != c.want {
+			t.Errorf("ownBinary(%s, %s) = %v, want %v", c.found, c.goos, got, c.want)
+		}
+	}
+	// The plugin's binary cannot be resolved: nothing is its own.
+	fail := func(p string) (string, error) {
+		if strings.HasPrefix(p, bin) {
+			return "", os.ErrNotExist
+		}
+		return p, nil
+	}
+	if ownBinary(filepath.Join("/x", "paraplane"), root, "windows", fail) {
+		t.Error("unresolvable plugin binary counted as own")
+	}
+}
+
 func TestBashCodexBareName(t *testing.T) {
 	// Codex's shell has no plugin bin/ on PATH: the bare name is never its
 	// own binary, so it is not approved even where Claude's would be.

@@ -68,9 +68,11 @@ const (
 )
 
 // postVerdict is the PostToolUse answer for the plan file rel with content
-// md, checked with o (one Options, so one deadline, per hook call): E0 adds context, E1–E7 block (context in mode warn), warnings add
-// context only for a write. A read answers only E1–E7. paraplane's own
-// strings go through env.Agent.text; the plan path and plan text do not.
+// md, checked with o (one Options, so one deadline, per hook call): E0 adds
+// context, E1–E7 block (context in mode warn), warnings add context only for
+// a write. A read answers only E1–E7, and only with context: the same text,
+// never a block (spec section 12a.2). paraplane's own strings go through
+// env.Agent.text; the plan path and plan text do not.
 func postVerdict(env Env, o rules.Options, rel string, md []byte, k postKind) ([]byte, error) {
 	r := rules.Check(md, o)
 	if k == postRead && (r.Errors() == 0 || r.Findings[0].Code == "E0") {
@@ -85,7 +87,7 @@ func postVerdict(env Env, o rules.Options, rel string, md []byte, k postKind) ([
 	case r.Errors() > 0:
 		reason := "paraplane: " + name + " is not ready for parallel execution (fix it before the plan is final):\n" +
 			planFindings(env.Agent, r.Findings) + text("\nFormat and rules: skill paraplane:rules.")
-		if env.Config.Mode == "warn" {
+		if env.Config.Mode == "warn" || k == postRead {
 			return contextOutput("PostToolUse", reason)
 		}
 		return encodeJSON(hookOutput{Decision: "block", Reason: reason})
@@ -97,7 +99,8 @@ func postVerdict(env Env, o rules.Options, rel string, md []byte, k postKind) ([
 
 // editTouchesPlan reports whether an Edit may have changed the plan block:
 // either string names the block or one of its keys, or a non-empty
-// new_string occurs inside the block of the edited file.
+// new_string occurs in the edited file overlapping the block (an occurrence
+// that starts before the block but reaches into it counts).
 func editTouchesPlan(md []byte, oldS, newS string) bool {
 	for _, k := range planKeys {
 		if strings.Contains(oldS, k) || strings.Contains(newS, k) {
@@ -118,7 +121,10 @@ func editTouchesPlan(md []byte, oldS, newS string) bool {
 			return false
 		}
 		at := from + i
-		if at >= blk.Start && at < blk.End {
+		if at >= blk.End {
+			return false
+		}
+		if at+len(newS) > blk.Start {
 			return true
 		}
 		from = at + 1

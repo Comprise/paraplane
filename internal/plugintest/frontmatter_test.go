@@ -2,6 +2,7 @@ package plugintest
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,18 +13,65 @@ import (
 
 const root = "../.."
 
-// frontmatter parses the leading YAML block of path strictly: unknown
-// structure is fine, but the YAML itself must be valid.
-func frontmatter(t *testing.T, path string) map[string]any {
-	t.Helper()
+// skillMeta and agentMeta list every frontmatter key the Claude Code docs
+// (code.claude.com/docs/en/slash-commands and /sub-agents) define for skills
+// and subagents. Claude Code silently ignores any other key, so a typo would
+// go unnoticed; the strict decode fails on it instead.
+type skillMeta struct {
+	Name                   string    `yaml:"name"`
+	Description            string    `yaml:"description"`
+	WhenToUse              string    `yaml:"when_to_use"`
+	ArgumentHint           string    `yaml:"argument-hint"`
+	Arguments              any       `yaml:"arguments"`
+	DisableModelInvocation *bool     `yaml:"disable-model-invocation"`
+	UserInvocable          *bool     `yaml:"user-invocable"`
+	AllowedTools           any       `yaml:"allowed-tools"`
+	DisallowedTools        any       `yaml:"disallowed-tools"`
+	Model                  string    `yaml:"model"`
+	Effort                 string    `yaml:"effort"`
+	Context                string    `yaml:"context"`
+	Agent                  string    `yaml:"agent"`
+	Background             *bool     `yaml:"background"`
+	Hooks                  yaml.Node `yaml:"hooks"`
+	Paths                  any       `yaml:"paths"`
+	Shell                  string    `yaml:"shell"`
+	Metadata               yaml.Node `yaml:"metadata"`
+	License                string    `yaml:"license"`
+	Compatibility          string    `yaml:"compatibility"`
+}
+
+type agentMeta struct {
+	Name            string    `yaml:"name"`
+	Description     string    `yaml:"description"`
+	Tools           any       `yaml:"tools"`
+	DisallowedTools any       `yaml:"disallowedTools"`
+	Model           string    `yaml:"model"`
+	PermissionMode  string    `yaml:"permissionMode"`
+	MaxTurns        *int      `yaml:"maxTurns"`
+	Skills          any       `yaml:"skills"`
+	MCPServers      yaml.Node `yaml:"mcpServers"`
+	Hooks           yaml.Node `yaml:"hooks"`
+	Memory          string    `yaml:"memory"`
+	Background      *bool     `yaml:"background"`
+	OmitClaudeMd    *bool     `yaml:"omitClaudeMd"`
+	Effort          string    `yaml:"effort"`
+	Isolation       string    `yaml:"isolation"`
+	Color           string    `yaml:"color"`
+	InitialPrompt   string    `yaml:"initialPrompt"`
+	Experimental    yaml.Node `yaml:"experimental"`
+}
+
+// frontmatter decodes the leading YAML block of path into out strictly: the
+// YAML must be valid and use only the keys out declares.
+func frontmatter(path string, out any) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
 	rest, ok := bytes.CutPrefix(data, []byte("---\n"))
 	if !ok {
-		t.Fatalf("%s: does not start with ---", path)
+		return fmt.Errorf("%s: does not start with ---", path)
 	}
 	var fm []byte
 	if i := bytes.Index(rest, []byte("\n---\n")); i >= 0 {
@@ -31,56 +79,128 @@ func frontmatter(t *testing.T, path string) map[string]any {
 	} else if b, ok := bytes.CutSuffix(rest, []byte("\n---")); ok {
 		fm = append(b, '\n')
 	} else {
-		t.Fatalf("%s: frontmatter is not closed", path)
+		return fmt.Errorf("%s: frontmatter is not closed", path)
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(fm))
 	dec.KnownFields(true)
-	var m map[string]any
-	if err := dec.Decode(&m); err != nil {
-		t.Fatalf("%s: %v", path, err)
+	if err := dec.Decode(out); err != nil {
+		return fmt.Errorf("%s: %v", path, err)
 	}
-	return m
+	return nil
+}
+
+// toolList splits a tools value (comma-separated string or YAML list) into
+// trimmed, non-empty entries.
+func toolList(v any) ([]string, error) {
+	var raw []string
+	switch v := v.(type) {
+	case string:
+		raw = strings.Split(v, ",")
+	case []any:
+		for _, e := range v {
+			s, ok := e.(string)
+			if !ok {
+				return nil, fmt.Errorf("tools entry %v is not a string", e)
+			}
+			raw = append(raw, s)
+		}
+	default:
+		return nil, fmt.Errorf("tools has type %T", v)
+	}
+	var tools []string
+	for _, s := range raw {
+		if s = strings.TrimSpace(s); s != "" {
+			tools = append(tools, s)
+		}
+	}
+	return tools, nil
+}
+
+func TestFrontmatterRejectsUnknownKey(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "s.md", "---\nname: s\ndescription: d\nbogus: 1\n---\nbody\n")
+	write(t, dir, "a.md", "---\nname: a\ndescription: d\ndisallowed-tools: Bash\n---\nbody\n")
+	var sm skillMeta
+	if err := frontmatter(filepath.Join(dir, "s.md"), &sm); err == nil || !strings.Contains(err.Error(), "bogus") {
+		t.Errorf("skill with unknown key: err = %v", err)
+	}
+	var am agentMeta // the skill spelling is not an agent key
+	if err := frontmatter(filepath.Join(dir, "a.md"), &am); err == nil || !strings.Contains(err.Error(), "disallowed-tools") {
+		t.Errorf("agent with skill-only key: err = %v", err)
+	}
+}
+
+func TestToolListDropsEmpty(t *testing.T) {
+	for _, in := range []any{"", " , ", []any{}, []any{" ", ""}} {
+		if got, err := toolList(in); err != nil || len(got) != 0 {
+			t.Errorf("toolList(%q) = %q, %v; want empty", in, got, err)
+		}
+	}
+	if got, _ := toolList(" Read, ,Grep "); strings.Join(got, "|") != "Read|Grep" {
+		t.Errorf("toolList = %q", got)
+	}
+	if _, err := toolList(nil); err == nil {
+		t.Error("toolList(nil) gave no error")
+	}
 }
 
 func TestSkillsFrontmatter(t *testing.T) {
 	skills, _ := filepath.Glob(filepath.Join(root, "skills", "*", "SKILL.md"))
-	agents, _ := filepath.Glob(filepath.Join(root, "agents", "*.md"))
-	if len(skills) == 0 || len(agents) == 0 {
-		t.Fatalf("found %d skills, %d agents", len(skills), len(agents))
+	if len(skills) == 0 {
+		t.Fatal("found no skills")
 	}
-	for _, p := range append(skills, agents...) {
-		isSkill := filepath.Base(p) == "SKILL.md"
-		want := strings.TrimSuffix(filepath.Base(p), ".md")
-		if isSkill {
-			want = filepath.Base(filepath.Dir(p))
-		}
+	for _, p := range skills {
+		want := filepath.Base(filepath.Dir(p))
 		t.Run(want, func(t *testing.T) {
-			m := frontmatter(t, p)
-			if name, _ := m["name"].(string); name != want {
-				t.Errorf("name = %q, want %q", m["name"], want)
+			var m skillMeta
+			if err := frontmatter(p, &m); err != nil {
+				t.Fatal(err)
 			}
-			if d, _ := m["description"].(string); strings.TrimSpace(d) == "" {
+			if m.Name != want {
+				t.Errorf("name = %q, want %q", m.Name, want)
+			}
+			if strings.TrimSpace(m.Description) == "" {
 				t.Errorf("description is empty")
 			}
-			if isSkill && (want == "create" || want == "check") && m["disable-model-invocation"] != true {
-				t.Errorf("disable-model-invocation = %v, want true", m["disable-model-invocation"])
+			if (want == "create" || want == "check") && (m.DisableModelInvocation == nil || !*m.DisableModelInvocation) {
+				t.Errorf("disable-model-invocation is not true")
 			}
-			if !isSkill {
-				var tools []string
-				switch v := m["tools"].(type) {
-				case string:
-					tools = strings.Split(v, ",")
-				case []any:
-					for _, e := range v {
-						s, _ := e.(string)
-						tools = append(tools, s)
-					}
-				}
-				for _, tl := range tools {
-					switch strings.TrimSpace(tl) {
-					case "Write", "Edit", "Bash":
-						t.Errorf("tools contains %q", strings.TrimSpace(tl))
-					}
+		})
+	}
+}
+
+func TestAgentsFrontmatter(t *testing.T) {
+	agents, _ := filepath.Glob(filepath.Join(root, "agents", "*.md"))
+	if len(agents) == 0 {
+		t.Fatal("found no agents")
+	}
+	for _, p := range agents {
+		want := strings.TrimSuffix(filepath.Base(p), ".md")
+		t.Run(want, func(t *testing.T) {
+			var m agentMeta
+			if err := frontmatter(p, &m); err != nil {
+				t.Fatal(err)
+			}
+			if m.Name != want {
+				t.Errorf("name = %q, want %q", m.Name, want)
+			}
+			if strings.TrimSpace(m.Description) == "" {
+				t.Errorf("description is empty")
+			}
+			if m.Tools == nil {
+				t.Fatal("agent has no tools: key (it would inherit every tool)")
+			}
+			tools, err := toolList(m.Tools)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(tools) == 0 {
+				t.Error("tools lists no tool")
+			}
+			for _, tl := range tools {
+				switch tl {
+				case "Write", "Edit", "Bash", "NotebookEdit":
+					t.Errorf("tools contains %q", tl)
 				}
 			}
 		})

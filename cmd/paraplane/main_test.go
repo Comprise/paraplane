@@ -198,6 +198,20 @@ func TestCheckCLI(t *testing.T) {
 	if code, out, _ := cli(t, sub, "", "check", "../ok.md"); code != 0 {
 		t.Errorf("subdir: code %d, out %q", code, out)
 	}
+
+	// A directory — the root, its parent, a subdirectory — is named as one,
+	// on stdout like every other error.
+	write(t, dir, ".paraplane/config.yaml", "mode: block\n")
+	for _, c := range []struct{ cwd, name string }{{dir, "."}, {dir, ".."}, {sub, ".."}, {dir, "d.md"}, {dir, "sub"}} {
+		code, out, errOut := cli(t, c.cwd, "", "check", c.name)
+		if code != 1 || out != "error: "+c.name+" is a directory, not a plan file\n" || errOut != "" {
+			t.Errorf("dir %q from %s: code %d, out %q, stderr %q", c.name, c.cwd, code, out, errOut)
+		}
+	}
+	if code, out, errOut := cli(t, dir, "", "audit", "..", "W1"); code != 1 ||
+		out != "error: .. is a directory, not a plan file\n" || errOut != "" {
+		t.Errorf("audit dir: code %d, out %q, stderr %q", code, out, errOut)
+	}
 }
 
 func TestAuditCLI(t *testing.T) {

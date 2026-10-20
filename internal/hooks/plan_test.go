@@ -249,6 +249,23 @@ func TestPostToolUseEditInsideBlock(t *testing.T) {
 	})
 }
 
+func TestPostToolUseEditOverlapsBlock(t *testing.T) {
+	// planBad has "- [ ] step 1\n\n" right before the block's opening fence.
+	env := testEnv(t)
+	abs := writePlan(t, env, "docs/plans/a.md", planBad)
+	edit := func(newS string) ([]byte, error) {
+		return PostToolUse(env, postIn(t, "Edit", map[string]any{"file_path": abs, "old_string": "x", "new_string": newS}))
+	}
+	// Starts before the block and reaches into its fence.
+	out, err := edit("1\n\n```")
+	if err != nil {
+		t.Fatal(err)
+	}
+	golden(t, "plan_post_block", out)
+	// Ends right where the block starts: outside.
+	nilOut(t)(edit("step 1\n\n"))
+}
+
 func TestPostToolUseEditDeleteInBlock(t *testing.T) {
 	env := testEnv(t)
 	abs := writePlan(t, env, "docs/plans/a.md", planBad)
@@ -310,6 +327,46 @@ func TestPostToolUseWindowsPath(t *testing.T) {
 	})
 }
 
+// TestRootRelSymlink: a root and a path that name the same directory through
+// a symlink (macOS: /var is /private/var) still compare equal; the plan file
+// itself is not resolved.
+func TestRootRelSymlink(t *testing.T) {
+	dir := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Skipf("no symlinks: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "docs", "plans"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ root, fp string }{
+		{link, filepath.Join(dir, "docs", "plans", "a.md")},
+		{dir, filepath.Join(link, "docs", "plans", "a.md")},
+		{link, filepath.Join(link, "docs", "plans", "a.md")},
+	} {
+		if rel, ok := rootRel(c.root, c.fp); !ok || rel != "docs/plans/a.md" {
+			t.Errorf("rootRel(%s, %s) = %q, %v", c.root, c.fp, rel, ok)
+		}
+	}
+	if rel, ok := rootRel(link, filepath.Join(t.TempDir(), "docs", "plans", "a.md")); ok {
+		t.Errorf("outside root: got %q", rel)
+	}
+	// The hook itself finds and checks the plan.
+	env := testEnv(t)
+	env.Root = link
+	writePlan(t, Env{Root: dir}, "docs/plans/a.md", planBad)
+	out, err := PostToolUse(env, postIn(t, "Write", map[string]any{"file_path": filepath.Join(dir, "docs", "plans", "a.md")}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	golden(t, "plan_post_block", out)
+	// A symlinked plan file is not followed.
+	if err := os.Symlink(filepath.Join(dir, "docs", "plans", "a.md"), filepath.Join(dir, "docs", "plans", "b.md")); err != nil {
+		t.Fatal(err)
+	}
+	nilOut(t)(PostToolUse(env, postIn(t, "Write", map[string]any{"file_path": filepath.Join(dir, "docs", "plans", "b.md")})))
+}
+
 func TestPreToolUseDispatch(t *testing.T) {
 	noShadow(t)
 	env := testEnv(t)
@@ -328,72 +385,70 @@ func TestPreToolUseDispatch(t *testing.T) {
 	nilOut(t)(PreToolUse(env, toolInput(t, "Read", map[string]any{"file_path": "x"})))
 }
 
+// TestDisabled runs every handler for both agents: with enabled: false each
+// is silent, and the same input gets an answer while enabled wherever the
+// handler serves that agent (so a silent handler cannot pass by accident).
 func TestDisabled(t *testing.T) {
-	// With enabled: false every handler is silent for both agents, even for
-	// input that would otherwise get an answer.
 	t.Setenv("CLAUDE_PLUGIN_ROOT", safeRoot)
-	t.Setenv("PATH", t.TempDir())
-	cli := safeRoot + "/bin/paraplane"
+	t.Setenv("PATH", t.TempDir()) // no paraplane on PATH: Claude's Bash approval does not look further
+	both := map[Agent]bool{Claude: true, Codex: true}
+	codexOnly := map[Agent]bool{Codex: true}
+	cases := []struct {
+		name string
+		live map[Agent]bool // the agents that get an answer while enabled
+		call func(Env, string) ([]byte, error)
+	}{
+		{"SessionStart", both, func(e Env, _ string) ([]byte, error) {
+			return SessionStart(e, Input{HookEventName: "SessionStart"})
+		}},
+		{"ExitPlanMode", both, func(e Env, _ string) ([]byte, error) {
+			return PreToolUse(e, exitPlanIn(t, map[string]any{"plan": planBad}))
+		}},
+		{"Skill", both, func(e Env, _ string) ([]byte, error) {
+			return PreToolUse(e, toolInput(t, "Skill", map[string]any{"skill": "superpowers:writing-plans"}))
+		}},
+		{"Bash", both, func(e Env, _ string) ([]byte, error) {
+			return PreToolUse(e, toolInput(t, "Bash", map[string]any{"command": e.Agent.CLI() + " version"}))
+		}},
+		{"Write", both, func(e Env, abs string) ([]byte, error) {
+			return PostToolUse(e, postIn(t, "Write", map[string]any{"file_path": abs}))
+		}},
+		{"Edit", both, func(e Env, abs string) ([]byte, error) {
+			return PostToolUse(e, postIn(t, "Edit", map[string]any{"file_path": abs, "old_string": "x", "new_string": "owns:"}))
+		}},
+		{"Codex Bash", codexOnly, func(e Env, _ string) ([]byte, error) {
+			return PostToolUse(e, bashIn(t, e.Root, "printf x > docs/plans/a.md"))
+		}},
+		{"Codex Bash read", codexOnly, func(e Env, _ string) ([]byte, error) {
+			return PostToolUse(e, bashIn(t, e.Root, "cat docs/plans/a.md"))
+		}},
+		{"apply_patch", codexOnly, func(e Env, _ string) ([]byte, error) {
+			return PostToolUse(e, Input{ToolName: "apply_patch", Cwd: e.Root,
+				ToolInput: json.RawMessage(`{"input":"*** Add File: docs/plans/a.md\n"}`)})
+		}},
+		{"Stop", codexOnly, func(e Env, _ string) ([]byte, error) { return Stop(e, stopIn(t, turnBad)) }},
+		{"PromptSubmit", codexOnly, func(e Env, _ string) ([]byte, error) {
+			return PromptSubmit(e, Input{Prompt: "$superpowers:executing-plans"})
+		}},
+		{"PermissionRequest", codexOnly, func(e Env, _ string) ([]byte, error) {
+			return PermissionRequest(e, permIn(t, safeRoot+"/bin/paraplane version"))
+		}},
+	}
 	for _, agent := range []Agent{Claude, Codex} {
 		env := testEnv(t)
 		env.Agent = agent
 		env.ConfigErr = errors.New("config.yaml: ignored mode (bad)")
 		abs := writePlan(t, env, "docs/plans/a.md", planBad)
-		cases := map[string]func(Env) ([]byte, error){
-			"SessionStart": func(e Env) ([]byte, error) { return SessionStart(e, Input{HookEventName: "SessionStart"}) },
-			"ExitPlanMode": func(e Env) ([]byte, error) { return PreToolUse(e, exitPlanIn(t, map[string]any{"plan": planBad})) },
-			"Skill": func(e Env) ([]byte, error) {
-				return PreToolUse(e, toolInput(t, "Skill", map[string]any{"skill": "superpowers:writing-plans"}))
-			},
-			"Bash": func(e Env) ([]byte, error) {
-				return PreToolUse(e, toolInput(t, "Bash", map[string]any{"command": "paraplane version"}))
-			},
-			"Write": func(e Env) ([]byte, error) {
-				return PostToolUse(e, postIn(t, "Write", map[string]any{"file_path": abs}))
-			},
-			"Codex Bash": func(e Env) ([]byte, error) {
-				return PostToolUse(e, bashIn(t, e.Root, "printf x > docs/plans/a.md"))
-			},
-			"apply_patch": func(e Env) ([]byte, error) {
-				return PostToolUse(e, Input{ToolName: "apply_patch", Cwd: e.Root,
-					ToolInput: json.RawMessage(`{"input":"*** Add File: docs/plans/a.md\n"}`)})
-			},
-			"Stop": func(e Env) ([]byte, error) { return Stop(e, stopIn(t, turnBad)) },
-			"PromptSubmit": func(e Env) ([]byte, error) {
-				return PromptSubmit(e, Input{Prompt: "$superpowers:executing-plans"})
-			},
-			"PermissionRequest": func(e Env) ([]byte, error) { return PermissionRequest(e, permIn(t, cli+" version")) },
-		}
-		for name, call := range cases {
-			t.Run(string(agent)+" "+name, func(t *testing.T) {
+		for _, c := range cases {
+			t.Run(string(agent)+" "+c.name, func(t *testing.T) {
+				out, err := c.call(env, abs)
+				if live := c.live[agent]; err != nil || (out != nil) != live {
+					t.Errorf("enabled: got %q, %v; want an answer: %v", out, err, live)
+				}
 				off := env
 				off.Config.Enabled = false
-				nilOut(t)(call(off))
+				nilOut(t)(c.call(off, abs))
 			})
-		}
-	}
-}
-
-// TestDisabledInputsAreLive guards TestDisabled: each of its Codex inputs
-// gets an answer while the plugin is enabled (the Claude ones are covered by
-// the tests of each handler).
-func TestDisabledInputsAreLive(t *testing.T) {
-	t.Setenv("CLAUDE_PLUGIN_ROOT", safeRoot)
-	env := codexEnv(t)
-	writePlan(t, env, "docs/plans/a.md", planBad)
-	for name, call := range map[string]func() ([]byte, error){
-		"SessionStart": func() ([]byte, error) { return SessionStart(env, Input{}) },
-		"Codex Bash":   func() ([]byte, error) { return PostToolUse(env, bashIn(t, env.Root, "printf x > docs/plans/a.md")) },
-		"apply_patch": func() ([]byte, error) {
-			return PostToolUse(env, Input{ToolName: "apply_patch", Cwd: env.Root,
-				ToolInput: json.RawMessage(`{"input":"*** Add File: docs/plans/a.md\n"}`)})
-		},
-		"Stop":              func() ([]byte, error) { return Stop(env, stopIn(t, turnBad)) },
-		"PromptSubmit":      func() ([]byte, error) { return PromptSubmit(env, Input{Prompt: "$superpowers:executing-plans"}) },
-		"PermissionRequest": func() ([]byte, error) { return PermissionRequest(env, permIn(t, safeRoot+"/bin/paraplane version")) },
-	} {
-		if out, err := call(); err != nil || out == nil {
-			t.Errorf("%s: got %q, %v while enabled", name, out, err)
 		}
 	}
 }
@@ -471,7 +526,9 @@ func specialFiles(t *testing.T, env Env, dir string) map[string]string {
 	return got
 }
 
-// within fails the test when call does not return within 2 s.
+// within fails the test when call does not return within 10 s: a hook that
+// opened a FIFO or a device would block for good, so the limit only has to
+// be far above the time of a normal call, also under -race.
 func within(t *testing.T, call func() ([]byte, error)) ([]byte, error) {
 	t.Helper()
 	type res struct {
@@ -486,7 +543,7 @@ func within(t *testing.T, call func() ([]byte, error)) ([]byte, error) {
 	select {
 	case r := <-ch:
 		return r.out, r.err
-	case <-time.After(2 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("hook blocked")
 		return nil, nil
 	}

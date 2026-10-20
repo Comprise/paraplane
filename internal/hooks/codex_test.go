@@ -320,6 +320,33 @@ func TestCodexBashPlanFile(t *testing.T) {
 	mustNil(t, out, err)
 }
 
+// TestCodexBashReadContext: a plan file that a command only reads gets the
+// text of the block reason as context (spec section 12a.2), in both modes.
+func TestCodexBashReadContext(t *testing.T) {
+	env := codexEnv(t)
+	writePlan(t, env, "docs/plans/x.md", planBad)
+	for _, cmd := range []string{"cat docs/plans/x.md", "sed -n 1,9p docs/plans/x.md", "wc -l < docs/plans/x.md"} {
+		out, err := PostToolUse(env, bashIn(t, env.Root, cmd))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Run(cmd, func(t *testing.T) { golden(t, "codex_post_read", out) })
+	}
+	env.Config.Mode = "warn"
+	out, err := PostToolUse(env, bashIn(t, env.Root, "cat docs/plans/x.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	golden(t, "codex_post_read", out)
+	// A write in the same command keeps the full verdict.
+	env.Config.Mode = "block"
+	out, err = PostToolUse(env, bashIn(t, env.Root, "cat docs/plans/x.md > /tmp/y; printf x >> docs/plans/x.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	golden(t, "codex_post_block", out)
+}
+
 func TestCodexBashQuoted(t *testing.T) {
 	env := codexEnv(t)
 	writePlan(t, env, "docs/plans/a b.md", planBad)
@@ -531,6 +558,8 @@ func TestCodexBashReadVsWrite(t *testing.T) {
 		e0    = "has no valid ```paraplane block yet"
 		block = `"decision":"block"`
 		warn  = "plan warnings (not blocking)"
+		// A read gets the block text as context, never a block.
+		read = `"additionalContext":"paraplane: docs/plans/e2.md is not ready for parallel execution`
 	)
 	for _, c := range []struct{ cmd, want string }{
 		// Reads: only E1–E7 count.
@@ -541,8 +570,8 @@ func TestCodexBashReadVsWrite(t *testing.T) {
 		{"cat docs/plans/noblock.md 2>&1 > out.txt", none},
 		{"cat docs/plans/noblock.md >&2", none},
 		{"sed -e s/a/b/ docs/plans/noblock.md", none},
-		{"cat docs/plans/e2.md", block},
-		{"grep -c x docs/plans/e2.md", block},
+		{"cat docs/plans/e2.md", read},
+		{"grep -c x docs/plans/e2.md", read},
 		// Writes: the full verdict of a Write.
 		{"printf x > docs/plans/noblock.md", e0},
 		{"printf x >>docs/plans/noblock.md", e0},
@@ -559,7 +588,7 @@ func TestCodexBashReadVsWrite(t *testing.T) {
 		{"mv -t/tmp/out docs/plans/noblock.md", none},
 		{"mv --target-directory=/tmp/out docs/plans/noblock.md", none},
 		{"install --target-directory /tmp/out docs/plans/noblock.md docs/plans/warn.md", none},
-		{"cp -t /tmp/out docs/plans/e2.md", block},
+		{"cp -t /tmp/out docs/plans/e2.md", read},
 		{"cp -t docs/plans /tmp/x/noblock.md", e0}, // writes docs/plans/noblock.md
 		{"mv --target-directory=docs/plans/ src/noblock.md", e0},
 		{"install -t docs/plans /tmp/warn.md", warn},
@@ -582,7 +611,7 @@ func TestCodexBashReadVsWrite(t *testing.T) {
 		{"sed -i --file=fix.sed docs/plans/e2.md", block},
 		{"sed -i 's/waves:/waves:/' docs/plans/noblock.md", e0},
 		{"sed -i 's/x/verify: v/' docs/plans/warn.md", none},
-		{"sed -n 's/x/a.go/p' docs/plans/e2.md", block}, // a read: E2 still blocks
+		{"sed -n 's/x/a.go/p' docs/plans/e2.md", read}, // a read: E2 is context
 		{"sed -i '3s/x/QQ/g;/z/,$s,a,ZZ,' docs/plans/e2.md", none},
 		{`sed -i 's/x/\&/' docs/plans/e2.md`, none}, // an escaped & is literal
 		// The script does not show the inserted text: the full Write verdict.
@@ -598,9 +627,25 @@ func TestCodexBashReadVsWrite(t *testing.T) {
 		{"sed -i 's/x/y/w out' docs/plans/e2.md", block},
 		{"sed -i 9d docs/plans/warn.md", warn},
 		// Read and an edit that misses the block: the read verdict stays.
-		{"cat docs/plans/e2.md; sed -i s/T9/T8/ docs/plans/e2.md", block},
+		{"cat docs/plans/e2.md; sed -i s/T9/T8/ docs/plans/e2.md", read},
 		{"cat docs/plans/noblock.md; sed -i s/a/b/ docs/plans/noblock.md", none},
 		{"printf x > docs/plans/e2.md", block},
+		// Heredoc bodies are not scanned for plan paths.
+		{"cat <<EOF > out.txt\nsee docs/plans/e2.md\nEOF", none},
+		{"cat <<EOF\ndocs/plans/e2.md", none}, // unterminated body
+		{"cat <<A <<'B' >o\na\nA\ndocs/plans/e2.md\nB\n", none},
+		{"cat <<-\"X\" >o\n\tdocs/plans/e2.md\n\tX\ncat docs/plans/e2.md", read},
+		{"cat <<EOF\r\ndocs/plans/e2.md\r\nEOF\r\ncat docs/plans/e2.md", read},
+		{"cat > docs/plans/noblock.md <<EOF\ndocs/plans/e2.md\nEOF", e0},
+		{"cat <<< docs/plans/e2.md", read}, // a here-string is a word
+		{"cat <<EOF >out.txt\nbody\nEOF\nprintf x > docs/plans/e2.md", block},
+		{"cat <<1>docs/plans/noblock.md\nbody\n1", e0}, // delimiter 1, not fd 1
+		// Arithmetic << and > are neither heredocs nor redirections.
+		{"echo $((1<<2))\nprintf x > docs/plans/e2.md", block},
+		{"((x<<=1))\nprintf x > docs/plans/e2.md", block},
+		{"echo $[1<<2]\nprintf x > docs/plans/e2.md", block},
+		{"echo $(( (1<<2) > 1 ))\nprintf x > docs/plans/e2.md", block},
+		{"echo $((1>2)) docs/plans/noblock.md", none},
 	} {
 		out, err := PostToolUse(env, bashIn(t, env.Root, c.cmd))
 		if err != nil {
@@ -611,6 +656,8 @@ func TestCodexBashReadVsWrite(t *testing.T) {
 			t.Errorf("%q: got %s, want nil", c.cmd, out)
 		case c.want != none && !strings.Contains(string(out), c.want):
 			t.Errorf("%q: got %s, want %q", c.cmd, out, c.want)
+		case c.want == read && strings.Contains(string(out), `"decision"`):
+			t.Errorf("%q: a read got a decision: %s", c.cmd, out)
 		}
 	}
 
@@ -638,6 +685,32 @@ func TestCodexBashReadVsWrite(t *testing.T) {
 			t.Errorf("patch %q: got %s, want nil", c.patch, out)
 		case c.want != none && !strings.Contains(string(out), c.want):
 			t.Errorf("patch %q: got %s, want %q", c.patch, out, c.want)
+		}
+	}
+}
+
+func TestShellLexHeredoc(t *testing.T) {
+	for cmd, want := range map[string]string{
+		"cat <<EOF >o\nbody x\nEOF\nls y":   "cat o ls y",
+		"cat <<-EOF\n\tbody\n\tEOF\nls":     "cat ls",
+		"cat << 'E O'\nbody\nE O\nls":       "cat ls",
+		"cat <<EOF\nEOFX\nEOF":              "cat",
+		"a <<A; b <<B\n1\nA\n2\nB\nc":       "a b c",
+		"cat <<EOF":                         "cat",
+		"cat <<<word":                       "cat word",
+		"cat <<EOF\n  EOF\nstill body\nEOF": "cat", // <<: no blanks stripped
+		"cat <<EOF\n\tEOF\nstill body\nEOF": "cat", // <<: no tabs stripped
+		"cat <<EOF\n\tEOF\nEOF\nls x":       "cat ls x",
+		"cat <<1>out\nbody\n1":              "cat out",
+		"echo $((1<<2))\nls x":              "echo $ 1 2 ls x",
+		"echo $[1<<2] y":                    "echo $[1 2] y",
+	} {
+		var got []string
+		for _, w := range shellWords(cmd) {
+			got = append(got, w.text)
+		}
+		if g := strings.Join(got, " "); g != want {
+			t.Errorf("%q: words %q, want %q", cmd, g, want)
 		}
 	}
 }
@@ -700,7 +773,7 @@ func TestCodexMaxPlans(t *testing.T) {
 	// A plan file mentioned again does not take a new slot.
 	cmd = "cat docs/plans/bad.md " + strings.Join(files, " ") + " docs/plans/bad.md"
 	out, err := PostToolUse(env, bashIn(t, env.Root, cmd))
-	if err != nil || !strings.Contains(string(out), `"decision":"block"`) {
+	if err != nil || !strings.Contains(string(out), `"additionalContext":"paraplane: docs/plans/bad.md is not ready`) {
 		t.Errorf("bad first: got %s, %v", out, err)
 	}
 }
@@ -753,25 +826,34 @@ func slowPlan() string {
 	return b.String()
 }
 
-// TestCodexSlowPlansOneDeadline: two plan files that each run until the
-// deadline take one deadline in all, not one each.
+// TestCodexSlowPlansOneDeadline: plan files that each run until the
+// deadline take one deadline in all, not one each. It measures wall-clock
+// time, so it does not run under -race, and its threshold is 3× the budget
+// while a deadline per file would take 6×.
 func TestCodexSlowPlansOneDeadline(t *testing.T) {
+	if raceEnabled {
+		t.Skip("wall-clock test; -race is too slow")
+	}
 	const budget = 400 * time.Millisecond
+	const files = 6
 	old := postNow
 	postNow = func() time.Time { return time.Now().Add(budget - checkTimeout) }
 	t.Cleanup(func() { postNow = old })
 	env := codexEnv(t)
-	writePlan(t, env, "docs/plans/a.md", slowPlan())
-	writePlan(t, env, "docs/plans/b.md", slowPlan())
-	// A read answers a deadline E0 with nothing, so both files are checked.
+	cmd := "cat"
+	for i := range files {
+		name := fmt.Sprintf("docs/plans/slow%d.md", i)
+		writePlan(t, env, name, slowPlan())
+		cmd += " " + name
+	}
+	// A read answers a deadline E0 with nothing, so every file is checked.
 	start := time.Now()
-	out, err := PostToolUse(env, bashIn(t, env.Root, "cat docs/plans/a.md docs/plans/b.md"))
+	out, err := PostToolUse(env, bashIn(t, env.Root, cmd))
 	d := time.Since(start)
 	mustNil(t, out, err)
-	t.Logf("two slow plans: %v", d)
-	// A deadline per file would take at least 2*budget.
-	if d >= 2*budget {
-		t.Errorf("took %v; want under %v (one deadline)", d, 2*budget)
+	t.Logf("%d slow plans: %v", files, d)
+	if d >= 3*budget {
+		t.Errorf("took %v; want under %v (one deadline, not %d)", d, 3*budget, files)
 	}
 }
 

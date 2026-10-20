@@ -114,8 +114,28 @@ func contextOutput(event, text string) ([]byte, error) {
 
 // rootRel turns a file path into a path relative to root with "/"
 // separators; a backslash counts as a separator on every platform. A
-// relative path is taken relative to root. ok is false outside root.
+// relative path is taken relative to root. ok is false outside root. An
+// absolute path outside root is compared again with symlinks resolved in
+// root and in the path's directory (macOS: /var is /private/var); its last
+// element is not resolved, so a symlinked plan file stays a symlink.
 func rootRel(root, fp string) (string, bool) {
+	if rel, ok := rootRelLexical(root, fp); ok || fp == "" || root == "" || !slashAbs(anySlash(fp)) {
+		return rel, ok
+	}
+	r, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", false
+	}
+	p := filepath.FromSlash(anySlash(fp))
+	dir, err := filepath.EvalSymlinks(filepath.Dir(p))
+	if err != nil {
+		return "", false
+	}
+	return rootRelLexical(r, filepath.Join(dir, filepath.Base(p)))
+}
+
+// rootRelLexical is rootRel without resolving symlinks.
+func rootRelLexical(root, fp string) (string, bool) {
 	if fp == "" || root == "" {
 		return "", false
 	}

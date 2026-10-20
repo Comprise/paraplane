@@ -152,3 +152,37 @@ func TestShimHooksBuffered(t *testing.T) {
 		t.Errorf("pre-tool-use ok: code=%d out=%q", code, out)
 	}
 }
+
+// The workflows take what ships from ship.txt (directly or through make tree,
+// which reads it) and stamp the release with the tag minus its leading v.
+func TestWorkflowsUseShipListAndTagVersion(t *testing.T) {
+	read := func(rel string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.ReplaceAll(string(data), "\r\n", "\n")
+	}
+	mk := read("Makefile")
+	if !strings.Contains(mk, "< ship.txt") {
+		t.Error("Makefile: make tree does not read ship.txt")
+	}
+	ci := read(".github/workflows/ci.yml")
+	if !strings.Contains(ci, "make tree") {
+		t.Error("ci.yml does not build the shipped tree with make tree (which reads ship.txt)")
+	}
+	rel := read(".github/workflows/release.yml")
+	if n := strings.Count(rel, "$(cat ship.txt)"); n < 2 {
+		t.Errorf("release.yml reads ship.txt %d time(s), want the archive and the release branch both from it", n)
+	}
+	for _, want := range []string{
+		`-X main.version=${GITHUB_REF_NAME#v}`,
+		`--arg v "${GITHUB_REF_NAME#v}" '.version=$v' .claude-plugin/plugin.json`,
+		`--arg v "${GITHUB_REF_NAME#v}" '.version=$v' .codex-plugin/plugin.json`,
+	} {
+		if !strings.Contains(rel, want) {
+			t.Errorf("release.yml does not contain %s", want)
+		}
+	}
+}

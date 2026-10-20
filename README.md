@@ -93,7 +93,8 @@ Every violation is a line with a code, a place and a text. Errors (E) make the p
   tasks of one wave touching the same hot pattern are E5, even if the files differ
   (`migrations/0003_a.sql` and `migrations/0003_b.sql` clash on the number).
 - Pattern overlap is computed conservatively: false alarms are possible (the message says "may overlap"),
-  misses are not.
+  misses are not. Literal segments compare case-insensitively (`README.md` and `readme.md` in one wave may
+  overlap: on macOS and Windows they are one file by default); hot files compare the same way.
 - With E0 errors nothing else is checked; with E1/E3 errors only E7, W1, W2, W4, W5 are checked;
   W3 is reported only when there are no errors at all.
 
@@ -110,7 +111,9 @@ In Claude Code:
 Only the user invokes `create` and `check` (they change files). The `conflict-auditor` agent is started from
 these skills when a wave has two or more tasks and looks for what the plan does not show: hidden shared files,
 registration points, API breaks inside a wave, migrations. Its report is a list of findings and a verdict,
-`clean` or `conflicts`; the plan is edited by the main Claude.
+`clean` or `conflicts`; the plan is edited by the main Claude. When the plan cannot be audited (unreadable file,
+zero or several `paraplane` blocks, invalid YAML) the verdict is `error` with one `input` item: that is not
+`clean` — the skill fixes the input and audits again, or reports the reason.
 
 The command-line utility (you can run it by hand; Claude uses it by itself):
 
@@ -142,9 +145,12 @@ plan invalid: 1 error(s), 2 warning(s)
 Summaries: `plan ok: 3 waves, 7 tasks`, `plan ok with 2 warning(s): 3 waves, 7 tasks` or
 `plan invalid: 1 error(s), 2 warning(s)`. With `--suggest`, on W3 the line `Shorter layout:` and a ready
 `paraplane` block with a shorter layout are printed before the summary (an independent "third" stage moves to
-W1). The W3 text is ``warning W3: the layout can be shorter: 2 waves instead of 3; run `paraplane check --suggest` on the plan file`` (`1 wave` in the singular). Exit code: 0 — no errors, 1 — there are errors or the file is unreadable, 2 — bad arguments. Config
+W1). The W3 text is ``warning W3: the layout can be shorter: 2 waves instead of 3 (`paraplane check --suggest` prints it)`` (`1 wave` in the singular). Exit code: 0 — no errors, 1 — there are errors or the file is unreadable, 2 — bad arguments. Config
 problems are `warning: config: …` lines before the violations. The plan file must be a regular file (not a
-symlink or FIFO) inside the project root and at most 1 MB.
+symlink, FIFO or directory: `error: <path> is a directory, not a plan file`) inside the project root and at most
+1 MB. All `error:`, `warning:` and result lines go to stdout; only the usage text (exit code 2) goes to stderr.
+The shim is the exception: when the binary is missing or not executable, `bin/paraplane` prints
+`paraplane: binary … was not found` (or `… is not executable`) to stderr and exits with 1.
 
 ### `paraplane audit`
 
@@ -167,10 +173,18 @@ not distinguish tasks within a wave — the gate tests catch that.
 approved by the hook without a prompt, therefore:
 
 - before `status`, filter drivers (`filter.*.clean|smudge|process`) are checked; any defined in the `local` or
-  `worktree` scope (including ones pulled in via `include`/`includeIf`) is a refusal
+  `worktree` scope or any other scope except `global` and `command` (including ones pulled in via
+  `include`/`includeIf`) is a refusal
   `error: the repository config defines filter drivers; paraplane audit does not run git status here`
   (exit code 1). Only filters from the user's global git config (for example git-lfs) are trusted; git runs with
-  `GIT_CONFIG_NOSYSTEM=1`, so the system config is not read at all;
+  `GIT_CONFIG_NOSYSTEM=1`, so the system config is not read at all. Git older than 2.26 has no `--show-scope`:
+  then the local and (when `extensions.worktreeConfig` is on) worktree configs are queried separately, and any
+  filter there is a refusal;
+- on git that does not honor `GIT_NO_LAZY_FETCH` (anything but 2.46+ and the fixes 2.45.1, 2.44.1, 2.43.4, 2.42.2,
+  2.41.1, 2.40.2, 2.39.4, or a version that cannot be parsed), `audit` refuses with `error: … partial clone …` in a partial
+  clone (`extensions.partialClone` or `remote.*.promisor` set in any scope) or when the repository config sets
+  `remote.*.uploadpack`; ordinary repositories work on old git too;
+- git output is capped at 16 MiB: more (for example a huge untracked tree) is a refusal `git output too large`;
 - every git call runs with `GIT_NO_LAZY_FETCH=1`, `GIT_OPTIONAL_LOCKS=0` (the index is not written, index hooks do
   not fire) and `GIT_CONFIG_NOSYSTEM=1`, without `GIT_DIR`, `GIT_CONFIG` and other repository variables, and with
   `-c core.fsmonitor=false -c core.pager=cat --no-pager -c log.showSignature=false -c gpg.program=false
@@ -249,9 +263,9 @@ value is a warning, the other fields apply.
 | `mode` | `block` | `block` or `warn`: whether hooks block (`ExitPlanMode`, PostToolUse) or only report |
 | `plan_paths` | `docs/plans/**/*.md`, `docs/superpowers/plans/**/*.md`, `.paraplane/plans/**/*.md` | which files are plans |
 | `hot_files` | `go.mod`, `go.sum`, `**/package.json`, `**/package-lock.json`, `**/pnpm-lock.yaml`, `**/yarn.lock`, `**/Cargo.toml`, `**/Cargo.lock`, `**/pyproject.toml`, `**/uv.lock`, `**/poetry.lock`, `**/migrations/**` | hot files |
-| `default_gate` | `""` | default gate |
+| `default_gate` | `""` | default gate; one line within the length limit, without control characters (including TAB, NUL, ESC, DEL), U+2028/U+2029 or invisible format characters (category Cf), otherwise ignored with a warning |
 | `max_parallel` | `6` | W2 threshold, 1…32 |
-| `plans_dir` | `docs/plans` | where `/paraplane:create` saves plans |
+| `plans_dir` | `docs/plans` | where `/paraplane:create` saves plans; a relative path without `..` and without the glob characters `* ? [ ] { }`, otherwise ignored with a warning |
 | `audit_ignore` | `[]` | patterns of files the audit ignores (generated, caches) |
 
 The project root is `CLAUDE_PROJECT_DIR`, otherwise the session `cwd`; then the nearest directory upward with
@@ -262,6 +276,12 @@ The project root is `CLAUDE_PROJECT_DIR`, otherwise the session `cwd`; then the 
 - Claude Code (CLI, IDE extension or desktop app) or Codex CLI (see "Codex CLI").
 - Linux, macOS or Windows (amd64 or arm64). Go is not needed: the plugin is installed with prebuilt binaries.
 - `git` — needed for `paraplane audit` and `paraplane progress`; plan validation (`check`) and hooks work without it.
+  - `audit` is tested from git 2.18. In a partial clone it refuses unless git honors `GIT_NO_LAZY_FETCH`: 2.46+,
+    or 2.45.1, 2.44.1, 2.43.4, 2.42.2, 2.41.1, 2.40.2, 2.39.4. A distro git that backports the fix under an older
+    version number (for example Ubuntu's 2.34.1) is treated as old, so `audit` refuses in partial clones there:
+    upgrade git or use a full clone.
+  - `progress` needs git 2.22+ (it reads trailers with `%(trailers:key=…)`); older git gives an explicit error.
+  - git output over 16 MiB (for example a huge untracked tree) makes `audit` refuse with `git output too large`.
 - **Windows:** [Git for Windows](https://git-scm.com/downloads/win) is required — without Git Bash the plugin
   hooks do not run. If Git Bash is not in the standard place, set the path in `settings.json`:
 
@@ -309,7 +329,7 @@ trusted, Codex does not run them).
 | What | Claude Code | Codex |
 |---|---|---|
 | Plan from plan mode | `PreToolUse` `ExitPlanMode`: leaving is forbidden | `Stop`: the plan from the `<proposed_plan>` block in the transcript; E errors — `block`, Codex continues the turn and fixes the plan; a repeated `Stop` of the same turn stays silent |
-| Plan file | `PostToolUse` `Write\|Edit` | `PostToolUse` `^(Bash\|apply_patch)$`: files from the `Bash` command (`printf … > file`) and from patch headers; E1–E7 — `block`; a write through an indirect command can slip past the hook — `Stop` and the skills catch it |
+| Plan file | `PostToolUse` `Write\|Edit` | `PostToolUse` `^(Bash\|apply_patch)$`: files from the `Bash` command (`printf … > file`) and from patch headers; E1–E7 in a file the command writes — `block`, a file it only reads (`cat plan.md`) — context only; a write through an indirect command can slip past the hook — `Stop` and the skills catch it |
 | Rules before a skill | `PreToolUse` `Skill` | `UserPromptSubmit`: the prompt mentions `$…` with `execut`/`subagent-driven` or `plan` |
 | CLI approval | `PreToolUse` `Bash` | `PermissionRequest` `^Bash$`, only the strict command form and the absolute CLI path |
 | Session context | `SessionStart` | `SessionStart` (with a reference to `$paraplane:rules`) |
@@ -326,9 +346,9 @@ trusted, Codex does not run them).
 - Hidden conflicts (files not named in the plan) are invisible to the deterministic check — that is what the
   `conflict-auditor` agent is for; it is started from skills, not from hooks.
 - Hooks do not use an LLM.
-- Paths are compared as exact strings: on case-insensitive or normalizing filesystems (macOS, Windows) `README.md`
-  and `readme.md`, or NFC and NFD spellings, are one file but different paths to the check, so the overlap is not
-  detected (documented in the skill `rules`).
+- Paths are compared case-insensitively, but without Unicode normalization: on macOS the NFC and NFD spellings of
+  one name are one file but different paths to the check, so their overlap is not detected (documented in the
+  skill `rules`).
 - Codex: returning a plan through `Stop` in Plan Mode (`decision: block`) has not been verified live (Codex avoided
   the conflict itself); recheck after Codex updates (spec, section 13).
 - A user's `/skill` call does not pass through `PreToolUse`; such plans are caught by `ExitPlanMode` and `PostToolUse`.

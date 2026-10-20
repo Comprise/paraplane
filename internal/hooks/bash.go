@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 )
 
@@ -84,7 +85,31 @@ func bashShadowed() bool {
 	if err != nil {
 		return false // not on our PATH; nothing to compare
 	}
-	got, err1 := filepath.EvalSymlinks(found)
-	want, err2 := filepath.EvalSymlinks(filepath.Join(pluginRoot, "bin", "paraplane"))
-	return err1 != nil || err2 != nil || got != want
+	return !ownBinary(found, pluginRoot, runtime.GOOS, filepath.EvalSymlinks)
+}
+
+// ownBinary reports whether found, the paraplane that PATH names, is the
+// plugin's binary pluginRoot/bin/paraplane; on Windows bin/paraplane.exe
+// counts too (PATHEXT finds the .exe) and paths compare case-insensitively.
+// resolve resolves symlinks; a path it cannot resolve is not the binary.
+// It takes goos and resolve as arguments so tests run it on every OS.
+func ownBinary(found, pluginRoot, goos string, resolve func(string) (string, error)) bool {
+	got, err := resolve(found)
+	if err != nil {
+		return false
+	}
+	names := []string{"paraplane"}
+	if goos == "windows" {
+		names = append(names, "paraplane.exe")
+	}
+	for _, n := range names {
+		want, err := resolve(filepath.Join(pluginRoot, "bin", n))
+		if err != nil {
+			continue
+		}
+		if got == want || (goos == "windows" && strings.EqualFold(got, want)) {
+			return true
+		}
+	}
+	return false
 }

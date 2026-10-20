@@ -22,9 +22,12 @@ Validate and restructure the plan: $ARGUMENTS
    - The first line that is not a `warning:` line starts with `error:`, or the exit code is 2: report the
      message and stop.
 3. When a wave has two or more tasks, dispatch the `paraplane:conflict-auditor` agent with the plan file and the
-   project root. Wait for its report (findings and a verdict `clean` / `conflicts`). In Codex plugin
-   agents are not loaded: read `agents/conflict-auditor.md` in the plugin directory and perform the audit
-   yourself, read-only, with exactly that output format.
+   project root. Wait for its report (findings and a verdict `clean` / `conflicts` / `error`). `verdict: error`
+   with a `- kind: input` item means the auditor could not read the plan (unreadable file, zero or several
+   `paraplane` blocks, invalid YAML): it is not `clean`; fix the input it names and re-run the auditor, or
+   report the reason to the user and stop. In Codex plugin agents are not loaded: read
+   `agents/conflict-auditor.md` in the plugin directory and perform the audit yourself, read-only, with
+   exactly that output format.
 4. Edit the plan file itself (do not just describe the changes):
    - fix every `error E…` and every auditor finding (narrow `owns`, add `depends`, move a task to another
      wave, add a missing gate or `verify`);

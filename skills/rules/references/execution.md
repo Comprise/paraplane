@@ -46,7 +46,12 @@ The coordinator is the main Claude session. Subagents implement tasks.
    `filter.<name>.clean`, `.smudge` or `.process`. Only the user's global git config is trusted
    (git-lfs and the like); the system config is not read:
    `error: the repository config defines filter drivers; paraplane audit does not run git status here`
-   (exit 1). Report it to the user and check the wave's files against `owns` by hand.
+   (exit 1). On git that ignores `GIT_NO_LAZY_FETCH` (anything but 2.46+ and 2.45.1, 2.44.1, 2.43.4,
+   2.42.2, 2.41.1, 2.40.2, 2.39.4; an unparsable version and a distro backport under an older version
+   number count as old) it refuses with `error: … partial clone …` when `extensions.partialClone` or
+   `remote.*.promisor` is set in any config, or the repository config sets `remote.*.uploadpack`.
+   It also refuses when git output exceeds 16 MiB (`git output too large`). Report the refusal to the user and check the wave's files against `owns`
+   by hand.
 2. **Gate:** run the wave's gate (`wave.gate`, else `plan.gate`, else `default_gate`) — the full
    check run, not only the new tests.
 3. **Fix before the next wave.** An audit violation or a red gate is fixed before the next wave

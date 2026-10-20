@@ -21,12 +21,13 @@ Codex читает только `hooks/codex.json` (`hooks/hooks.json` игно�
 |---|---|---|---|---|
 | `SessionStart` | — | `session-start` | 10 с | тот же `additionalContext` с `$paraplane:rules` |
 | `UserPromptSubmit` | — | `prompt-submit` | 10 с | промпт упоминает `$…` с `execut`/`subagent-driven` — выжимка правил исполнения; с `plan` — правил составления плана |
-| `PostToolUse` | `^(Bash\|apply_patch)$` | `post-tool-use` | 10 с | из `tool_input.command` берутся слова-пути (относительные — от `cwd`), из патча — заголовки `*** Add/Update File:`, `*** Move to:`; совпавшие с `plan_paths` существующие обычные файлы проверяются: E0 — контекст, E1–E7 — `block` |
+| `PostToolUse` | `^(Bash\|apply_patch)$` | `post-tool-use` | 10 с | из `tool_input.command` берутся слова-пути (относительные — от `cwd`), из патча — заголовки `*** Add/Update File:`, `*** Move to:`; совпавшие с `plan_paths` существующие обычные файлы проверяются: E0 — контекст, E1–E7 — `block` для файла, который команда пишет; файл, который она только читает (`cat plan.md`), — только контекст и только при E1–E7, без `block` |
 | `Stop` | — | `stop` | 10 с | в Plan Mode `last_assistant_message` пуст: транскрипт (`transcript_path`, обычный файл, хвост ≤ 4 МБ) — последний `<proposed_plan>` ассистента текущего хода; есть E — `{"decision":"block","reason":…}`; `stop_hook_active: true`, нет транскрипта или плана — молчит |
 | `PermissionRequest` | `^Bash$` | `permission-request` | 10 с | `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}` только для строгой формы команды `paraplane check/audit/progress/version` с абсолютным путём CLI |
 
 - В тексте хуков CLI назван абсолютным путём `$CLAUDE_PLUGIN_ROOT/bin/paraplane` (`bin/` не в PATH Codex); skills названы только в форме Codex, `$paraplane:x` (тексты самих skills называют оба варианта — `/paraplane:x` и `$paraplane:x`).
 - Агенты плагина Codex не загружает, поэтому событий для `conflict-auditor` нет: аудит выполняют skills.
+- Разбор команды в `PostToolUse`: тело here-документа (`<< WORD`, `<<- WORD`) — текст, пути планов в нём не ищутся, поэтому план, записанный `cat > plan.md << EOF`, находится по перенаправлению, а не по телу; `<<` внутри арифметики (`$(( ))`, `(( ))`, `$[ ]`) — сдвиг, а не here-документ.
 - Хуки Codex нужно доверить в `/hooks`.
 
 ## Общее

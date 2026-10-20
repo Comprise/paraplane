@@ -100,10 +100,12 @@ too is harmless.
    two segments of the form `*<lit>` overlap when one `lit` ends the other (`*.go` and `*_test.go`
    overlap, `*.go` and `*.ts` do not); anything else is assumed to overlap.
 
-False alarms are possible (the message says "may overlap"); misses are not, with one exception: paths
-are compared as exact strings, so on case-insensitive or normalizing filesystems (macOS, Windows)
-`README.md` and `readme.md` (or NFC and NFD spellings) are different paths to the check though one
-file. Give such files to one task by hand. Narrow the patterns to clear a false alarm.
+False alarms are possible (the message says "may overlap"); misses are not, with one exception.
+Literal segments compare case-insensitively, as on the default macOS and Windows filesystems:
+`README.md` and `readme.md` in one wave may overlap (hot files compare the same way). The exception:
+Unicode normalization is not applied, so the NFC and NFD spellings of one name (macOS) are different
+paths to the check though one file. Give such files to one task by hand. Narrow the patterns to clear
+a false alarm.
 
 Overlap drives E2 (`owns`/`owns` in one wave), E4 (`reads`/`owns` in one wave) and E6 (`owns` of a
 later task against `owns` of an earlier task without a dependency).

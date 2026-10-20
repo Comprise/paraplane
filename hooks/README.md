@@ -21,12 +21,13 @@ Codex reads only `hooks/codex.json` (it ignores `hooks/hooks.json`). All hooks c
 |---|---|---|---|---|
 | `SessionStart` | — | `session-start` | 10 s | the same `additionalContext` with `$paraplane:rules` |
 | `UserPromptSubmit` | — | `prompt-submit` | 10 s | the prompt mentions `$…` with `execut`/`subagent-driven` — a digest of the execution rules; with `plan` — of the plan-writing rules |
-| `PostToolUse` | `^(Bash\|apply_patch)$` | `post-tool-use` | 10 s | path words are taken from `tool_input.command` (relative ones from `cwd`), from a patch — the headers `*** Add/Update File:`, `*** Move to:`; existing regular files matching `plan_paths` are validated: E0 — context, E1–E7 — `block` |
+| `PostToolUse` | `^(Bash\|apply_patch)$` | `post-tool-use` | 10 s | path words are taken from `tool_input.command` (relative ones from `cwd`), from a patch — the headers `*** Add/Update File:`, `*** Move to:`; existing regular files matching `plan_paths` are validated: E0 — context, E1–E7 — `block` for a file the command writes; a file it only reads (`cat plan.md`) gets context on E1–E7 only, never `block` |
 | `Stop` | — | `stop` | 10 s | in Plan Mode `last_assistant_message` is empty: the transcript (`transcript_path`, a regular file, tail ≤ 4 MB) — the assistant's last `<proposed_plan>` of the current turn; E errors — `{"decision":"block","reason":…}`; `stop_hook_active: true`, no transcript or plan — silent |
 | `PermissionRequest` | `^Bash$` | `permission-request` | 10 s | `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}` only for the strict form of the command `paraplane check/audit/progress/version` with the absolute CLI path |
 
 - The hook texts name the CLI by the absolute path `$CLAUDE_PLUGIN_ROOT/bin/paraplane` (`bin/` is not on the Codex PATH); skills are named only the Codex way, `$paraplane:x` (the skill texts themselves name both `/paraplane:x` and `$paraplane:x`).
 - Codex does not load plugin agents, so there are no events for `conflict-auditor`: the skills perform the audit.
+- Command parsing in `PostToolUse`: the body of a here-document (`<< WORD`, `<<- WORD`) is text, not scanned for plan paths, so a plan written with `cat > plan.md << EOF` is found by its redirect, not by the body; `<<` inside arithmetic (`$(( ))`, `(( ))`, `$[ ]`) is a shift, not a here-document.
 - The Codex hooks must be trusted in `/hooks`.
 
 ## General

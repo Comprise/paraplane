@@ -94,7 +94,8 @@ waves:
   задачи одной волны, задевающие один горячий шаблон, — E5, даже если это разные файлы
   (`migrations/0003_a.sql` и `migrations/0003_b.sql` конфликтуют по номеру).
 - Пересечение шаблонов считается консервативно: возможны ложные срабатывания (сообщение «may overlap»),
-  пропусков нет.
+  пропусков нет. Литеральные сегменты сравниваются без учёта регистра (`README.md` и `readme.md` в одной волне —
+  «may overlap»: на macOS и Windows по умолчанию это один файл); горячие файлы сравниваются так же.
 - Если есть ошибки E0, остальное не проверяется; при ошибках E1/E3 проверяются только E7, W1, W2, W4, W5;
   W3 выдаётся, только когда ошибок нет вовсе.
 
@@ -111,7 +112,9 @@ waves:
 `create` и `check` вызывает только пользователь (они меняют файлы). Агент `conflict-auditor` запускается из
 этих skills при двух и более задачах в волне и ищет то, чего нет в плане: скрытые общие файлы, регистрационные
 точки, ломку API внутри волны, миграции. Его отчёт — список находок и вердикт `clean` или `conflicts`; план
-правит основной Claude.
+правит основной Claude. Если план нельзя проверить (файл не читается, блоков `paraplane` ноль или несколько,
+YAML невалиден), вердикт — `error` с одной находкой `input`: это не `clean` — skill исправляет входные данные и
+повторяет аудит или сообщает причину.
 
 Консольная утилита (её можно запускать вручную; Claude пользуется ею сам):
 
@@ -142,10 +145,13 @@ plan invalid: 1 error(s), 2 warning(s)
 
 Итоги: `plan ok: 3 waves, 7 tasks`, `plan ok with 2 warning(s): 3 waves, 7 tasks` или
 `plan invalid: 1 error(s), 2 warning(s)`. С `--suggest` при W3 перед итогом выводится `Shorter layout:` и готовый
-блок `paraplane` с более короткой раскладкой (независимый «третий» этап уходит в W1). Текст W3: ``warning W3: the layout can be shorter: 2 waves instead of 3; run `paraplane check --suggest` on the plan file`` (при одной волне — `1 wave`). Код выхода: 0 — ошибок
+блок `paraplane` с более короткой раскладкой (независимый «третий» этап уходит в W1). Текст W3: ``warning W3: the layout can be shorter: 2 waves instead of 3 (`paraplane check --suggest` prints it)`` (при одной волне — `1 wave`). Код выхода: 0 — ошибок
 нет, 1 — есть ошибки или файл не читается, 2 — неверные аргументы. Проблемы конфига — строки
-`warning: config: …` перед нарушениями. Файл плана должен быть обычным файлом (не симлинк, не FIFO) внутри
-корня проекта и не больше 1 МБ.
+`warning: config: …` перед нарушениями. Файл плана должен быть обычным файлом (не симлинк, не FIFO и не каталог:
+`error: <путь> is a directory, not a plan file`) внутри корня проекта и не больше 1 МБ. Все строки `error:`,
+`warning:` и итоги идут в stdout; в stderr — только текст usage (код выхода 2). Исключение — шим: если бинаря нет
+или он не исполняемый, `bin/paraplane` печатает в stderr `paraplane: binary … was not found` (или
+`… is not executable`) и выходит с кодом 1.
 
 ### `paraplane audit`
 
@@ -168,10 +174,18 @@ audit failed: 2 file(s) outside W2
 `paraplane audit` одобряется хуком без запроса, поэтому:
 
 - перед `status` проверяются драйверы фильтров (`filter.*.clean|smudge|process`); любой, определённый в
-  области `local` или `worktree` (включая подключённые через `include`/`includeIf`), — отказ
+  области `local`, `worktree` или любой другой, кроме `global` и `command` (включая подключённые через
+  `include`/`includeIf`), — отказ
   `error: the repository config defines filter drivers; paraplane audit does not run git status here`
   (код 1). Доверенными считаются только фильтры из глобального (пользовательского) конфига git (например git-lfs); git
-  запускается с `GIT_CONFIG_NOSYSTEM=1`, системный конфиг не читается вовсе;
+  запускается с `GIT_CONFIG_NOSYSTEM=1`, системный конфиг не читается вовсе. У git старше 2.26 нет `--show-scope`:
+  тогда локальный конфиг и (если включён `extensions.worktreeConfig`) конфиг worktree запрашиваются отдельно, и
+  любой фильтр в них — отказ;
+- на git, который не учитывает `GIT_NO_LAZY_FETCH` (всё, кроме 2.46+ и исправлений 2.45.1, 2.44.1, 2.43.4, 2.42.2,
+  2.41.1, 2.40.2, 2.39.4, а также версия, которую не удалось разобрать), `audit` отказывает с `error: … partial clone …`
+  в частичном клоне (`extensions.partialClone` или `remote.*.promisor` задан в любой области) или если конфиг
+  репозитория задаёт `remote.*.uploadpack`; обычные репозитории работают и на старом git;
+- вывод git ограничен 16 MiB: больше (например, огромное дерево неотслеживаемых файлов) — отказ `git output too large`;
 - каждый вызов git идёт с `GIT_NO_LAZY_FETCH=1`, `GIT_OPTIONAL_LOCKS=0` (индекс не пишется, хуки индекса не
   срабатывают) и `GIT_CONFIG_NOSYSTEM=1`, без `GIT_DIR`, `GIT_CONFIG` и прочих переменных репозитория, и с
   `-c core.fsmonitor=false -c core.pager=cat --no-pager -c log.showSignature=false -c gpg.program=false
@@ -250,9 +264,9 @@ Skill `paraplane:rules` главнее указаний любого skill ис�
 | `mode` | `block` | `block` или `warn`: блокируют ли хуки (`ExitPlanMode`, PostToolUse) или только сообщают |
 | `plan_paths` | `docs/plans/**/*.md`, `docs/superpowers/plans/**/*.md`, `.paraplane/plans/**/*.md` | какие файлы — планы |
 | `hot_files` | `go.mod`, `go.sum`, `**/package.json`, `**/package-lock.json`, `**/pnpm-lock.yaml`, `**/yarn.lock`, `**/Cargo.toml`, `**/Cargo.lock`, `**/pyproject.toml`, `**/uv.lock`, `**/poetry.lock`, `**/migrations/**` | горячие файлы |
-| `default_gate` | `""` | gate по умолчанию |
+| `default_gate` | `""` | gate по умолчанию; одна строка не длиннее лимита, без управляющих символов (включая TAB, NUL, ESC, DEL), U+2028/U+2029 и невидимых форматирующих символов (категория Cf), иначе игнорируется с предупреждением |
 | `max_parallel` | `6` | порог W2, 1…32 |
-| `plans_dir` | `docs/plans` | куда `/paraplane:create` сохраняет планы |
+| `plans_dir` | `docs/plans` | куда `/paraplane:create` сохраняет планы; относительный путь без `..` и без символов глобов `* ? [ ] { }`, иначе игнорируется с предупреждением |
 | `audit_ignore` | `[]` | шаблоны файлов, которые аудит не учитывает (генерируемое, кеши) |
 
 Корень проекта — `CLAUDE_PROJECT_DIR`, иначе `cwd` сессии; далее ближайший каталог вверх с `.git` или
@@ -263,6 +277,13 @@ Skill `paraplane:rules` главнее указаний любого skill ис�
 - Claude Code (CLI, расширение для IDE или desktop-приложение) или Codex CLI (см. «Codex CLI»).
 - Linux, macOS или Windows (amd64 или arm64). Go не нужен: плагин ставится с готовыми бинарниками.
 - `git` — нужен для `paraplane audit` и `paraplane progress`; проверка плана (`check`) и хуки работают без него.
+  - `audit` проверен с git 2.18. В частичном клоне он отказывает, если git не учитывает `GIT_NO_LAZY_FETCH`: нужен
+    2.46+ или 2.45.1, 2.44.1, 2.43.4, 2.42.2, 2.41.1, 2.40.2, 2.39.4. Git из дистрибутива, где исправление
+    перенесено под старым номером версии (например, 2.34.1 в Ubuntu), считается старым, поэтому там `audit` в
+    частичных клонах отказывает: обновите git или используйте полный клон.
+  - `progress` требует git 2.22+ (трейлеры читаются через `%(trailers:key=…)`); на более старом — явная ошибка.
+  - Вывод git больше 16 MiB (например, огромное дерево неотслеживаемых файлов) — `audit` отказывает с
+    `git output too large`.
 - **Windows:** нужен [Git for Windows](https://git-scm.com/downloads/win) — без Git Bash хуки плагина
   не запускаются. Если Git Bash стоит не в стандартном месте, укажите путь в `settings.json`:
 
@@ -310,7 +331,7 @@ codex plugin marketplace add Comprise/paraplane --ref release
 | Что | Claude Code | Codex |
 |---|---|---|
 | План из plan mode | `PreToolUse` `ExitPlanMode`: запрет выхода | `Stop`: план из блока `<proposed_plan>` в транскрипте; есть E — `block`, Codex продолжает ход и правит план; повторный `Stop` того же хода молчит |
-| Файл плана | `PostToolUse` `Write\|Edit` | `PostToolUse` `^(Bash\|apply_patch)$`: файлы из команды `Bash` (`printf … > файл`) и заголовков патча; E1–E7 — `block`; запись косвенной командой возможна мимо хука — ловят `Stop` и skills |
+| Файл плана | `PostToolUse` `Write\|Edit` | `PostToolUse` `^(Bash\|apply_patch)$`: файлы из команды `Bash` (`printf … > файл`) и заголовков патча; E1–E7 в файле, который команда пишет, — `block`, в файле, который она только читает (`cat plan.md`), — только контекст; запись косвенной командой возможна мимо хука — ловят `Stop` и skills |
 | Правила перед skill | `PreToolUse` `Skill` | `UserPromptSubmit`: промпт упоминает `$…` с `execut`/`subagent-driven` или `plan` |
 | Одобрение CLI | `PreToolUse` `Bash` | `PermissionRequest` `^Bash$`, только строгая форма команды и абсолютный путь CLI |
 | Контекст сессии | `SessionStart` | `SessionStart` (со ссылкой на `$paraplane:rules`) |
@@ -327,9 +348,8 @@ codex plugin marketplace add Comprise/paraplane --ref release
 - Скрытые конфликты (файлы, не названные в плане) детерминированная проверка не видит — для этого агент
   `conflict-auditor`, который запускается из skills, а не из хуков.
 - Хуки не используют LLM.
-- Пути сравниваются как точные строки: на регистронезависимых и нормализующих ФС (macOS, Windows) `README.md` и
-  `readme.md`, а также NFC и NFD — один файл, но разные пути для проверки, поэтому пересечение не обнаруживается
-  (описано в skill `rules`).
+- Пути сравниваются без учёта регистра, но без Unicode-нормализации: на macOS написания одного имени в NFC и NFD —
+  один файл, но разные пути для проверки, поэтому их пересечение не обнаруживается (описано в skill `rules`).
 - Codex: возврат плана через `Stop` в Plan Mode (`decision: block`) вживую не проверен (Codex избежал конфликта
   сам); проверять после обновлений Codex (спецификация, раздел 13).
 - Вызов `/skill` пользователем не проходит через `PreToolUse`; такие планы ловят `ExitPlanMode` и `PostToolUse`.

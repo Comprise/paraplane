@@ -31,8 +31,11 @@ spec, read that file first.
    root: `paraplane check` rejects files elsewhere (for example in /tmp) with `error:`.
 6. When a wave has two or more tasks, dispatch the `paraplane:conflict-auditor` agent with the path of the
    saved file and the project root. Wait for its report (a list of findings and a verdict
-   `clean` / `conflicts`). In Codex plugin agents are not loaded: read `agents/conflict-auditor.md` in the
-   plugin directory and perform the audit yourself, read-only, with exactly that output format.
+   `clean` / `conflicts` / `error`). `verdict: error` with a `- kind: input` item means the plan could not be
+   audited (unreadable file, zero or several `paraplane` blocks, invalid YAML): it is not `clean`; fix the input
+   it names and re-run the auditor, or report the reason to the user and stop. In Codex plugin agents are not
+   loaded: read `agents/conflict-auditor.md` in the plugin directory and perform the audit yourself, read-only,
+   with exactly that output format.
 7. Fix the plan yourself for every finding (narrow `owns`, add `depends`, move a task to another wave, merge
    tasks). Keep the block and the prose in sync: a task renamed or moved in the block is renamed or moved in
    the text.

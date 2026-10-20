@@ -74,10 +74,10 @@ Method:
 
 ## Output format
 
-Reply with exactly this structure and nothing else (no preface, no summary). The first line is the verdict: `verdict: clean` when there are no findings, otherwise `verdict: conflicts`. After it comes one list item per finding:
+Reply with exactly this structure and nothing else (no preface, no summary). The first line is the verdict: `verdict: error` when the input cannot be audited (see the end of this section), `verdict: clean` when there are no findings, otherwise `verdict: conflicts`. After it comes one list item per finding. The finding below is an illustration of the format only; the task ids, file and line are made up and say nothing about the plan you audit:
 
 ```
-verdict: clean|conflicts
+verdict: clean|conflicts|error
 - kind: shared-file
   tasks: [T2, T5]
   file: internal/server/routes.go
@@ -87,9 +87,19 @@ verdict: clean|conflicts
 
 Field rules:
 
-- `kind` is one of `shared-file`, `hidden-write`, `api-break`, `order`.
+- `kind` is one of `shared-file`, `hidden-write`, `api-break`, `order` (`input` only with `verdict: error`, see below).
 - `tasks` lists the task ids involved, in the YAML flow form `[T2, T5]`.
 - `file` is the project-relative path with `/` separators.
 - `evidence` is a quoted string that starts with `<file>:<line>` and states what that line shows.
 - `fix` is a quoted string with one concrete change to the plan.
 - With `verdict: clean`, output only that single line.
+
+When the input cannot be audited (the plan file cannot be read, it has no `paraplane` block or more than one, the block is not valid YAML, or the caller asked for a wave id that the plan does not have), `verdict: conflicts` and `verdict: clean` are both wrong. Output `verdict: error` followed by exactly one `- kind: input` item whose `reason` is a quoted string naming the file and what is wrong, and nothing else:
+
+```
+verdict: error
+- kind: input
+  reason: "docs/plans/billing.md: no paraplane block"
+```
+
+For a missing wave the reason names it, for example `reason: "docs/plans/billing.md: no wave W9"`; do not fall back to auditing every wave.

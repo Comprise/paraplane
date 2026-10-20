@@ -63,7 +63,7 @@ jobs:
   validate:
     # Assembles, validates and smoke-tests the archive users install. It runs
     # npx (third-party code), so it holds no write scope and no token; publish
-    # ships exactly the archive this job uploads.
+    # ships exactly the archive this job uploads, which happens before npx runs.
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -89,6 +89,15 @@ jobs:
           mkdir dist
           tar -czf "dist/paraplane-${GITHUB_REF_NAME}.tar.gz" $(cat ship.txt)
           sha256sum libexec/* "dist/paraplane-${GITHUB_REF_NAME}.tar.gz" | sed 's| dist/| |' > dist/checksums.txt
+      # Uploaded before any step that runs downloaded third-party code (npx), so
+      # the bytes publish verifies are the bytes built above, whatever follows.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dist
+          path: dist/*
+          # A re-run of a failed validate job would otherwise hit a name conflict
+          # with the dist artifact of the previous attempt.
+          overwrite: true
       - name: Validate the tree users install
         run: |
           mkdir -p "$RUNNER_TEMP/tree"
@@ -107,10 +116,6 @@ jobs:
           [ "$got" = "$want" ] || { echo "::error::binary version is '$got', want '$want'"; exit 1; }
           got=$(sh bin/paraplane version)
           [ "$got" = "$want" ] || { echo "::error::shim version is '$got', want '$want'"; exit 1; }
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: dist
-          path: dist/*
 
   publish:
     # Write scopes start here, after validation. GH_TOKEN is set only on the
