@@ -411,6 +411,31 @@ Go 1.27, модуль `paraplane`; зависимости — stdlib, `gopkg.in/
 4. Загружает ли Codex `agents/` плагина.
 5. Имя skill в Codex (`$paraplane:rules`) и PATH для `bin/`.
 
+### 12a.2. Поправки по шагу 0 (Codex 0.163, проверено 2026-10-20)
+
+Эти факты главнее таблицы выше.
+- **Plan Mode:** `permission_mode` остаётся `"default"`; `Stop` приходит, но `last_assistant_message` — `null`.
+  План есть только в транскрипте (`transcript_path` из payload, JSONL): запись `type: "response_item"`,
+  `payload.type: "message"`, `payload.role: "assistant"`, `content[].type: "output_text"` с текстом
+  `<proposed_plan>\n…\n</proposed_plan>` (а также `event_msg` → `item_completed` с `item.type: "Plan"`), в рамках
+  `turn_id` хода. Следующий запрос пользователя после кнопки реализации — `prompt: "Implement the plan."`.
+  → `Stop` (Codex): транскрипт — обычный файл (Lstat), читается хвост ≤ 4 МБ; берётся последний
+  `<proposed_plan>…</proposed_plan>` ассистента с этим `turn_id`; блок `paraplane` внутри проверяется; есть E —
+  `{"decision":"block","reason":…}`; `stop_hook_active: true` — молчит; нет транскрипта/плана — молчит.
+- **Запись файлов:** Codex пишет файлы через `Bash` (`printf … > docs/plans/x.md`); `apply_patch` в проверке не
+  встретился. `PostToolUse`: `tool_name: "Bash"`, `tool_input.command` — строка, `tool_response` — вывод.
+  → `PostToolUse` (Codex, matcher `^(Bash|apply_patch)$`): из команды берутся слова-кандидаты (разбиение по пробелам
+  и `;&|<>()`, снятие кавычек), относительные — от `cwd`; совпавшие с `plan_paths` существующие обычные файлы
+  проверяются как в п. 8 (E1–E7 — `block`, E0 — контекст); для `apply_patch` — заголовки `*** Add/Update File:`,
+  `*** Move to:`. Пропуск возможен (команда пишет файл косвенно) — его ловят `Stop` и skills.
+- **`UserPromptSubmit`:** поле `prompt`; упоминание `$плагин:skill` видно текстом → дайджесты по п. 12a.
+- **Агенты плагина Codex не загружает** (на просьбу запустить агента модель читала SKILL.md) → в Codex skills
+  выполняют аудит сами по тексту `agents/conflict-auditor.md`.
+- **Окружение хуков:** `CLAUDE_PLUGIN_ROOT` = `PLUGIN_ROOT` = каталог плагина в кеше Codex; `bin/` плагина в PATH нет;
+  `cwd` — каталог сессии; `CLAUDE_PROJECT_DIR` не задан. Skill вызывается как `$плагин:имя`.
+- Поля всех событий: `session_id`, `transcript_path`, `cwd`, `hook_event_name`, `model`, `permission_mode`;
+  `turn_id` — у `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`; `tool_use_id` — у событий инструментов.
+
 ## 13. Вне рамок
 
 - Исполнение планов, запуск субагентов, worktree.
