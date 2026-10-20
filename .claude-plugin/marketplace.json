@@ -1,0 +1,20 @@
+{
+  "name": "paraplane",
+  "owner": {
+    "name": "Elia Samoylov"
+  },
+  "plugins": [
+    {
+      "name": "paraplane",
+      "description": "Makes every implementation plan safe for parallel subagents: file ownership, waves, dependencies and a gate per wave",
+      "source": {
+        "source": "github",
+        "repo": "Comprise/paraplane",
+        "ref": "release"
+      }
+    }
+  ],
+  "metadata": {
+    "description": "Marketplace for the paraplane plugin"
+  }
+}

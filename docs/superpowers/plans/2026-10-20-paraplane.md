@@ -162,19 +162,19 @@ waves:
 
 **Interfaces:** Produces: шим `bin/paraplane`, запускающий `libexec/paraplane-<os>-<arch>[.exe]`; `make test`, `make dist`.
 
-- [ ] **Step 1:** `plugin.json` и `marketplace.json` по образцу `/home/elia/Projects/auto-context/.claude-plugin/`: name `paraplane`, description `Makes every implementation plan safe for parallel subagents: file ownership, waves, dependencies and a gate per wave`, author `{"name": "Elia Samoylov"}`, license MIT, homepage/repository `https://github.com/Comprise/paraplane`, keywords `["planning", "parallel", "subagents", "plan-mode", "hooks"]`; marketplace source `{"source":"github","repo":"Comprise/paraplane","ref":"release"}`, owner `Elia Samoylov`. Без `version`.
-- [ ] **Step 2:** `bin/paraplane` на основе `/home/elia/Projects/auto-context/bin/auto-context`: тот же выбор платформы; **убрать** `active()`, вызов `hook-exit` и уведомления про `.auto-context/log`. Нет бинаря: для `hook session-start` — если в `${CLAUDE_PROJECT_DIR:-.}/.paraplane/config.yaml` нет строки `^enabled:[[:space:]]*false`, печатает `{"systemMessage":"paraplane: the binary for <os>/<arch> <problem> (<bin>), plan checks are off. Reinstall the plugin (it installs from the release branch).","hookSpecificOutput":{"hookEventName":"SessionStart"}}` (с JSON-экранированием как в образце); прочие хуки — тишина и 0; CLI — ошибка в stderr и 1. Бинарь есть: для `hook session-start` вывод буферизуется и печатается только при коде 0; для `hook …` любой ненулевой код → 0; остальное — `exec`.
-- [ ] **Step 3:** `Makefile` — копия `/home/elia/Projects/auto-context/Makefile` с заменой `auto-context` → `paraplane`. `bin/README.md` — 4–5 строк по образцу auto-context (русский).
-- [ ] **Step 4:** `chmod +x bin/paraplane`; `verify` задачи.
-- [ ] **Step 5:** Сообщение коммита: `feat: plugin manifests, shim and Makefile`.
+- [x] **Step 1:** `plugin.json` и `marketplace.json` по образцу `/home/elia/Projects/auto-context/.claude-plugin/`: name `paraplane`, description `Makes every implementation plan safe for parallel subagents: file ownership, waves, dependencies and a gate per wave`, author `{"name": "Elia Samoylov"}`, license MIT, homepage/repository `https://github.com/Comprise/paraplane`, keywords `["planning", "parallel", "subagents", "plan-mode", "hooks"]`; marketplace source `{"source":"github","repo":"Comprise/paraplane","ref":"release"}`, owner `Elia Samoylov`. Без `version`.
+- [x] **Step 2:** `bin/paraplane` на основе `/home/elia/Projects/auto-context/bin/auto-context`: тот же выбор платформы; **убрать** `active()`, вызов `hook-exit` и уведомления про `.auto-context/log`. Нет бинаря: для `hook session-start` — если в `${CLAUDE_PROJECT_DIR:-.}/.paraplane/config.yaml` нет строки `^enabled:[[:space:]]*false`, печатает `{"systemMessage":"paraplane: the binary for <os>/<arch> <problem> (<bin>), plan checks are off. Reinstall the plugin (it installs from the release branch).","hookSpecificOutput":{"hookEventName":"SessionStart"}}` (с JSON-экранированием как в образце); прочие хуки — тишина и 0; CLI — ошибка в stderr и 1. Бинарь есть: для `hook session-start` вывод буферизуется и печатается только при коде 0; для `hook …` любой ненулевой код → 0; остальное — `exec`.
+- [x] **Step 3:** `Makefile` — копия `/home/elia/Projects/auto-context/Makefile` с заменой `auto-context` → `paraplane`. `bin/README.md` — 4–5 строк по образцу auto-context (русский).
+- [x] **Step 4:** `chmod +x bin/paraplane`; `verify` задачи.
+- [x] **Step 5:** Сообщение коммита: `feat: plugin manifests, shim and Makefile`.
 
 ### Task 3: CI and release workflows
 
 **Files:** Create `.github/workflows/ci.yml`, `.github/workflows/release.yml`.
 
-- [ ] **Step 1:** Копии `/home/elia/Projects/auto-context/.github/workflows/{ci,release}.yml` с заменой `auto-context` → `paraplane`; в `cp -r`, `tar` и `git add -f` добавить `agents`; из `paths-ignore` убрать `context/**`; шаг «Shim syntax» — `sh -n bin/paraplane`; в job `test` добавить шаг `test -z "$(gofmt -l .)"` (только ubuntu).
-- [ ] **Step 2:** `verify` задачи.
-- [ ] **Step 3:** Сообщение коммита: `ci: test, validate and release workflows`.
+- [x] **Step 1:** Копии `/home/elia/Projects/auto-context/.github/workflows/{ci,release}.yml` с заменой `auto-context` → `paraplane`; в `cp -r`, `tar` и `git add -f` добавить `agents`; из `paths-ignore` убрать `context/**`; шаг «Shim syntax» — `sh -n bin/paraplane`; в job `test` добавить шаг `test -z "$(gofmt -l .)"` (только ubuntu).
+- [x] **Step 2:** `verify` задачи.
+- [x] **Step 3:** Сообщение коммита: `ci: test, validate and release workflows`.
 
 ### Task 4: internal/textx
 
@@ -182,9 +182,9 @@ waves:
 
 **Interfaces:** Produces: `func Line(s string, max int) string` — `\r`, `\n`, `\t` → пробел, удаляет прочие управляющие (`unicode.IsControl`) и символы `Cf` (bidi), обрезает до `max` рун с суффиксом `…`. `func Block(s string, max int) string` — то же, но сохраняет `\n`, обрезает до `max` байт по границе руны с суффиксом `…`.
 
-- [ ] **Step 1:** Тесты `TestLine` (`"a\nb\x1b[31m"` → `"a b[31m"`, `"\u202eabc"` → `"abc"`, `Line("абвгд", 3)` → `"абв…"`), `TestBlock` (сохраняет `\n`, не режет руну).
-- [ ] **Step 2:** Реализация; `verify` → PASS.
-- [ ] **Step 3:** Сообщение коммита: `feat(textx): sanitize text for output`.
+- [x] **Step 1:** Тесты `TestLine` (`"a\nb\x1b[31m"` → `"a b[31m"`, `"\u202eabc"` → `"abc"`, `Line("абвгд", 3)` → `"абв…"`), `TestBlock` (сохраняет `\n`, не режет руну).
+- [x] **Step 2:** Реализация; `verify` → PASS.
+- [x] **Step 3:** Сообщение коммита: `feat(textx): sanitize text for output`.
 
 ### Task 5: internal/pathset
 
@@ -198,12 +198,12 @@ waves:
 - `func Touches(owns []string, hot string) bool` — п. 4.2.
 - `func Match(pattern, name string) bool` — `doublestar.Match`, ошибка → false.
 
-- [ ] **Step 1:** `TestCleanRejects`: `""`, `"src\\a.go"`, `"/etc/x"`, `"C:/x"`, `"a/../b"`, `"."`, `"./"`, 257 символов, `"{a,b}"`×9, `"[a"`, `"{a,b/c}/x"`, `"a[/]b"`, `"a[!x]b"`, `"[^a]"`, `"a[--0]b"`, `"{..,a}/x"` → ошибка; `"./a//b.go"` → `"a/b.go"`.
-- [ ] **Step 2:** `TestOverlap` (таблица): `a.go`/`a.go` true; `a.go`/`b.go` false; `internal/plan/**`/`internal/plan/x.go` true; `internal/**`/`internal/plan/*.go` true; `cmd/*.go`/`cmd/*_test.go` true; `src/*.go`/`src/*.ts` false; `a/*`/`a/b/*` false; `a/**`/`b/**` false; `**/package.json`/`web/package.json` true; `{a,b}/x.go`/`b/x.go` true; `{a,b}/*.go`/`a/*.go` true; `*{.go,.ts}`/`*.ts` true; `?.go`/`ab.go` false; `[ab].go`/`a.go` true; `**/*.go`/`docs/x.md` false; `internal/hooks/testdata/base_*`/`internal/hooks/testdata/plan_*` true (ложное срабатывание допустимо).
-- [ ] **Step 3:** `TestOverlapNoMisses` — свойство: шаблоны глубины ≤ 3 из сегментов `{a, b, *, **, *.go, *_test.go, *.ts, x.go, {a,b}, ?.go, [ab]}`, пути глубины ≤ 4 из сегментов `{a, b, x.go, a_test.go, b.ts, ab.go}`; для 3000 случайных пар (фиксированный seed): если есть путь, который `Match` обоими, то `Overlap` == true.
-- [ ] **Step 4:** `TestTouches`: `[go.mod]`/`go.mod` true; `["internal/**"]`/`go.mod` false; `["internal/**"]`/`"**/package.json"` false; `[web/package.json]`/`"**/package.json"` true; `["*"]`/`go.mod` true; `["**/migrations/**"]`/`"**/migrations/**"` true.
-- [ ] **Step 5:** Реализация; `verify` → PASS.
-- [ ] **Step 6:** Сообщение коммита: `feat(pathset): paths, pattern overlap and hot files`.
+- [x] **Step 1:** `TestCleanRejects`: `""`, `"src\\a.go"`, `"/etc/x"`, `"C:/x"`, `"a/../b"`, `"."`, `"./"`, 257 символов, `"{a,b}"`×9, `"[a"`, `"{a,b/c}/x"`, `"a[/]b"`, `"a[!x]b"`, `"[^a]"`, `"a[--0]b"`, `"{..,a}/x"` → ошибка; `"./a//b.go"` → `"a/b.go"`.
+- [x] **Step 2:** `TestOverlap` (таблица): `a.go`/`a.go` true; `a.go`/`b.go` false; `internal/plan/**`/`internal/plan/x.go` true; `internal/**`/`internal/plan/*.go` true; `cmd/*.go`/`cmd/*_test.go` true; `src/*.go`/`src/*.ts` false; `a/*`/`a/b/*` false; `a/**`/`b/**` false; `**/package.json`/`web/package.json` true; `{a,b}/x.go`/`b/x.go` true; `{a,b}/*.go`/`a/*.go` true; `*{.go,.ts}`/`*.ts` true; `?.go`/`ab.go` false; `[ab].go`/`a.go` true; `**/*.go`/`docs/x.md` false; `internal/hooks/testdata/base_*`/`internal/hooks/testdata/plan_*` true (ложное срабатывание допустимо).
+- [x] **Step 3:** `TestOverlapNoMisses` — свойство: шаблоны глубины ≤ 3 из сегментов `{a, b, *, **, *.go, *_test.go, *.ts, x.go, {a,b}, ?.go, [ab]}`, пути глубины ≤ 4 из сегментов `{a, b, x.go, a_test.go, b.ts, ab.go}`; для 3000 случайных пар (фиксированный seed): если есть путь, который `Match` обоими, то `Overlap` == true.
+- [x] **Step 4:** `TestTouches`: `[go.mod]`/`go.mod` true; `["internal/**"]`/`go.mod` false; `["internal/**"]`/`"**/package.json"` false; `[web/package.json]`/`"**/package.json"` true; `["*"]`/`go.mod` true; `["**/migrations/**"]`/`"**/migrations/**"` true.
+- [x] **Step 5:** Реализация; `verify` → PASS.
+- [x] **Step 6:** Сообщение коммита: `feat(pathset): paths, pattern overlap and hot files`.
 
 ### Task 6: internal/plan
 
@@ -254,9 +254,9 @@ func (p *Plan) Tasks() []*Task          // все задачи в порядке
 ```
 `Extract` — построчный сканер CommonMark-ограждений: открывающее ``` ``` ``` или `~~~` длины ≥ 3 с отступом ≤ 3 пробелов и info-строкой; закрывающее — тот же символ, длина ≥ открывающей, без info. Блок плана — только ограждение верхнего уровня, первое слово info которого `paraplane`; содержимое прочих ограждений не сканируется; незакрытое ограждение тянется до конца файла. Ошибки yaml.v3 многострочные — склеить в одну строку.
 
-- [ ] **Step 1:** Тесты: `TestExtract` (бэктики, тильды, ````-ограждение, `Start`/`End` охватывают ограждения); `TestExtractIgnoresNestedExample` (```paraplane внутри ````markdown → `ErrNoBlock`); `TestExtractMany` → `ErrManyBlocks`; `TestParseUnknownKey` (`depnds:` → `*SchemaError` с `depnds`); `TestParseAliasHint` (`owns: [**/x]`, `owns: [*.go]`, `owns: [a/{x}.go]` → `*SyntaxError`, оканчивается `quote glob patterns`); `TestParseLimits` (501 задача, 101 путь в задаче, 2001 путь в плане, тело > 256 КБ → `*LimitError`; `version: 2` → `*SchemaError`); `TestLoadOK` на блоке п. 4 спецификации → 2 волны, 3 задачи, `T3.Depends == ["T2"]`.
-- [ ] **Step 2:** Реализация; `verify` → PASS.
-- [ ] **Step 3:** Сообщение коммита: `feat(plan): extract and parse the paraplane block`.
+- [x] **Step 1:** Тесты: `TestExtract` (бэктики, тильды, ````-ограждение, `Start`/`End` охватывают ограждения); `TestExtractIgnoresNestedExample` (```paraplane внутри ````markdown → `ErrNoBlock`); `TestExtractMany` → `ErrManyBlocks`; `TestParseUnknownKey` (`depnds:` → `*SchemaError` с `depnds`); `TestParseAliasHint` (`owns: [**/x]`, `owns: [*.go]`, `owns: [a/{x}.go]` → `*SyntaxError`, оканчивается `quote glob patterns`); `TestParseLimits` (501 задача, 101 путь в задаче, 2001 путь в плане, тело > 256 КБ → `*LimitError`; `version: 2` → `*SchemaError`); `TestLoadOK` на блоке п. 4 спецификации → 2 волны, 3 задачи, `T3.Depends == ["T2"]`.
+- [x] **Step 2:** Реализация; `verify` → PASS.
+- [x] **Step 3:** Сообщение коммита: `feat(plan): extract and parse the paraplane block`.
 
 ### Task 16: internal/gitx
 
@@ -264,9 +264,9 @@ func (p *Plan) Tasks() []*Task          // все задачи в порядке
 
 **Interfaces:** Produces: `func WaveCommits(root, planPath string) ([]string, error)` — `git -C root log --reverse --format=%(trailers:key=Paraplane-Plan,key=Paraplane-Wave,unfold)%x1e` текущей ветки; из каждого коммита, у которого трейлер `Paraplane-Plan` равен `planPath` (путь от корня через `/`), берётся значение `Paraplane-Wave`; значения не по шаблону id `[A-Za-z][A-Za-z0-9_.-]{0,31}` отбрасываются; возвращает id волн без дублей в порядке первого появления; репозиторий без коммитов (ошибка `git log` при пустом `HEAD`) → пустой список, не ошибка. И `func Changed(root string) ([]string, error)` — `git -C root status --porcelain=v1 -z --untracked-files=all`; для `R`/`C` оба пути; пути приводятся к `root`: префикс `git -C root rev-parse --show-prefix` срезается, пути вне него отбрасываются; разделитель `/`, без дублей, отсортированы. Запуск git — с защитой по образцу `/home/elia/Projects/auto-context/internal/gitx/gitx.go` (`GIT_CONFIG_NOSYSTEM=1`, `-c core.fsmonitor=false`, без пейджера, таймаут 10 с). Нет git или не репозиторий — ошибка.
 
-- [ ] **Step 1:** Тесты в `t.TempDir()` с `git init` и начальным коммитом: `TestChangedModifiedUntracked`, `TestChangedRename` (оба пути), `TestChangedSpacesInName`, `TestChangedSubdirRoot` (root = `repo/sub`: изменения в `sub/a.go` → `a.go`, в `other/b.go` → отброшено), `TestChangedNotRepo` → ошибка; `TestWaveCommits` (коммиты с трейлерами двух планов и без трейлеров → волны только нужного плана, по порядку; без коммитов → пусто).
-- [ ] **Step 2:** Реализация; `verify` → PASS.
-- [ ] **Step 3:** Сообщение коммита: `feat(gitx): changed files and wave commits`.
+- [x] **Step 1:** Тесты в `t.TempDir()` с `git init` и начальным коммитом: `TestChangedModifiedUntracked`, `TestChangedRename` (оба пути), `TestChangedSpacesInName`, `TestChangedSubdirRoot` (root = `repo/sub`: изменения в `sub/a.go` → `a.go`, в `other/b.go` → отброшено), `TestChangedNotRepo` → ошибка; `TestWaveCommits` (коммиты с трейлерами двух планов и без трейлеров → волны только нужного плана, по порядку; без коммитов → пусто).
+- [x] **Step 2:** Реализация; `verify` → PASS.
+- [x] **Step 3:** Сообщение коммита: `feat(gitx): changed files and wave commits`.
 
 ### Task 18: internal/progress
 

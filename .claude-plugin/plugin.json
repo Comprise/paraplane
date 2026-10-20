@@ -1,0 +1,11 @@
+{
+  "name": "paraplane",
+  "description": "Makes every implementation plan safe for parallel subagents: file ownership, waves, dependencies and a gate per wave",
+  "author": {
+    "name": "Elia Samoylov"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/Comprise/paraplane",
+  "repository": "https://github.com/Comprise/paraplane",
+  "keywords": ["planning", "parallel", "subagents", "plan-mode", "hooks"]
+}
