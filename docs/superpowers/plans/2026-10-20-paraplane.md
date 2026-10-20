@@ -155,6 +155,26 @@ waves:
         reads: [hooks/hooks.json, docs/superpowers/specs/2026-10-20-paraplane-design.md]
         depends: [T13b, T2, T7, T8, T9]
         verify: "test -s README.md && test -s hooks/README.md && grep -q '<!-- code-review-graph MCP tools -->' CLAUDE.md"
+  - id: W6
+    gate: "go mod tidy -diff && go vet ./... && test -z \"$(gofmt -l .)\" && go test ./... && sh -n bin/paraplane && jq -e . .codex-plugin/plugin.json .agents/plugins/marketplace.json hooks/codex.json >/dev/null && t=$(mktemp -d) && cp -r .claude-plugin .codex-plugin .agents hooks skills agents bin README.md LICENSE \"$t/\" && jq '.version=\"0.0.0-ci\"' .claude-plugin/plugin.json > \"$t/.claude-plugin/plugin.json\" && claude plugin validate --strict \"$t\" && go run ./cmd/paraplane check docs/superpowers/plans/2026-10-20-paraplane.md"
+    tasks:
+      - id: T20
+        title: "Codex: hooks and CLI (--agent codex, Stop plan check, apply_patch, prompt digests, PermissionRequest)"
+        owns: ["internal/hooks/**", "cmd/**", hooks/codex.json]
+        reads: [docs/superpowers/specs/2026-10-20-paraplane-design.md]
+        depends: [T14, T13b]
+        verify: "go test ./internal/hooks/ ./cmd/paraplane/"
+      - id: T21
+        title: "Codex: manifests, marketplace, CI and release"
+        owns: [".codex-plugin/**", ".agents/**", ".github/**", internal/plugintest/codex_test.go]
+        depends: [T3, T17]
+        verify: "jq -e . .codex-plugin/plugin.json .agents/plugins/marketplace.json >/dev/null && go test ./internal/plugintest/"
+      - id: T22
+        title: "Codex: skills, agent text and docs"
+        owns: ["skills/**", "agents/**", README.md, hooks/README.md]
+        reads: [docs/superpowers/specs/2026-10-20-paraplane-design.md]
+        depends: [T7, T8, T9, T15]
+        verify: "grep -q 'paraplane:rules' skills/rules/SKILL.md && grep -q Codex README.md"
 ```
 
 Почему так: `go.mod`/`go.sum` готовы до W1 (pre-flight), поэтому листовые Go-пакеты стартуют сразу. Цепочка `pathset → layout → rules → hooks(b) → cmd` строго последовательна (каждый импортирует предыдущий) и задаёт 5 волн; всё остальное разложено вокруг неё. `internal/hooks` поделён по файлам: T13a не зависит от `rules` и идёт параллельно с T12; T13b не трогает файлы T13a. Номера задач сохранены из первой редакции (T1 упразднён — его работа в pre-flight).
@@ -487,7 +507,7 @@ type hookSpecific struct {
 
 ### Task 13b: internal/hooks — pre-tool-use, post-tool-use, hooks.json
 
-**Files:** Create `internal/hooks/pre_tool_use.go`, `post_tool_use.go`, `options.go`, `plan_test.go`, `testdata/plan_*.golden.json`, `hooks/hooks.json`. Файлы T13a не менять и их типы/помощники (`hookOutput`, `hookSpecific`, `encodeJSON`, `golden`, `testEnv`) не объявлять заново: нужна правка там — остановиться и сообщить. Свои неэкспортируемые имена — с префиксом `exitPlan…`, `post…`.
+**Files:** Create `internal/hooks/pre_tool_use.go`, `post_tool_use.go`, `options.go`, `plan_test.go`, `testdata/plan_*.golden.json`, `hooks/hooks.json`. Файлы T13a не менять и их типы/помощники (`hookOutput`, `hookSpecific`, `encodeJSON`, `golden`, `testEnv`, а также тестовые `toolInput` и `fakeBin` из `base_test.go`) не объявлять заново: нужна правка там — остановиться и сообщить. Свои неэкспортируемые имена — с префиксом `exitPlan…`, `post…`.
 
 **Interfaces:** Consumes: T13a (`Input`, `Env`, `skill`, `bash`, `encodeJSON`), `rules.Check/Options/Result/Finding`, `layout.Render`, `plan.Extract/Block`, `pathset.Match`, `textx.Line/Block`. Produces:
 ```go
@@ -554,8 +574,38 @@ func Options(env Env) rules.Options                  // из env.Config; IsDir �
 
 ---
 
-## После W5
+### W6 pre-flight: шаг 0 — живая проверка Codex (координатор + пользователь)
 
-- Gate W5 уже прогоняет `paraplane check` на этом плане (проверка на себе) и строгую валидацию поставляемого дерева.
+По п. 12a.1 спецификации: пробный плагин во временном каталоге вне репозитория (`mktemp -d`) — `.codex-plugin/plugin.json` (`name: "pp-probe"`, `hooks: "./hooks/codex.json"`), `hooks/codex.json` с `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `Stop`, `PermissionRequest` (`^Bash$`), каждый — `sh -c 'cat > "$PLUGIN_DATA/$0-$(date +%s%N).json"; env > "$PLUGIN_DATA/$0.env"' <event>`, `skills/probe/SKILL.md`, `agents/probe.md`, `.agents/plugins/marketplace.json` (`local` `./`). Пользователь: `codex plugin marketplace add <dir>`, `/plugins` → установить, `/hooks` → доверить; затем в тестовом репо: включить Plan Mode и попросить план; попросить создать файл через правку; упомянуть `$pp-probe:probe`. Координатор читает файлы из `$PLUGIN_DATA`, записывает раздел «Поправки по шагу 0» в п. 12a спецификации и уточняет задания T20–T22 до запуска W6. Код проверки не коммитится. Если Plan Mode не даёт `Stop` с планом — проверка плана в Codex сводится к `PostToolUse` файлов плана и тексту skills; это решение записывается в спецификацию.
+
+### Task 20: Codex — хуки и CLI
+
+**Files:** Create `internal/hooks/agent.go`, `internal/hooks/codex_stop.go`, `internal/hooks/codex_patch.go`, `internal/hooks/codex_prompt.go`, `internal/hooks/permission_request.go`, `internal/hooks/codex_test.go`, `internal/hooks/testdata/codex_*`, `hooks/codex.json`; Modify `internal/hooks/hooks.go` (`Input`: поля из шага 0, напр. `last_assistant_message`, `prompt`, `stop_hook_active`; `Env.Agent`), `cmd/paraplane/main.go`, `cmd/paraplane/main_test.go`.
+
+**Interfaces:** Produces (по образцу `/home/elia/Projects/auto-context/internal/hooks/agent.go`, `permission_request.go` и `cmd/auto-context/main.go`): `type Agent string` (`Claude`, `Codex`), `func ParseAgent(string) (Agent, bool)` (точный регистр), `func (Agent) CLI() string`, `func (Agent) Skill(name string) string` (`paraplane:x` / `$paraplane:x`); `func Stop(env Env, in Input) ([]byte, error)`, `func PromptSubmit(env Env, in Input) ([]byte, error)`, `func PermissionRequest(env Env, in Input) ([]byte, error)`; `PostToolUse` понимает `apply_patch` при `env.Agent == Codex`. CLI: `hook <event> [--agent codex]`; новые подкоманды `stop`, `prompt-submit`, `permission-request` — только для Codex (`hooks/hooks.json` не меняется). Тексты хуков для Codex называют skills через `Skill()` и CLI через `CLI()`.
+
+- [ ] **Step 1:** Тесты: `TestAgentRefs`, `TestCodexCLIPath` (безопасный и небезопасный корень), `TestCodexStopPlanErrors` (`<proposed_plan>` с блоком с ошибками → `{"decision":"block","reason":…}`), `TestCodexStopPlanOK` (nil), `TestCodexStopHookActive` (nil при `stop_hook_active`), `TestCodexStopNotPlanMode` (nil), `TestCodexApplyPatchPlanFile` (заголовок `*** Update File: docs/plans/a.md` → проверка файла), `TestCodexApplyPatchOther` (nil), `TestCodexPromptDigest` (`$superpowers:executing-plans` → `ExecDigest`), `TestPermissionRequestAllows`/`Silent`/`AbsolutePath`; в `cmd`: `TestHookAgentFlag`, `TestHookAgentFlagBad`, `TestCodexHooksManifest` (события, команды с `--agent codex`, таймауты 10 с, matcher `^Bash$` только у PermissionRequest, `^apply_patch$` у PostToolUse — по шагу 0, события ↔ `hookHandlers`), `TestClaudeHooksUnchanged` (`hooks/hooks.json` без изменений).
+- [ ] **Step 2:** Реализация; `verify` → PASS.
+- [ ] **Step 3:** Сообщение коммита: `feat(codex): hooks and CLI for Codex CLI`.
+
+### Task 21: Codex — манифесты, маркетплейс, CI и релиз
+
+**Files:** Create `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, `internal/plugintest/codex_test.go`; Modify `.github/workflows/ci.yml`, `.github/workflows/release.yml`.
+
+- [ ] **Step 1:** Манифест и маркетплейс по образцу `/home/elia/Projects/auto-context/.codex-plugin/plugin.json` и `/home/elia/Projects/auto-context/.agents/plugins/marketplace.json` (имя `paraplane`, автор `Elia Samoylov`, `hooks: "./hooks/codex.json"`, без `version`). CI и релиз — изменения как в auto-context (`jq -e` трёх файлов; `.codex-plugin`, `.agents` в дерево проверки, архив, `git add -f`; штамп версии в `.codex-plugin/plugin.json`).
+- [ ] **Step 2:** `TestCodexManifest` (поля как в `.claude-plugin/plugin.json`, `hooks`, нет `version`), `TestCodexMarketplace` (один плагин, источник `local` `./`).
+- [ ] **Step 3:** Сообщение коммита: `feat(codex): manifest, marketplace, CI and release`.
+
+### Task 22: Codex — skills, текст агента и документация
+
+**Files:** Modify `skills/**/SKILL.md`, `skills/rules/references/*.md`, `skills/README.md`, `agents/conflict-auditor.md`, `README.md`, `hooks/README.md`.
+
+- [ ] **Step 1:** По образцу skills auto-context: описания и заголовки называют оба вызова (`/paraplane:check` и `$paraplane:check` в Codex); строка о том, что в Codex `paraplane` не в PATH и команда берётся по пути из хука; в `rules` — где в Codex проверяется план (п. 12a: Stop в Plan Mode, `apply_patch` файлов плана) и что агента-аудитора в Codex Claude выполняет сам по тексту `agents/conflict-auditor.md`, если агенты плагина не загружаются (по шагу 0). `skills/README.md` — колонка вызова в Codex. Не увеличить тело `rules/SKILL.md` выше 1500 слов (подробности — в references).
+- [ ] **Step 2:** `README.md` — раздел «Codex CLI» (установка `codex plugin marketplace add Comprise/paraplane --ref release`, `/plugins`, `/hooks` → доверить; что работает и что нет — таблица п. 12a); `hooks/README.md` — таблица событий `hooks/codex.json` по п. 12a (файл `hooks/codex.json` не читать: его пишет T20 в той же волне).
+- [ ] **Step 3:** Сообщение коммита: `docs(codex): skills and README for Codex CLI`.
+
+## После W6
+
+- Gate W5 и W6 уже прогоняют `paraplane check` на этом плане (проверка на себе) и строгую валидацию поставляемого дерева.
 - `/auto-context:init` с `language: ru` — только после коммита W5 (решение пользователя: до конца реализации auto-context в проекте не включать, чтобы его хуки и запись в `CLAUDE.md` не мешали волнам).
 - Ручная проверка п. 8.1 спецификации в Claude Code: `make dist`, скопировать поставляемое дерево (`.claude-plugin hooks skills agents bin libexec README.md LICENSE`) во временный каталог и `claude --plugin-dir <каталог>` (не из корня репозитория: корневой `.mcp.json` загрузился бы как MCP-сервер плагина).

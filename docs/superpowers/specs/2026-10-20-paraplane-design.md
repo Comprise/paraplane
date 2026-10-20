@@ -164,11 +164,17 @@ E6 — главное правило «следующий этап не лома
 какой-либо задачи этой волны; исключения — сам файл плана и шаблоны `audit_ignore`.
 Нарушение — `error A1 W2: internal/x.go changed but no task of W2 owns it`.
 
-Безопасность: `git status` может запускать filter-драйверы из конфига репозитория, а `paraplane audit`
-одобряется хуком без запроса. Поэтому аудит запускает `git status` с `--ignore-submodules=all` и отказывается
-(`error: the repository config defines filter drivers; paraplane audit does not run git status here`, код 1),
-если локальный конфиг репозитория (`git config --local --get-regexp`) задаёт `filter.<имя>.clean`, `.smudge`
-или `.process`. `git log` для прогресса фильтры не запускает.
+Безопасность: `git status` может выполнить команду, заданную конфигом репозитория, а `paraplane audit`
+одобряется хуком без запроса. Поэтому:
+- перед `status` — `git config --show-scope --includes --get-regexp '^filter\..*\.(clean|smudge|process)$'`;
+  любая строка из области `local` или `worktree` (включая подключённые через `include`/`includeIf`) —
+  отказ `error: the repository config defines filter drivers; paraplane audit does not run git status here`
+  (код 1); фильтры из `global`/`system` (например git-lfs) — доверенная настройка пользователя; «фильтров нет» —
+  только код выхода 1 без вывода, любая другая ошибка — отказ;
+- git запускается с `GIT_NO_LAZY_FETCH=1` (частичный клон не скачивает объекты через команды `remote.*`/`core.sshCommand`),
+  `GIT_OPTIONAL_LOCKS=0` (индекс не пишется — хуки индекса не срабатывают), `-c core.fsmonitor=false`, без `GIT_DIR`,
+  `GIT_CONFIG` и прочих переменных репозитория; `status` — с `--no-renames` и `--ignore-submodules=all`.
+`git log` для прогресса фильтры не запускает.
 
 Аудит опирается на правило исполнения «субагенты не коммитят, координатор коммитит после зелёного gate»:
 тогда рабочая копия на момент аудита содержит ровно изменения текущей волны. Аудит не различает задачи
@@ -357,6 +363,53 @@ Go 1.27, модуль `paraplane`; зависимости — stdlib, `gopkg.in/
 - Golden-ответы хуков; `TestHooksJSONContract` (события `hooks.json` ↔ обработчики);
   `TestSkillsFrontmatter`; тест шима.
 - Ручная проверка в Claude Code — п. 8.1.
+
+## 12a. Поддержка Codex CLI
+
+Образец — поддержка Codex в auto-context (`/home/elia/Projects/auto-context`, спецификация
+`docs/superpowers/specs/2026-10-20-codex-support-design.md`, раздел «Поправки по шагу 0», Codex 0.163).
+Поведение в Claude Code не меняется.
+
+**Перенимается как есть** (проверено в auto-context):
+- один бинарь; хуки Codex вызывают `"${CLAUDE_PLUGIN_ROOT}"/bin/paraplane hook <event> --agent codex` (флаг после
+  события: шим читает событие из `$2`); без флага агент — Claude; `--agent` с неизвестным значением — выход 0 без вывода;
+- `.codex-plugin/plugin.json` (те же поля, что `.claude-plugin/plugin.json`, плюс `"hooks": "./hooks/codex.json"`,
+  без `version`), `hooks/codex.json` (только для Codex; `hooks/hooks.json` Codex не читает),
+  `.agents/plugins/marketplace.json` (источник `local` `./`, т.к. `github`-источники Codex игнорирует);
+- в `hooks/codex.json` нет поля `if`: фильтрация — matcher-регулярками и в бинаре;
+- `bin/` плагина нет в PATH shell-инструмента Codex: тексты хуков для Codex называют CLI абсолютным путём
+  `$CLAUDE_PLUGIN_ROOT/bin/paraplane` (если корень проходит `^/[A-Za-z0-9_./-]*$`, иначе голое имя);
+- skills общие; в Codex вызываются как `$paraplane:<name>`; тексты skills и хуков называют оба варианта;
+  незнакомые Codex поля frontmatter безвредны;
+- Codex продолжает ход только по `{"decision":"block","reason":…}` на `Stop` (следующий Stop — с `stop_hook_active: true`);
+- `PreToolUse` `allow` в Codex переписывает команду — авто-одобрение CLI через `PermissionRequest` (`^Bash$`),
+  ответ `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}`;
+- релиз и CI: версия штампуется и в `.codex-plugin/plugin.json`; `.codex-plugin`, `.agents` — в архив, ветку `release`
+  и проверку дерева.
+
+**Своё для paraplane** (гипотезы по строкам бинаря Codex 0.163 — проверяются шагом 0, п. 12a.1):
+
+| Claude Code | Codex | Как paraplane реагирует в Codex |
+|---|---|---|
+| `ExitPlanMode` (PreToolUse) | Plan Mode — режим совместной работы; план выдаётся блоком `<proposed_plan>` в ответе, инструмента нет | хук `Stop`: при `permission_mode == "plan"` (или наличии `<proposed_plan>` в `last_assistant_message`) план из этого блока проверяется `rules.Check`; есть E — `decision: block` с тем же текстом нарушений (Codex продолжает ход и правит план); при `stop_hook_active: true` второй раз не блокирует |
+| `PostToolUse` `Write\|Edit` | `PostToolUse` для `apply_patch` | пути из заголовков патча (`*** Add File:`, `*** Update File:`, `*** Move to:`) сверяются с `plan_paths`; совпал — проверка файла как в п. 8 (E0 — контекст, E1–E7 — `block`) |
+| `PreToolUse` `Skill` | skills упоминаются в промпте как `$name`, отдельного инструмента нет | хук `UserPromptSubmit`: промпт упоминает `$…` с `execut`/`subagent-driven` — `ExecDigest`, с `plan` — `Digest` |
+| `PreToolUse` `Bash` allow | `PermissionRequest` `^Bash$` | allow только для той же строгой формы команды (и абсолютного пути `Codex.CLI()`) |
+| агент `conflict-auditor` | агенты плагина Codex не загружает (не подтверждено) | skills в Codex выполняют аудит сами по тексту агента (`agents/conflict-auditor.md` читается как инструкция) |
+| `SessionStart` | `SessionStart` | тот же `additionalContext` с `$paraplane:rules` |
+
+### 12a.1. Шаг 0 — живая проверка Codex (до реализации)
+
+Пробный плагин во временном каталоге вне репозитория; пользователь устанавливает его (`/plugins`) и доверяет хукам
+(`/hooks`) — это интерактивно. Хуки пишут stdin и окружение в `$PLUGIN_DATA`. Проверить и записать раздел
+«Поправки по шагу 0» в эту спецификацию:
+1. Plan Mode: приходит ли `Stop` по завершении ответа с `<proposed_plan>`; значения `permission_mode`; есть ли
+   `last_assistant_message` и содержит ли он блок целиком; продолжает ли `decision: block` ход в Plan Mode.
+2. `PostToolUse` для `apply_patch`: `tool_name`, форма `tool_input` (текст патча и его поле), срабатывает ли для
+   правок файлов вообще.
+3. `UserPromptSubmit`: поле с текстом промпта; видны ли упоминания `$skill`.
+4. Загружает ли Codex `agents/` плагина.
+5. Имя skill в Codex (`$paraplane:rules`) и PATH для `bin/`.
 
 ## 13. Вне рамок
 
