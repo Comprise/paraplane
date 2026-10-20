@@ -115,6 +115,11 @@ waves:
         reads: [internal/layout/layout.go, internal/plan/plan.go, internal/pathset/pathset.go]
         depends: [T11]
         verify: "go test ./internal/rules/"
+      - id: T19
+        title: "internal/gitx: refuse repo-local filter drivers"
+        owns: ["internal/gitx/**"]
+        depends: [T16]
+        verify: "go test ./internal/gitx/"
       - id: T13a
         title: "internal/hooks: base, session-start, skill, bash"
         owns: [internal/hooks/hooks.go, internal/hooks/session_start.go, internal/hooks/skill.go, internal/hooks/bash.go, internal/hooks/base_test.go, "internal/hooks/testdata/base_*"]
@@ -142,7 +147,7 @@ waves:
         title: "cmd/paraplane"
         owns: ["cmd/**"]
         reads: [hooks/hooks.json, internal/hooks/pre_tool_use.go, internal/rules/rules.go]
-        depends: [T13b, T16, T18]
+        depends: [T13b, T16, T18, T19]
         verify: "go test ./cmd/paraplane/"
       - id: T15
         title: "README, CLAUDE.md, hooks/README.md"
@@ -284,6 +289,16 @@ func Render(p *plan.Plan, name string, done []string) string
 - [ ] **Step 2:** Реализация; `verify` → PASS.
 - [ ] **Step 3:** Сообщение коммита: `feat(progress): render plan progress`.
 
+### Task 19: internal/gitx — refuse repo-local filter drivers
+
+**Files:** Modify `internal/gitx/gitx.go`, `internal/gitx/gitx_test.go`.
+
+**Interfaces:** Produces: `var ErrFilterDrivers = errors.New("the repository config defines filter drivers; paraplane audit does not run git status here")`; `Changed` сначала запускает `git -C root config --local --get-regexp "^filter\\..*\\.(clean|smudge|process)$"` (код 1 без вывода — фильтров нет) и при любом совпадении возвращает `ErrFilterDrivers`, не запуская `status`; `status` получает `--ignore-submodules=all`. `WaveCommits` не меняется. Комментарий о защите в `run` не должен обещать больше, чем делается (п. 5.1 спецификации).
+
+- [ ] **Step 1:** Тесты: `TestChangedRefusesFilterDriver` (в репозитории `git config filter.x.clean "touch PWNED"` и `.gitattributes` `* filter=x` → `errors.Is(err, ErrFilterDrivers)`, файла `PWNED` нет); `TestChangedIgnoresSubmodules` (изменение внутри подмодуля не попадает в список и не запускает git в нём — достаточно, что подмодуль с грязным деревом не даёт записей).
+- [ ] **Step 2:** Реализация; `verify` → PASS.
+- [ ] **Step 3:** Сообщение коммита: `fix(gitx): never run repo-configured filter drivers`.
+
 ### Task 7: Skill rules
 
 **Files:** Create `skills/rules/SKILL.md`, `skills/rules/references/format.md`, `skills/rules/references/execution.md`, `skills/rules/examples/plan.md`, `skills/README.md`.
@@ -363,7 +378,10 @@ type Conflict struct {
 	With string // owns/reads: шаблон owns B; hot: ""
 }
 func Conflicts(p *plan.Plan, hot []string) []Conflict // все пары задач плана; шаблоны разбиваются на сегменты один раз
-func Suggest(p *plan.Plan, hot []string) [][]string   // п. 6; вход — план без ошибок
+func Suggest(p *plan.Plan, hot []string) [][]string   // п. 6; вход — план без ошибок; = SuggestWith(p, Conflicts(p, hot))
+func SuggestWith(p *plan.Plan, cs []Conflict) [][]string // то же по уже посчитанным конфликтам (rules считает их один раз)
+var ErrDeadline = errors.New("plan is too complex to check in time; simplify brace patterns or split the plan")
+func ConflictsWithin(p *plan.Plan, hot []string, deadline time.Time) ([]Conflict, error) // как Conflicts, но проверяет часы не реже чем раз в 256 пар и возвращает ErrDeadline; нулевой deadline — без ограничения
 func Render(p *plan.Plan, layers [][]string) string   // блок ```paraplane с ограждениями, version: 1, все шаблоны и строки в двойных кавычках; plan.gate вверху; gate слоя — действующий gate самой поздней волны автора среди его задач, пишется только если отличается от plan.gate (п. 6)
 ```
 - [ ] **Step 1:** Тесты: `TestConflicts` (owns; reads в обе стороны с проверкой направления A=читающая; hot: две задачи с `go.mod`; `internal/a/**` и `internal/b/**` при дефолтных hot_files — нет конфликтов); `TestSuggestReorders` (автор: W1 {T1}, W2 {T2 dep T1}, W3 {T3 без связей} → `[[T1 T3] [T2]]`); `TestSuggestKeepsConflictOrder` (T2 в W2 читает файл, которым владеет T1 в W1, без depends → T1 раньше T2); `TestSuggestNeverLonger` — свойство на 500 случайных планах генератора: `depends` только на более ранние волны; в одной волне нет конфликтов; каждое пересечение `owns` разных волн подкреплено транзитивной зависимостью; результат — слоёв ≤ волн автора, все зависимости и конфликты разведены по слоям в порядке автора; `TestRenderRoundTrip` (шаблоны `"**/x"`, `"{a,b}/x"`, `"*.go"`; `plan.Load(Render(...))` даёт те же задачи; gate по п. 6: без `plan.gate`, с `plan.gate`, с `plan.gate` и переопределением у одной волны — переопределение сохраняется в слое её задач).
@@ -374,7 +392,7 @@ func Render(p *plan.Plan, layers [][]string) string   // блок ```paraplane �
 
 **Files:** Create `internal/rules/rules.go`, `internal/rules/audit.go`, `internal/rules/rules_test.go`.
 
-**Interfaces:** Consumes: `plan.Load` и его ошибки, `pathset.Clean/Match`, `layout.Conflicts/Suggest/Render`. Produces:
+**Interfaces:** Consumes: `plan.Load` и его ошибки, `pathset.Clean/Match`, `layout.ConflictsWithin/SuggestWith/Render/ErrDeadline` (конфликты считаются один раз и идут и в E2/E4/E5/E6, и в `SuggestWith`; пара с `go.mod` у обеих задач даёт и `owns`-, и `hot`-конфликт — E2 и E5 для одной пары допустимы, оба сообщаются). Produces:
 ```go
 type Severity string
 const (
@@ -393,6 +411,7 @@ type Options struct {
 	DefaultGate string
 	MaxParallel int                   // 0 → 6
 	IsDir       func(rel string) bool // nil → W5 не проверяется
+	Deadline    time.Time             // нулевой — без ограничения; истёк — одна находка E0 с текстом layout.ErrDeadline, остальное не сообщается
 }
 type Result struct {
 	Plan      *plan.Plan // nil при E0
@@ -407,7 +426,7 @@ func Audit(p *plan.Plan, waveID string, changed []string, planPath string, ignor
 // п. 5.1: changed и planPath — от корня через "/"; находки A1 (Error, Where = waveID) в порядке changed; неизвестная волна — ошибка
 ```
 Порядок — п. 5 спецификации: E0 (`ErrNoBlock`, `ErrManyBlocks`, `*SyntaxError`, `*LimitError`) → остальное не проверяется; `*SchemaError` и ошибки `pathset.Clean` (путь отбрасывается) → E1; при E1/E3 — только E7, W1, W2, W4, W5; иначе E2/E4/E5 (пары одной волны из `layout.Conflicts`), E6, E7, W1–W5; W3 — только при `Errors() == 0`. Пересечение шаблонов, не равных буквально, — в тексте «may overlap».
-- [ ] **Step 1:** Тесты: по одному на каждый код (`TestE0`…`TestW5`, ассерты на `Code`, `Where` и id в `Msg`); `TestE1WaveIDInDepends`; `TestE6TransitiveOK` (T3 меняет файл T1 при T3→T2→T1 — нет E6); `TestE7DefaultGate`; `TestCheckCycleNoSuggest` (T1↔T2 → E3, `Suggested == nil`, без паники); `TestCheckSpecExample` (блок п. 4 спецификации с hot_files п. 9, переписанными в тест списком → 0 ошибок); `TestSummary`; `TestAudit` (файл из `owns` задачи волны — ок; файл чужой волны — A1; файл плана и `audit_ignore` — ок; неизвестная волна — ошибка); `TestCheckFast` (500 задач по 4 шаблона, 4 волны → `Check` < 1 с).
+- [ ] **Step 1:** Тесты: по одному на каждый код (`TestE0`…`TestW5`, ассерты на `Code`, `Where` и id в `Msg`); `TestE1WaveIDInDepends`; `TestE6TransitiveOK` (T3 меняет файл T1 при T3→T2→T1 — нет E6); `TestE7DefaultGate`; `TestCheckCycleNoSuggest` (T1↔T2 → E3, `Suggested == nil`, без паники); `TestCheckSpecExample` (блок п. 4 спецификации с hot_files п. 9, переписанными в тест списком → 0 ошибок); `TestSummary`; `TestAudit` (файл из `owns` задачи волны — ок; файл чужой волны — A1; файл плана и `audit_ignore` — ок; неизвестная волна — ошибка); `TestCheckFast` (500 задач по 4 шаблона, 4 волны → `Check` < 1 с); `TestCheckDeadline` (враждебный план из 8 групп `{a,aa}` и `Deadline` через 50 мс → ровно одна находка E0 с текстом `ErrDeadline`, `Check` возвращается < 1 с).
 - [ ] **Step 2:** Реализация; `verify` → PASS.
 - [ ] **Step 3:** Сообщение коммита: `feat(rules): plan validation and wave audit`.
 
@@ -474,7 +493,7 @@ type hookSpecific struct {
 ```go
 func PreToolUse(env Env, in Input) ([]byte, error)  // ExitPlanMode → exitPlan; Skill → skill; Bash → bash; иначе nil
 func PostToolUse(env Env, in Input) ([]byte, error) // Write | Edit
-func Options(env Env) rules.Options                  // из env.Config; IsDir — os.Stat под env.Root
+func Options(env Env) rules.Options                  // из env.Config; IsDir — os.Stat под env.Root; Deadline = сейчас + 5 с
 ```
 Тексты (дословно; `<findings>` — `Finding.String()` по строке, ≤ 20, затем `… N more`):
 - Deny `ExitPlanMode`: `paraplane: the plan is not ready for parallel execution. Fix these and call ExitPlanMode again:\n<findings>\nFormat and rules: skill paraplane:rules.`
