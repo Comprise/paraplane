@@ -1,0 +1,10 @@
+# LF everywhere, on every OS: a CRLF checkout breaks the POSIX shim
+# (#!/bin/sh\r never runs) and the tests that compare text byte for byte.
+* text=auto eol=lf
+bin/paraplane text eol=lf
+*.go text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.jsonl text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
