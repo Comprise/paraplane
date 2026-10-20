@@ -552,6 +552,7 @@ func TestCodexBashReadVsWrite(t *testing.T) {
 	env := codexEnv(t)
 	writePlan(t, env, "docs/plans/noblock.md", "# Old plan\n\n- [x] step 1\n")
 	writePlan(t, env, "docs/plans/e2.md", planE2)
+	writePlan(t, env, "docs/plans/e2b.md", planE2)
 	writePlan(t, env, "docs/plans/warn.md", planW1)
 	const (
 		none  = ""
@@ -646,6 +647,16 @@ func TestCodexBashReadVsWrite(t *testing.T) {
 		{"echo $[1<<2]\nprintf x > docs/plans/e2.md", block},
 		{"echo $(( (1<<2) > 1 ))\nprintf x > docs/plans/e2.md", block},
 		{"echo $((1>2)) docs/plans/noblock.md", none},
+		// An unbalanced group ends with its command.
+		{"echo $((1; printf x > docs/plans/e2.md", block},
+		{"echo $((1\nprintf x > docs/plans/e2.md", block},
+		{"echo $[1; printf x > docs/plans/e2.md", block},
+		{"for ((i=0; i<<1; i++)); do :; done; printf x > docs/plans/e2.md", block},
+		{"for ((i=0; i<<1; i++)); do :; done\ncat > out <<E\ndocs/plans/e2.md\nE", none},
+		// A block wins over the context of a file read earlier.
+		{"cp docs/plans/e2.md docs/plans/e2b.md", block},
+		{"cat docs/plans/e2.md > docs/plans/e2b.md", block},
+		{"cat docs/plans/e2.md docs/plans/e2b.md", read},
 	} {
 		out, err := PostToolUse(env, bashIn(t, env.Root, c.cmd))
 		if err != nil {

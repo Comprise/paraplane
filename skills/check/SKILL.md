@@ -24,7 +24,7 @@ Validate and restructure the plan: $ARGUMENTS
 3. When a wave has two or more tasks, dispatch the `paraplane:conflict-auditor` agent with the plan file and the
    project root. Wait for its report (findings and a verdict `clean` / `conflicts` / `error`). `verdict: error`
    with a `- kind: input` item means the auditor could not read the plan (unreadable file, zero or several
-   `paraplane` blocks, invalid YAML): it is not `clean`; fix the input it names and re-run the auditor, or
+   `paraplane` blocks, invalid YAML, a requested wave id the plan lacks): it is not `clean`; fix the input it names and re-run the auditor, or
    report the reason to the user and stop. In Codex plugin agents are not loaded: read
    `agents/conflict-auditor.md` in the plugin directory and perform the audit yourself, read-only, with
    exactly that output format.

@@ -110,9 +110,9 @@ W3 is checked only when there are no errors at all.
 | W5 | A literal in `owns` is an existing directory (CLI and hooks only) | Write `dir/**` |
 | A1 | After a wave a changed file is owned by no task of that wave (`error A1 W2: internal/x.go changed but no task of W2 owns it`) | Revert the stray change, or, when it was needed, add the file to the right task's `owns` and re-check the plan; fix before the gate |
 
-"May overlap" messages can be false alarms: narrow the patterns. Paths compare case-insensitively
-(`README.md` and `readme.md` may overlap). Limitation: NFC and NFD spellings of one name (macOS) are not
-unified; give such files to one task by hand.
+"May overlap" messages can be false alarms: narrow the patterns. Overlap and hot files ignore case
+(`README.md` and `readme.md` may overlap); `audit` matches changed paths exactly. NFC and NFD spellings
+(macOS) are not unified; give such files to one task.
 
 ## Executing a plan
 

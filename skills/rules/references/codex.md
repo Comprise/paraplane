@@ -31,7 +31,8 @@ Codex does not load plugin agents. When these rules say "run `paraplane:conflict
 `agents/conflict-auditor.md` from the plugin directory and do the audit yourself, as that text describes:
 read-only (read and search files, no edits), the same finding kinds and the same output (`verdict: clean`,
 `verdict: conflicts` plus findings with file and line evidence, or `verdict: error` with one `- kind: input`
-item when the plan cannot be read, has zero or several `paraplane` blocks, or its YAML is invalid). Fix the
+item when the plan cannot be read, has zero or several `paraplane` blocks, its YAML is invalid, or it lacks a
+requested wave id). Fix the
 plan afterwards as usual; `error` is never `clean`: fix the input and audit again, or report it to the user.
 
 ## Subagents

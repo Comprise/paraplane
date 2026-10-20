@@ -53,8 +53,8 @@ func (c planChange) touches(md []byte) bool {
 // touches the block or its keys; a file that is only mentioned, as by a
 // read, gets context on E1–E7 alone and is never blocked (also when the same
 // command edits it without touching the block). A file written indirectly is
-// missed; Stop and the skills catch that. The first plan file with an answer
-// wins.
+// missed; Stop and the skills catch that. The first block wins; without one,
+// the first answer of a written or edited file, then of a read one.
 func codexPost(env Env, in Input) ([]byte, error) {
 	var cands []shellWord
 	if in.ToolName == "Bash" {
@@ -99,28 +99,49 @@ func codexPost(env Env, in Input) ([]byte, error) {
 	// One deadline for the whole hook call: with a fresh one per file, up to
 	// codexMaxPlans checks could outlast the hook timeout. Files checked
 	// after it has passed get the E0 deadline verdict.
+	// Written and edited files go first, then those only read: a block
+	// wins over any context, and a read's context never hides a later
+	// write's block. Without a block the first answer is returned.
 	o := Options(env)
-	for _, rel := range order {
-		md, ok, err := readPlan(filepath.Join(env.Root, filepath.FromSlash(rel)))
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			continue
-		}
-		k := kind[rel]
-		if k == postEdit && !anyTouches(changes[rel], md) {
-			if !read[rel] {
+	var first []byte
+	for _, reads := range []bool{false, true} {
+		for _, rel := range order {
+			if (kind[rel] == postRead) != reads {
 				continue
 			}
-			k = postRead
-		}
-		out, err := postVerdict(env, o, rel, md, k)
-		if out != nil || err != nil {
-			return out, err
+			md, ok, err := readPlan(filepath.Join(env.Root, filepath.FromSlash(rel)))
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				continue
+			}
+			k := kind[rel]
+			if k == postEdit && !anyTouches(changes[rel], md) {
+				if !read[rel] {
+					continue
+				}
+				k = postRead
+			}
+			out, err := postVerdict(env, o, rel, md, k)
+			if err != nil {
+				return nil, err
+			}
+			if isBlock(out) {
+				return out, nil
+			}
+			if first == nil {
+				first = out
+			}
 		}
 	}
-	return nil, nil
+	return first, nil
+}
+
+// isBlock reports whether a PostToolUse answer is decision: block.
+func isBlock(out []byte) bool {
+	var v hookOutput
+	return out != nil && json.Unmarshal(out, &v) == nil && v.Decision == "block"
 }
 
 // anyTouches reports whether one of the changes touches the plan block of md.
@@ -154,7 +175,8 @@ type heredoc struct {
 // its delimiter is dropped and its body, the lines after the next newline up
 // to the delimiter line, is skipped. Inside arithmetic (( )), $(( )) and
 // $[ ] the operators < << <<= > >> and parentheses are arithmetic, not
-// redirections, heredocs or command ends.
+// redirections, heredocs or command ends; a group still open at ; or a
+// newline (save the ; of for (( ; ; ))) ends there.
 func shellLex(cmd string) []shellToken {
 	var toks []shellToken
 	var cur strings.Builder
@@ -163,7 +185,13 @@ func shellLex(cmd string) []shellToken {
 	wantDelim, strip := false, false // the next word is a heredoc delimiter
 	var docs []heredoc               // heredocs whose bodies start after the next newline
 	arith, parens := false, 0        // inside (( )) or $(( )); open inner parentheses
+	forArith := false                // the (( )) of for (( ; ; )), where ; is arithmetic
 	brackets := 0                    // open $[ ] groups
+	// endArith leaves an unbalanced arithmetic group at the end of a
+	// command, so a later redirection is still seen.
+	endArith := func() {
+		arith, parens, forArith, brackets = false, 0, false, 0
+	}
 	flush := func() {
 		if in {
 			if wantDelim {
@@ -281,6 +309,7 @@ func shellLex(cmd string) []shellToken {
 			toks = append(toks, shellToken{op: "sep"})
 		case '\n':
 			flush()
+			endArith()
 			wantDelim = false
 			toks = append(toks, shellToken{op: "sep"})
 			if len(docs) > 0 {
@@ -293,6 +322,8 @@ func shellLex(cmd string) []shellToken {
 				parens++
 			case i+1 < len(cmd) && cmd[i+1] == '(':
 				arith, parens = true, 0 // (( or $((
+				n := len(toks)
+				forArith = n > 0 && toks[n-1].op == "" && toks[n-1].text == "for"
 				i++
 			default:
 				toks = append(toks, shellToken{op: "sep"})
@@ -320,7 +351,13 @@ func shellLex(cmd string) []shellToken {
 				brackets--
 			}
 			add(c)
-		case ';', '|', '`':
+		case ';':
+			flush()
+			if !(arith && forArith) {
+				endArith()
+			}
+			toks = append(toks, shellToken{op: "sep"})
+		case '|', '`':
 			flush()
 			toks = append(toks, shellToken{op: "sep"})
 		case ' ', '\t', '\r':

@@ -102,7 +102,8 @@ too is harmless.
 
 False alarms are possible (the message says "may overlap"); misses are not, with one exception.
 Literal segments compare case-insensitively, as on the default macOS and Windows filesystems:
-`README.md` and `readme.md` in one wave may overlap (hot files compare the same way). The exception:
+`README.md` and `readme.md` in one wave may overlap (hot files compare the same way). `paraplane audit`
+(A1) is different: it matches changed paths against `owns` exactly, case included. The exception:
 Unicode normalization is not applied, so the NFC and NFD spellings of one name (macOS) are different
 paths to the check though one file. Give such files to one task by hand. Narrow the patterns to clear
 a false alarm.

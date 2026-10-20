@@ -112,7 +112,7 @@ Only the user invokes `create` and `check` (they change files). The `conflict-au
 these skills when a wave has two or more tasks and looks for what the plan does not show: hidden shared files,
 registration points, API breaks inside a wave, migrations. Its report is a list of findings and a verdict,
 `clean` or `conflicts`; the plan is edited by the main Claude. When the plan cannot be audited (unreadable file,
-zero or several `paraplane` blocks, invalid YAML) the verdict is `error` with one `input` item: that is not
+zero or several `paraplane` blocks, invalid YAML, a requested wave id the plan does not have) the verdict is `error` with one `input` item: that is not
 `clean` — the skill fixes the input and audits again, or reports the reason.
 
 The command-line utility (you can run it by hand; Claude uses it by itself):
@@ -346,9 +346,9 @@ trusted, Codex does not run them).
 - Hidden conflicts (files not named in the plan) are invisible to the deterministic check — that is what the
   `conflict-auditor` agent is for; it is started from skills, not from hooks.
 - Hooks do not use an LLM.
-- Paths are compared case-insensitively, but without Unicode normalization: on macOS the NFC and NFD spellings of
-  one name are one file but different paths to the check, so their overlap is not detected (documented in the
-  skill `rules`).
+- Overlap and hot files compare case-insensitively; `audit` (A1) matches changed paths against `owns` exactly,
+  case included. There is no Unicode normalization: on macOS the NFC and NFD spellings of one name are one file but
+  different paths to the check, so their overlap is not detected (documented in the skill `rules`).
 - Codex: returning a plan through `Stop` in Plan Mode (`decision: block`) has not been verified live (Codex avoided
   the conflict itself); recheck after Codex updates (spec, section 13).
 - A user's `/skill` call does not pass through `PreToolUse`; such plans are caught by `ExitPlanMode` and `PostToolUse`.
