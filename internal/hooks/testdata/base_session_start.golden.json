@@ -1,0 +1,1 @@
+{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"paraplane: every implementation plan must contain one ```paraplane block (waves of tasks with owns, reads, depends, verify, and a gate per wave) and pass `paraplane check <file>`. Load skill paraplane:rules before writing or changing a plan."}}

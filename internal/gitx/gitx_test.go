@@ -1,6 +1,7 @@
 package gitx
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -146,5 +147,146 @@ func TestWaveCommits(t *testing.T) {
 func TestWaveCommitsNotRepo(t *testing.T) {
 	if _, err := WaveCommits(t.TempDir(), "plan.md"); err == nil {
 		t.Fatal("want error")
+	}
+}
+
+func TestChangedRefusesFilterDriver(t *testing.T) {
+	dir := initRepo(t)
+	write(t, filepath.Join(dir, ".gitattributes"), "* filter=x\n")
+	write(t, filepath.Join(dir, "a.txt"), "a\n")
+	commitAll(t, dir, "init")
+	git(t, dir, "config", "filter.x.clean", "touch PWNED")
+	write(t, filepath.Join(dir, "a.txt"), "changed\n") // tracked and modified: git status would run the clean filter
+	_, err := Changed(dir)
+	if !errors.Is(err, ErrFilterDrivers) {
+		t.Fatalf("err = %v, want ErrFilterDrivers", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "PWNED")); !os.IsNotExist(statErr) {
+		t.Fatalf("filter driver ran: PWNED exists (stat err %v)", statErr)
+	}
+}
+
+func TestChangedNoFilterDriversOK(t *testing.T) {
+	dir := initRepo(t)
+	git(t, dir, "config", "filter.x.required", "true") // not clean/smudge/process
+	write(t, filepath.Join(dir, "a.txt"), "a\n")
+	got, err := Changed(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, []string{"a.txt"}) {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestChangedIgnoresSubmodules(t *testing.T) {
+	sub := initRepo(t)
+	write(t, filepath.Join(sub, "s.txt"), "s\n")
+	commitAll(t, sub, "sub")
+	dir := initRepo(t)
+	write(t, filepath.Join(dir, "a.txt"), "a\n")
+	commitAll(t, dir, "init")
+	git(t, dir, "-c", "protocol.file.allow=always", "submodule", "add", "-q", sub, "mod")
+	commitAll(t, dir, "add submodule")
+	write(t, filepath.Join(dir, "mod", "s.txt"), "dirty\n")
+	write(t, filepath.Join(dir, "mod", "untracked.txt"), "u\n")
+	got, err := Changed(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("submodule changes leaked: %v", got)
+	}
+}
+
+func filterRepo(t *testing.T) string {
+	t.Helper()
+	dir := initRepo(t)
+	write(t, filepath.Join(dir, ".gitattributes"), "* filter=x\n")
+	write(t, filepath.Join(dir, "a.txt"), "a\n")
+	commitAll(t, dir, "init")
+	return dir
+}
+
+func assertRefused(t *testing.T, dir string) {
+	t.Helper()
+	write(t, filepath.Join(dir, "a.txt"), "changed\n")
+	_, err := Changed(dir)
+	if !errors.Is(err, ErrFilterDrivers) {
+		t.Fatalf("err = %v, want ErrFilterDrivers", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "PWNED")); !os.IsNotExist(statErr) {
+		t.Fatalf("filter driver ran (stat err %v)", statErr)
+	}
+}
+
+func TestChangedRefusesIncludedFilter(t *testing.T) {
+	dir := filterRepo(t)
+	evil := filepath.Join(t.TempDir(), "evil.cfg")
+	write(t, evil, "[filter \"x\"]\n\tclean = touch PWNED\n")
+	git(t, dir, "config", "include.path", evil)
+	assertRefused(t, dir)
+}
+
+func TestChangedRefusesWorktreeFilter(t *testing.T) {
+	dir := filterRepo(t)
+	git(t, dir, "config", "extensions.worktreeConfig", "true")
+	git(t, dir, "config", "--worktree", "filter.x.clean", "touch PWNED")
+	assertRefused(t, dir)
+}
+
+func TestChangedAllowsGlobalFilter(t *testing.T) {
+	home := t.TempDir()
+	write(t, filepath.Join(home, ".gitconfig"), "[filter \"lfs\"]\n\tclean = cat\n\tsmudge = cat\n")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, ".gitconfig"))
+	dir := initRepo(t)
+	write(t, filepath.Join(dir, "a.txt"), "a\n")
+	got, err := Changed(dir)
+	if err != nil {
+		t.Fatalf("global filter must not refuse: %v", err)
+	}
+	if !reflect.DeepEqual(got, []string{"a.txt"}) {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestChangedIgnoresGitConfigEnv(t *testing.T) {
+	dir := filterRepo(t)
+	git(t, dir, "config", "filter.x.clean", "touch PWNED")
+	t.Setenv("GIT_CONFIG", "/dev/null")
+	assertRefused(t, dir)
+}
+
+func TestChangedNoLazyFetch(t *testing.T) {
+	dir := initRepo(t)
+	var body strings.Builder
+	for i := 0; i < 50; i++ {
+		body.WriteString("line number " + strings.Repeat("x", i) + "\n")
+	}
+	write(t, filepath.Join(dir, "a.txt"), body.String())
+	commitAll(t, dir, "init")
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD:a.txt").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := strings.TrimSpace(string(out))
+	marker := filepath.Join(t.TempDir(), "PWNED")
+	git(t, dir, "config", "extensions.partialClone", "origin")
+	git(t, dir, "config", "remote.origin.url", "file:///nonexistent")
+	git(t, dir, "config", "remote.origin.promisor", "true")
+	git(t, dir, "config", "remote.origin.uploadpack", "touch "+marker+"; false")
+	if err := os.Remove(filepath.Join(dir, ".git", "objects", h[:2], h[2:])); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, "a.txt")); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dir, "b.txt"), body.String()+"more\n")
+	git(t, dir, "add", "-A")
+	Changed(dir) // may fail closed; it must not run the transport
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("lazy fetch ran repo-configured uploadpack (stat err %v)", err)
 	}
 }

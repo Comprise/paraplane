@@ -315,9 +315,9 @@ func Render(p *plan.Plan, name string, done []string) string
 
 **Interfaces:** Produces: `var ErrFilterDrivers = errors.New("the repository config defines filter drivers; paraplane audit does not run git status here")`; `Changed` сначала запускает `git -C root config --local --get-regexp "^filter\\..*\\.(clean|smudge|process)$"` (код 1 без вывода — фильтров нет) и при любом совпадении возвращает `ErrFilterDrivers`, не запуская `status`; `status` получает `--ignore-submodules=all`. `WaveCommits` не меняется. Комментарий о защите в `run` не должен обещать больше, чем делается (п. 5.1 спецификации).
 
-- [ ] **Step 1:** Тесты: `TestChangedRefusesFilterDriver` (в репозитории `git config filter.x.clean "touch PWNED"` и `.gitattributes` `* filter=x` → `errors.Is(err, ErrFilterDrivers)`, файла `PWNED` нет); `TestChangedIgnoresSubmodules` (изменение внутри подмодуля не попадает в список и не запускает git в нём — достаточно, что подмодуль с грязным деревом не даёт записей).
-- [ ] **Step 2:** Реализация; `verify` → PASS.
-- [ ] **Step 3:** Сообщение коммита: `fix(gitx): never run repo-configured filter drivers`.
+- [x] **Step 1:** Тесты: `TestChangedRefusesFilterDriver` (в репозитории `git config filter.x.clean "touch PWNED"` и `.gitattributes` `* filter=x` → `errors.Is(err, ErrFilterDrivers)`, файла `PWNED` нет); `TestChangedIgnoresSubmodules` (изменение внутри подмодуля не попадает в список и не запускает git в нём — достаточно, что подмодуль с грязным деревом не даёт записей).
+- [x] **Step 2:** Реализация; `verify` → PASS.
+- [x] **Step 3:** Сообщение коммита: `fix(gitx): never run repo-configured filter drivers`.
 
 ### Task 7: Skill rules
 
@@ -446,9 +446,9 @@ func Audit(p *plan.Plan, waveID string, changed []string, planPath string, ignor
 // п. 5.1: changed и planPath — от корня через "/"; находки A1 (Error, Where = waveID) в порядке changed; неизвестная волна — ошибка
 ```
 Порядок — п. 5 спецификации: E0 (`ErrNoBlock`, `ErrManyBlocks`, `*SyntaxError`, `*LimitError`) → остальное не проверяется; `*SchemaError` и ошибки `pathset.Clean` (путь отбрасывается) → E1; при E1/E3 — только E7, W1, W2, W4, W5; иначе E2/E4/E5 (пары одной волны из `layout.Conflicts`), E6, E7, W1–W5; W3 — только при `Errors() == 0`. Пересечение шаблонов, не равных буквально, — в тексте «may overlap».
-- [ ] **Step 1:** Тесты: по одному на каждый код (`TestE0`…`TestW5`, ассерты на `Code`, `Where` и id в `Msg`); `TestE1WaveIDInDepends`; `TestE6TransitiveOK` (T3 меняет файл T1 при T3→T2→T1 — нет E6); `TestE7DefaultGate`; `TestCheckCycleNoSuggest` (T1↔T2 → E3, `Suggested == nil`, без паники); `TestCheckSpecExample` (блок п. 4 спецификации с hot_files п. 9, переписанными в тест списком → 0 ошибок); `TestSummary`; `TestAudit` (файл из `owns` задачи волны — ок; файл чужой волны — A1; файл плана и `audit_ignore` — ок; неизвестная волна — ошибка); `TestCheckFast` (500 задач по 4 шаблона, 4 волны → `Check` < 1 с); `TestCheckDeadline` (враждебный план из 8 групп `{a,aa}` и `Deadline` через 50 мс → ровно одна находка E0 с текстом `ErrDeadline`, `Check` возвращается < 1 с).
-- [ ] **Step 2:** Реализация; `verify` → PASS.
-- [ ] **Step 3:** Сообщение коммита: `feat(rules): plan validation and wave audit`.
+- [x] **Step 1:** Тесты: по одному на каждый код (`TestE0`…`TestW5`, ассерты на `Code`, `Where` и id в `Msg`); `TestE1WaveIDInDepends`; `TestE6TransitiveOK` (T3 меняет файл T1 при T3→T2→T1 — нет E6); `TestE7DefaultGate`; `TestCheckCycleNoSuggest` (T1↔T2 → E3, `Suggested == nil`, без паники); `TestCheckSpecExample` (блок п. 4 спецификации с hot_files п. 9, переписанными в тест списком → 0 ошибок); `TestSummary`; `TestAudit` (файл из `owns` задачи волны — ок; файл чужой волны — A1; файл плана и `audit_ignore` — ок; неизвестная волна — ошибка); `TestCheckFast` (500 задач по 4 шаблона, 4 волны → `Check` < 1 с); `TestCheckDeadline` (враждебный план из 8 групп `{a,aa}` и `Deadline` через 50 мс → ровно одна находка E0 с текстом `ErrDeadline`, `Check` возвращается < 1 с).
+- [x] **Step 2:** Реализация; `verify` → PASS.
+- [x] **Step 3:** Сообщение коммита: `feat(rules): plan validation and wave audit`.
 
 ### Task 13a: internal/hooks — base, session-start, skill, bash
 
@@ -501,9 +501,9 @@ type hookSpecific struct {
 - SessionStart при `ConfigErr`: `systemMessage` = `"paraplane: " + textx.Line(ConfigErr.Error(), 300) + " (defaults are used for those settings)."`, `additionalContext` = `SessionContext`.
 
 Поведение: `Config.Enabled == false` → `nil, nil`. `skill`: имя из `tool_input.skill`, затем `name`, затем `command`; начинается с `paraplane:` → nil; иначе без учёта регистра содержит `execut` или `subagent-driven` → `additionalContext: ExecDigest`; иначе содержит `plan` → `additionalContext: Digest`. `bash`: `permissionDecision: "allow"`, `permissionDecisionReason: "paraplane CLI"` только если команда целиком совпала с `^paraplane (version|check( --suggest)? P|progress P|audit P [A-Za-z][A-Za-z0-9_.-]*)$`, где `P` = `[A-Za-z0-9_.][A-Za-z0-9_./-]*`, ни один аргумент не содержит `..`, и `paraplane` в PATH — это `$CLAUDE_PLUGIN_ROOT/bin/paraplane` (логика `shadowed()`).
-- [ ] **Step 1:** Golden-тесты (golden — вручную): `TestSessionStart`, `TestSessionStartConfigProblem`, `TestSessionStartDisabled`, `TestSkillDigest` (`superpowers:writing-plans` → `Digest`; `superpowers:executing-plans` и `superpowers:subagent-driven-development` → `ExecDigest`; поле `name` вместо `skill` → digest; `paraplane:create` и `review` → nil), `TestBashAllow` (таблица: `paraplane check docs/plans/a.md`, `paraplane check --suggest a.md`, `paraplane audit docs/plans/a.md W2`, `paraplane progress docs/plans/a.md` → allow; `paraplane check ../x`, `paraplane check /etc/passwd`, `paraplane check a; rm -rf /`, `paraplane check a b` → nil; PATH-тень → nil).
-- [ ] **Step 2:** Реализация; `verify` → PASS.
-- [ ] **Step 3:** Сообщение коммита: `feat(hooks): session-start, skill digest, bash approval`.
+- [x] **Step 1:** Golden-тесты (golden — вручную): `TestSessionStart`, `TestSessionStartConfigProblem`, `TestSessionStartDisabled`, `TestSkillDigest` (`superpowers:writing-plans` → `Digest`; `superpowers:executing-plans` и `superpowers:subagent-driven-development` → `ExecDigest`; поле `name` вместо `skill` → digest; `paraplane:create` и `review` → nil), `TestBashAllow` (таблица: `paraplane check docs/plans/a.md`, `paraplane check --suggest a.md`, `paraplane audit docs/plans/a.md W2`, `paraplane progress docs/plans/a.md` → allow; `paraplane check ../x`, `paraplane check /etc/passwd`, `paraplane check a; rm -rf /`, `paraplane check a b` → nil; PATH-тень → nil).
+- [x] **Step 2:** Реализация; `verify` → PASS.
+- [x] **Step 3:** Сообщение коммита: `feat(hooks): session-start, skill digest, bash approval`.
 
 ### Task 13b: internal/hooks — pre-tool-use, post-tool-use, hooks.json
 
