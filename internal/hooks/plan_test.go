@@ -389,7 +389,6 @@ func TestPreToolUseDispatch(t *testing.T) {
 // is silent, and the same input gets an answer while enabled wherever the
 // handler serves that agent (so a silent handler cannot pass by accident).
 func TestDisabled(t *testing.T) {
-	t.Setenv("CLAUDE_PLUGIN_ROOT", safeRoot)
 	t.Setenv("PATH", t.TempDir()) // no paraplane on PATH: Claude's Bash approval does not look further
 	both := map[Agent]bool{Claude: true, Codex: true}
 	codexOnly := map[Agent]bool{Codex: true}
@@ -435,6 +434,13 @@ func TestDisabled(t *testing.T) {
 		}},
 	}
 	for _, agent := range []Agent{Claude, Codex} {
+		// Claude's Bash approval needs a root the OS calls absolute
+		// ("C:\…" on Windows); Codex's CLI path needs a POSIX root.
+		root := safeRoot
+		if agent == Claude {
+			root = t.TempDir()
+		}
+		t.Setenv("CLAUDE_PLUGIN_ROOT", root)
 		env := testEnv(t)
 		env.Agent = agent
 		env.ConfigErr = errors.New("config.yaml: ignored mode (bad)")

@@ -31,6 +31,15 @@ func OpenRegular(name string) (*os.File, os.FileInfo, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	// On Windows a FileInfo from Lstat carries no file ID: os.SameFile loads
+	// it lazily by path, so a later SameFile would read the ID of whatever
+	// sits at name by then and miss a swap. Comparing lfi with itself forces
+	// that load now, before the open (a no-op on Unix, where the ID comes
+	// with Lstat). A failed load reports false; refuse rather than let the
+	// later SameFile retry by path.
+	if !os.SameFile(lfi, lfi) {
+		return nil, nil, ErrNotRegular
+	}
 	if afterLstat != nil {
 		afterLstat()
 	}

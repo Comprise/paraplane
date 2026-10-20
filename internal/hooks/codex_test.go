@@ -306,7 +306,10 @@ func TestCodexBashPlanFile(t *testing.T) {
 		"captured": in,
 		"printf":   bashIn(t, env.Root, "mkdir -p docs/plans && printf 'x' > docs/plans/x.md"),
 		"from cwd": bashIn(t, filepath.Join(env.Root, "docs"), "printf x >plans/x.md"),
-		"absolute": bashIn(t, "/elsewhere", "tee "+filepath.Join(env.Root, "docs", "plans", "x.md")+"</dev/null"),
+		// An absolute word from another cwd. The word is "/"-separated
+		// ("C:/…" on Windows): the lexer is a POSIX shell's, so "\" in a
+		// word is an escape, not a separator.
+		"absolute": bashIn(t, t.TempDir(), "tee "+filepath.ToSlash(filepath.Join(env.Root, "docs", "plans", "x.md"))+"</dev/null"),
 	} {
 		out, err := PostToolUse(env, in)
 		if err != nil {
@@ -395,7 +398,7 @@ func TestCodexBashSpecialFile(t *testing.T) {
 	for name, p := range specialFiles(t, env, "docs/plans") {
 		t.Run(name, func(t *testing.T) {
 			nilOut(t)(within(t, func() ([]byte, error) {
-				return PostToolUse(env, bashIn(t, env.Root, "cat > "+p))
+				return PostToolUse(env, bashIn(t, env.Root, "cat > "+filepath.ToSlash(p)))
 			}))
 		})
 	}
@@ -922,7 +925,7 @@ func TestCodexTextsUseCLIPath(t *testing.T) {
 		strings.Contains(string(out), "`paraplane ") {
 		t.Errorf("post W3: %s", out)
 	}
-	out, err = PostToolUse(env, bashIn(t, env.Root, "printf x > "+writePlan(t, env, "docs/plans/long.md", planLongW3())))
+	out, err = PostToolUse(env, bashIn(t, env.Root, "printf x > "+filepath.ToSlash(writePlan(t, env, "docs/plans/long.md", planLongW3()))))
 	if err != nil {
 		t.Fatal(err)
 	}
