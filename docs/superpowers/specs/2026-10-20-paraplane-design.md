@@ -171,7 +171,7 @@ E6 — главное правило «следующий этап не лома
 - перед `status` — `git config --show-scope --includes --get-regexp '^filter\..*\.(clean|smudge|process)$'`;
   любая строка из области `local` или `worktree` (включая подключённые через `include`/`includeIf`) —
   отказ `error: the repository config defines filter drivers; paraplane audit does not run git status here`
-  (код 1); фильтры из `global`/`system` (например git-lfs) — доверенная настройка пользователя; «фильтров нет» —
+  (код 1); фильтры из `global` (пользовательского конфига, например git-lfs) — доверенная настройка; системный конфиг не читается; «фильтров нет» —
   только код выхода 1 без вывода, любая другая ошибка — отказ;
 - git запускается с `GIT_NO_LAZY_FETCH=1` (частичный клон не скачивает объекты через команды `remote.*`/`core.sshCommand`),
   `GIT_OPTIONAL_LOCKS=0` (индекс не пишется — хуки индекса не срабатывают), `-c core.fsmonitor=false`, без `GIT_DIR`,
