@@ -11,8 +11,9 @@ import (
 // Audit checks the files changed by wave waveID (spec section 5.1): each must
 // match the owns of some task of the wave, unless it is the plan file
 // planPath or matches an audit_ignore pattern. changed and planPath are
-// relative to the project root with "/" separators. The A1 findings follow
-// the order of changed; an unknown wave is an error.
+// relative to the project root with "/" separators. p must be the Plan of a
+// Check result, whose paths Check has cleaned. The A1 findings follow the
+// order of changed; an unknown wave is an error.
 func Audit(p *plan.Plan, waveID string, changed []string, planPath string, ignore []string) ([]Finding, error) {
 	if p == nil {
 		return nil, errors.New("no plan to audit")
@@ -29,11 +30,7 @@ func Audit(p *plan.Plan, waveID string, changed []string, planPath string, ignor
 	}
 	var owns []string
 	for _, t := range wave.Tasks {
-		for _, o := range t.Owns {
-			if c, err := pathset.Clean(o); err == nil {
-				owns = append(owns, c)
-			}
-		}
+		owns = append(owns, t.Owns...)
 	}
 	var out []Finding
 	for _, f := range changed {

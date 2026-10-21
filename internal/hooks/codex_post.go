@@ -97,13 +97,15 @@ func codexPost(env Env, in Input) ([]byte, error) {
 		}
 	}
 	// One deadline for the whole hook call: with a fresh one per file, up to
-	// codexMaxPlans checks could outlast the hook timeout. Files checked
-	// after it has passed get the E0 deadline verdict.
+	// codexMaxPlans checks could outlast the hook timeout. A file checked
+	// after another that ran out of it gets no answer, not the E0 deadline
+	// verdict: the time was not its own (Stop and the skills check it).
 	// Written and edited files go first, then those only read: a block
 	// wins over any context, and a read's context never hides a later
 	// write's block. Without a block the first answer is returned.
 	o := Options(env)
 	var first []byte
+	checked := 0
 	for _, reads := range []bool{false, true} {
 		for _, rel := range order {
 			if (kind[rel] == postRead) != reads {
@@ -123,7 +125,8 @@ func codexPost(env Env, in Input) ([]byte, error) {
 				}
 				k = postRead
 			}
-			out, err := postVerdict(env, o, rel, md, k)
+			out, err := postVerdict(env, o, rel, md, k, checked > 0)
+			checked++
 			if err != nil {
 				return nil, err
 			}
@@ -171,7 +174,8 @@ type heredoc struct {
 // shellLex splits a command into words and operators: blanks separate words;
 // ; & | ( ) newline and backtick end a simple command; quotes and
 // backslashes are removed. Expansions are left as text: this only has to
-// find literal file names. A here-document (<< or <<- WORD) is not a file:
+// find literal file names. A # that starts a word starts a comment, up to
+// the newline. A here-document (<< or <<- WORD) is not a file:
 // its delimiter is dropped and its body, the lines after the next newline up
 // to the delimiter line, is skipped. Inside arithmetic (( )), $(( )) and
 // $[ ] the operators < << <<= > >> and parentheses are arithmetic, not
@@ -280,10 +284,13 @@ func shellLex(cmd string) []shellToken {
 			for i+1 < len(cmd) && (cmd[i+1] == '>' || cmd[i+1] == '|') {
 				i++ // >> and >|
 			}
-			if i+1 < len(cmd) && cmd[i+1] == '&' {
+			if i+2 < len(cmd) && cmd[i+1] == '&' && (cmd[i+2] == '-' || (cmd[i+2] >= '0' && cmd[i+2] <= '9')) {
 				for i++; i+1 < len(cmd) && (cmd[i+1] == '-' || (cmd[i+1] >= '0' && cmd[i+1] <= '9')); i++ {
 				}
 				continue // >&2: a descriptor, not a file
+			}
+			if i+1 < len(cmd) && cmd[i+1] == '&' {
+				i++ // >&file: stdout and stderr to the file
 			}
 			toks = append(toks, shellToken{op: ">"})
 		case '<':
@@ -360,6 +367,14 @@ func shellLex(cmd string) []shellToken {
 		case '|', '`':
 			flush()
 			toks = append(toks, shellToken{op: "sep"})
+		case '#':
+			if in {
+				add(c) // inside a word, as in a#b or $#
+				break
+			}
+			for i+1 < len(cmd) && cmd[i+1] != '\n' {
+				i++ // a comment, up to the newline
+			}
 		case ' ', '\t', '\r':
 			flush()
 		default:
@@ -484,13 +499,16 @@ func markCopy(words []shellWord, args []int) []shellWord {
 
 // markSed marks the files of sed -i (--in-place, -i.bak, -ni) as edits with
 // the script as the change; without -i sed only reads. The script is the
-// first non-option argument unless -e or -f give it. When the change cannot
-// be seen from the script (-f, or a script that is not only plain s
+// first non-option argument unless -e or -f give it. A bare -i followed by
+// an empty word or one starting with "." takes it as the backup suffix, as
+// BSD sed does (sed -i "" s/a/b/ f). -l and --line-length take a number;
+// after -- every word is an argument. When the change cannot be seen from
+// the script (-f, an empty script, or one that is not only plain s
 // commands, see sedPlain) the files are writes: the full Write verdict.
 func markSed(words []shellWord, args []int) {
 	var files []int
 	var scripts []string
-	inPlace, scriptOpt, hidden := false, false, false
+	inPlace, scriptOpt, hidden, opts := false, false, false, true
 	next := func(n *int) string {
 		if *n+1 < len(args) {
 			*n++
@@ -501,6 +519,12 @@ func markSed(words []shellWord, args []int) {
 	for n := 0; n < len(args); n++ {
 		w := words[args[n]].text
 		switch {
+		case !opts:
+			files = append(files, args[n])
+		case w == "--":
+			opts = false
+		case w == "--line-length":
+			next(&n)
 		case w == "--expression":
 			scriptOpt = true
 			scripts = append(scripts, next(&n))
@@ -517,12 +541,23 @@ func markSed(words []shellWord, args []int) {
 		case strings.HasPrefix(w, "--"):
 		case strings.HasPrefix(w, "-") && len(w) > 1:
 			// A short cluster: i takes the rest as a suffix; e and f take
-			// the rest or the next word as the script or its file.
+			// the rest or the next word as the script or its file; l
+			// takes the rest or the next word as a number.
 		cluster:
 			for k := 1; k < len(w); k++ {
 				switch w[k] {
 				case 'i':
 					inPlace = true
+					if k+1 == len(w) && n+1 < len(args) {
+						if s := words[args[n+1]].text; s == "" || strings.HasPrefix(s, ".") {
+							n++ // a BSD backup suffix
+						}
+					}
+					break cluster
+				case 'l':
+					if k+1 == len(w) {
+						next(&n)
+					}
 					break cluster
 				case 'e', 'f':
 					scriptOpt = true
@@ -553,7 +588,7 @@ func markSed(words []shellWord, args []int) {
 	plain := !hidden && len(scripts) > 0
 	for _, sc := range scripts {
 		repls, ok := sedPlain(sc)
-		plain = plain && ok
+		plain = plain && ok && strings.TrimSpace(sc) != ""
 		c.news = append(c.news, repls...)
 	}
 	for _, i := range files {

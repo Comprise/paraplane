@@ -1,7 +1,8 @@
 ---
 unit: internal/rules
-source_hash: sha256:8263238f1ebda208d8d494e75c271d11d78513ed280839623bda839b50dc0989
-updated: "2026-10-20"
+source_hash: sha256:4ce43cb22befdddb954ffe0e7320425d4b867dd38c80c1e9e34155ab9d72bca7
+commit: 77e76831de4e20982a5f91e0748936da7f1a32d8
+updated: "2026-10-21"
 ---
 # internal/rules
 Валидирует блок paraplane по правилам E0–E7, W1–W5 и проверяет изменения волны против owns (A1).
@@ -32,7 +33,7 @@ updated: "2026-10-20"
 - Gate волны есть, если непуст после `TrimSpace` хотя бы один из `wave.gate`, `plan.gate`, `default_gate`.
 - W5 только для литералов owns (без метасимволов), для которых `IsDir` истинно.
 - `Suggested` не nil только вместе с W3.
-- `Audit` сам заново очищает owns (неверные молча пропускает), поэтому принимает и неочищенный план; CLI передаёт ему `Result.Plan` валидного плана.
+- `Audit` берёт owns как есть: план должен прийти из `Check` (`Result.Plan`, пути уже очищены); CLI передаёт ему `Result.Plan` валидного плана.
 - `Audit` сопоставляет через `pathset.Match` — с учётом регистра, в отличие от `Overlap`.
 - `Audit` не различает задачи внутри волны: запись одной задачи в файл другой той же волны не видна.
 

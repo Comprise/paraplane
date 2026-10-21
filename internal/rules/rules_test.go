@@ -603,6 +603,15 @@ waves:
 	if _, err := Audit(p, "T2", changed, "docs/plan.md", nil); err == nil {
 		t.Errorf("task id as wave: no error")
 	}
+
+	// Check cleans the paths Audit matches.
+	r := Check(md("gate: x\nwaves:\n  - id: W1\n    tasks:\n      - {id: T1, title: a, verify: v, owns: [./a//x.go]}\n"), opts())
+	if r.Errors() > 0 {
+		t.Fatalf("check: %v", r.Findings)
+	}
+	if fs, err := Audit(r.Plan, "W1", []string{"a/x.go"}, "docs/plan.md", nil); err != nil || len(fs) != 0 {
+		t.Errorf("cleaned owns: %v %v", fs, err)
+	}
 }
 
 // bigPlan writes a plan of 500 tasks × 4 owns in 4 waves; pattern(n) gives

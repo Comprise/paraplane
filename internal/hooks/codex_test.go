@@ -583,6 +583,16 @@ func TestCodexBashReadVsWrite(t *testing.T) {
 		{"echo x | tee -a docs/plans/noblock.md", e0},
 		{"printf x &> docs/plans/noblock.md", e0},
 		{"printf x &>>docs/plans/noblock.md", e0},
+		{"printf x >&docs/plans/noblock.md", e0},
+		{"printf x >& docs/plans/noblock.md", e0},
+		{"printf x >>&docs/plans/noblock.md", e0},
+		{"cat docs/plans/noblock.md >&-", none},
+		{"cat docs/plans/noblock.md 1>&2", none},
+		// A # that starts a word starts a comment, up to the newline.
+		{"ls # don't touch\nsed -i 's/x/a.go/' docs/plans/e2.md", block},
+		{"echo hi # > docs/plans/noblock.md", none},
+		{"echo a#b > docs/plans/noblock.md", e0},
+		{"echo $# > docs/plans/noblock.md", e0},
 		{"cat > 'docs/plans/noblock.md", e0}, // unterminated quote
 		{`cat > "docs/plans/noblock.md`, e0},
 		{"cp /tmp/x docs/plans/noblock.md", e0},
@@ -630,6 +640,17 @@ func TestCodexBashReadVsWrite(t *testing.T) {
 		{"sed -i -nf fix.sed docs/plans/e2.md", block},
 		{"sed -i 's/x/y/w out' docs/plans/e2.md", block},
 		{"sed -i 9d docs/plans/warn.md", warn},
+		// BSD sed -i '' SUFFIX, options with an argument, --, an empty script.
+		{"sed -i '' 's/x/a.go/' docs/plans/e2.md", block},
+		{"sed -i '' 's/T9/T8/' docs/plans/e2.md", none},
+		{"sed -i .bak 's/T9/T8/' docs/plans/e2.md", none},
+		{"sed -l 80 -i 's/T9/T8/' docs/plans/e2.md", none},
+		{"sed -il80 's/T9/T8/' docs/plans/e2.md", none},
+		{"sed --line-length 80 -i 's/T9/T8/' docs/plans/e2.md", none},
+		{"sed -i -- 's/T9/T8/' docs/plans/e2.md", none},
+		{"sed -i -e s/T9/T8/ -- docs/plans/e2.md", none},
+		{"sed -i -e '' docs/plans/e2.md", block},
+		{"sed -i ' ' docs/plans/e2.md", block},
 		// Read and an edit that misses the block: the read verdict stays.
 		{"cat docs/plans/e2.md; sed -i s/T9/T8/ docs/plans/e2.md", read},
 		{"cat docs/plans/noblock.md; sed -i s/a/b/ docs/plans/noblock.md", none},
@@ -813,6 +834,32 @@ func TestCodexOneDeadline(t *testing.T) {
 	nilOut(t)(PostToolUse(env, bashIn(t, env.Root, "cat docs/plans/a.md docs/plans/b.md")))
 	if calls != 1 {
 		t.Errorf("Options called %d times, want 1", calls)
+	}
+}
+
+// TestCodexSharedDeadline: a plan checked after another one ran out of the
+// shared deadline gets no answer, even a written one: the time was not its
+// own. The first plan checked still gets the deadline verdict.
+func TestCodexSharedDeadline(t *testing.T) {
+	old := postNow
+	postNow = func() time.Time { return time.Now().Add(-time.Minute) }
+	t.Cleanup(func() { postNow = old })
+	env := codexEnv(t)
+	o := Options(env)
+	for _, k := range []postKind{postWrite, postEdit} {
+		if out, err := postVerdict(env, o, "docs/plans/a.md", []byte(planOK), k, true); out != nil || err != nil {
+			t.Errorf("kind %d, shared: got %s, %v; want nil", k, out, err)
+		}
+		out, err := postVerdict(env, o, "docs/plans/a.md", []byte(planOK), k, false)
+		if err != nil || !strings.Contains(string(out), `"decision":"block"`) {
+			t.Errorf("kind %d, own: got %s, %v; want the deadline block", k, out, err)
+		}
+	}
+	writePlan(t, env, "docs/plans/a.md", planOK)
+	writePlan(t, env, "docs/plans/b.md", planOK)
+	out, err := PostToolUse(env, bashIn(t, env.Root, "tee docs/plans/a.md docs/plans/b.md"))
+	if err != nil || !strings.Contains(string(out), "docs/plans/a.md") || strings.Contains(string(out), "docs/plans/b.md") {
+		t.Errorf("tee: got %s, %v; want the block of a.md alone", out, err)
 	}
 }
 

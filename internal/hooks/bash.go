@@ -83,7 +83,11 @@ func bashShadowed() bool {
 		return true // found through a relative PATH entry such as "."
 	}
 	if err != nil {
-		return false // not on our PATH; nothing to compare
+		// Not on our PATH, so the Bash tool, whose PATH is ours with the
+		// plugin bin/ directories appended, finds the plugin's binary.
+		// Failing closed here would refuse every approval, since the
+		// hook's PATH has no plugin bin/.
+		return false
 	}
 	return !ownBinary(found, pluginRoot, runtime.GOOS, filepath.EvalSymlinks)
 }

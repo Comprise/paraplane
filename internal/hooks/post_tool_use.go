@@ -52,9 +52,9 @@ func PostToolUse(env Env, in Input) ([]byte, error) {
 		if !editTouchesPlan(md, oldS, newS) {
 			return nil, nil
 		}
-		return postVerdict(env, Options(env), rel, md, postEdit)
+		return postVerdict(env, Options(env), rel, md, postEdit, false)
 	}
-	return postVerdict(env, Options(env), rel, md, postWrite)
+	return postVerdict(env, Options(env), rel, md, postWrite, false)
 }
 
 // postKind is how a tool call touched a plan file; a larger kind wins when
@@ -71,11 +71,16 @@ const (
 // md, checked with o (one Options, so one deadline, per hook call): E0 adds
 // context, E1–E7 block (context in mode warn), warnings add context only for
 // a write. A read answers only E1–E7, and only with context: the same text,
-// never a block (spec section 12a.2). paraplane's own strings go through
-// env.Agent.text; the plan path and plan text do not.
-func postVerdict(env Env, o rules.Options, rel string, md []byte, k postKind) ([]byte, error) {
+// never a block (spec section 12a.2). With shared, o's deadline was shared
+// with files checked before, so a deadline E0 is not this plan's own and
+// gets no answer. paraplane's own strings go through env.Agent.text; the
+// plan path and plan text do not.
+func postVerdict(env Env, o rules.Options, rel string, md []byte, k postKind, shared bool) ([]byte, error) {
 	r := rules.Check(md, o)
 	if k == postRead && (r.Errors() == 0 || r.Findings[0].Code == "E0") {
+		return nil, nil
+	}
+	if shared && len(r.Findings) > 0 && r.Findings[0].Code == "E0" && r.Findings[0].Msg == layout.ErrDeadline.Error() {
 		return nil, nil
 	}
 	name := textx.Line(rel, maxPath)
