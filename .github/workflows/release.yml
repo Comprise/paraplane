@@ -88,7 +88,10 @@ jobs:
           # ship.txt is the one list of what ships (CI and make tree read it too).
           mkdir dist
           tar -czf "dist/paraplane-${GITHUB_REF_NAME}.tar.gz" $(cat ship.txt)
-          sha256sum libexec/* "dist/paraplane-${GITHUB_REF_NAME}.tar.gz" | sed 's| dist/| |' > dist/checksums.txt
+          # Flat names, so `sha256sum -c` works in a directory with the
+          # downloaded assets (the archive and the binaries are all assets).
+          (cd libexec && sha256sum paraplane-*) > dist/checksums.txt
+          (cd dist && sha256sum "paraplane-${GITHUB_REF_NAME}.tar.gz") >> dist/checksums.txt
       # Uploaded before any step that runs downloaded third-party code (npx), so
       # the bytes publish verifies are the bytes built above, whatever follows.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -141,9 +144,11 @@ jobs:
         run: |
           tar -xzf "dist/paraplane-${GITHUB_REF_NAME}.tar.gz"
           # The archive (in dist/) and the binaries it held (in libexec/)
-          # must match the checksums validate wrote.
+          # must match the checksums validate wrote. Each check verifies at
+          # least one file, or sha256sum fails.
           (cd dist && sha256sum --ignore-missing -c checksums.txt)
-          sha256sum --ignore-missing -c dist/checksums.txt
+          (cd libexec && sha256sum --ignore-missing -c ../dist/checksums.txt)
+          test "$(ls libexec | wc -l)" -eq 6
       - name: Attest build provenance
         uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
         with:
@@ -193,4 +198,4 @@ jobs:
           fi
           prerelease=""
           case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" "dist/paraplane-${GITHUB_REF_NAME}.tar.gz" dist/checksums.txt --generate-notes $prerelease
+          gh release create "$GITHUB_REF_NAME" "dist/paraplane-${GITHUB_REF_NAME}.tar.gz" dist/checksums.txt libexec/* --generate-notes $prerelease
