@@ -593,6 +593,11 @@ func TestCodexBashReadVsWrite(t *testing.T) {
 		{"echo hi # > docs/plans/noblock.md", none},
 		{"echo a#b > docs/plans/noblock.md", e0},
 		{"echo $# > docs/plans/noblock.md", e0},
+		{"echo `#` > docs/plans/noblock.md", e0},
+		{"echo `ls # don't` > docs/plans/noblock.md", e0},
+		{"echo $(ls)#x > docs/plans/noblock.md", e0},
+		{"echo `ls`#x > docs/plans/noblock.md", e0},
+		{"(ls) # > docs/plans/noblock.md", none},
 		{"cat > 'docs/plans/noblock.md", e0}, // unterminated quote
 		{`cat > "docs/plans/noblock.md`, e0},
 		{"cp /tmp/x docs/plans/noblock.md", e0},
@@ -837,9 +842,9 @@ func TestCodexOneDeadline(t *testing.T) {
 	}
 }
 
-// TestCodexSharedDeadline: a plan checked after another one ran out of the
-// shared deadline gets no answer, even a written one: the time was not its
-// own. The first plan checked still gets the deadline verdict.
+// TestCodexSharedDeadline: a written plan checked after another one ran out
+// of the shared deadline is blocked as not checked, not as too complex. The
+// first plan checked still gets the deadline verdict.
 func TestCodexSharedDeadline(t *testing.T) {
 	old := postNow
 	postNow = func() time.Time { return time.Now().Add(-time.Minute) }
@@ -847,11 +852,16 @@ func TestCodexSharedDeadline(t *testing.T) {
 	env := codexEnv(t)
 	o := Options(env)
 	for _, k := range []postKind{postWrite, postEdit} {
-		if out, err := postVerdict(env, o, "docs/plans/a.md", []byte(planOK), k, true); out != nil || err != nil {
-			t.Errorf("kind %d, shared: got %s, %v; want nil", k, out, err)
+		out, err := postVerdict(env, o, "docs/plans/a.md", []byte(planOK), k, true)
+		if err != nil || !strings.Contains(string(out), `"decision":"block"`) || !strings.Contains(string(out), "a.md was not checked") ||
+			!strings.Contains(string(out), Codex.CLI()+" check docs/plans/a.md") {
+			t.Errorf("kind %d, shared: got %s, %v; want the not-checked block", k, out, err)
 		}
-		out, err := postVerdict(env, o, "docs/plans/a.md", []byte(planOK), k, false)
-		if err != nil || !strings.Contains(string(out), `"decision":"block"`) {
+		if out, err := postVerdict(env, o, "docs/plans/a.md", []byte(planOK), postRead, true); out != nil || err != nil {
+			t.Errorf("read, shared: got %s, %v; want nil", out, err)
+		}
+		out, err = postVerdict(env, o, "docs/plans/a.md", []byte(planOK), k, false)
+		if err != nil || !strings.Contains(string(out), `"decision":"block"`) || strings.Contains(string(out), "not checked") {
 			t.Errorf("kind %d, own: got %s, %v; want the deadline block", k, out, err)
 		}
 	}

@@ -72,19 +72,25 @@ const (
 // context, E1–E7 block (context in mode warn), warnings add context only for
 // a write. A read answers only E1–E7, and only with context: the same text,
 // never a block (spec section 12a.2). With shared, o's deadline was shared
-// with files checked before, so a deadline E0 is not this plan's own and
-// gets no answer. paraplane's own strings go through env.Agent.text; the
-// plan path and plan text do not.
+// with files checked before, so a deadline E0 is not this plan's own: it
+// says the plan was not checked (a block, context in mode warn) instead of
+// calling the plan too complex. paraplane's own strings go through
+// env.Agent.text; the plan path and plan text do not.
 func postVerdict(env Env, o rules.Options, rel string, md []byte, k postKind, shared bool) ([]byte, error) {
 	r := rules.Check(md, o)
 	if k == postRead && (r.Errors() == 0 || r.Findings[0].Code == "E0") {
 		return nil, nil
 	}
-	if shared && len(r.Findings) > 0 && r.Findings[0].Code == "E0" && r.Findings[0].Msg == layout.ErrDeadline.Error() {
-		return nil, nil
-	}
 	name := textx.Line(rel, maxPath)
 	text := env.Agent.text
+	if shared && len(r.Findings) > 0 && r.Findings[0].Code == "E0" && r.Findings[0].Msg == layout.ErrDeadline.Error() {
+		reason := "paraplane: " + name + " was not checked: the check time ran out on other plan files of this command" +
+			text("; run `paraplane check ") + name + "` before the plan is final."
+		if env.Config.Mode == "warn" {
+			return contextOutput("PostToolUse", reason)
+		}
+		return encodeJSON(hookOutput{Decision: "block", Reason: reason})
+	}
 	switch {
 	case len(r.Findings) > 0 && r.Findings[0].Code == "E0" && r.Findings[0].Msg != layout.ErrDeadline.Error():
 		return contextOutput("PostToolUse", "paraplane: "+name+" has no valid ```paraplane block yet ("+

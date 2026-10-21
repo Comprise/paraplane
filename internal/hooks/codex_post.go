@@ -97,9 +97,9 @@ func codexPost(env Env, in Input) ([]byte, error) {
 		}
 	}
 	// One deadline for the whole hook call: with a fresh one per file, up to
-	// codexMaxPlans checks could outlast the hook timeout. A file checked
-	// after another that ran out of it gets no answer, not the E0 deadline
-	// verdict: the time was not its own (Stop and the skills check it).
+	// codexMaxPlans checks could outlast the hook timeout. A written or
+	// edited file checked after the others used it up is blocked as not
+	// checked, not as too complex: the time was not its own.
 	// Written and edited files go first, then those only read: a block
 	// wins over any context, and a read's context never hides a later
 	// write's block. Without a block the first answer is returned.
@@ -174,8 +174,8 @@ type heredoc struct {
 // shellLex splits a command into words and operators: blanks separate words;
 // ; & | ( ) newline and backtick end a simple command; quotes and
 // backslashes are removed. Expansions are left as text: this only has to
-// find literal file names. A # that starts a word starts a comment, up to
-// the newline. A here-document (<< or <<- WORD) is not a file:
+// find literal file names. A # that starts a word after a blank or a
+// command end starts a comment, up to the newline or a backtick. A here-document (<< or <<- WORD) is not a file:
 // its delimiter is dropped and its body, the lines after the next newline up
 // to the delimiter line, is skipped. Inside arithmetic (( )), $(( )) and
 // $[ ] the operators < << <<= > >> and parentheses are arithmetic, not
@@ -368,12 +368,14 @@ func shellLex(cmd string) []shellToken {
 			flush()
 			toks = append(toks, shellToken{op: "sep"})
 		case '#':
-			if in {
+			// A comment only after a blank or a command end: after ) or a
+			// backtick the word goes on ($(cmd)#x), so # is a letter.
+			if in || (i > 0 && strings.IndexByte(" \t\r\n;&|(", cmd[i-1]) < 0) {
 				add(c) // inside a word, as in a#b or $#
 				break
 			}
-			for i+1 < len(cmd) && cmd[i+1] != '\n' {
-				i++ // a comment, up to the newline
+			for i+1 < len(cmd) && cmd[i+1] != '\n' && cmd[i+1] != '`' {
+				i++ // a comment, up to the newline or the closing backtick
 			}
 		case ' ', '\t', '\r':
 			flush()
