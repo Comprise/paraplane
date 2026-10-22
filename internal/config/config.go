@@ -36,6 +36,7 @@ type Config struct {
 	MaxParallel int
 	PlansDir    string
 	AuditIgnore []string
+	Progress    string // "wave" | "task": when the coordinator shows progress
 }
 
 // Default returns the defaults of spec section 9.
@@ -51,6 +52,7 @@ func Default() Config {
 		MaxParallel: 6,
 		PlansDir:    "docs/plans",
 		AuditIgnore: []string{},
+		Progress:    "wave",
 	}
 }
 
@@ -60,7 +62,7 @@ type Problems []string
 
 func (p Problems) Error() string { return FileName + ": ignored " + strings.Join(p, "; ") }
 
-var knownKeys = []string{"enabled", "mode", "plan_paths", "hot_files", "default_gate", "max_parallel", "plans_dir", "audit_ignore"}
+var knownKeys = []string{"enabled", "mode", "plan_paths", "hot_files", "default_gate", "max_parallel", "plans_dir", "audit_ignore", "progress"}
 
 // Load reads root/.paraplane/config.yaml. A missing file gives Default() and
 // nil. An unreadable, oversized or non-YAML file gives Default() and an error.
@@ -137,6 +139,12 @@ func apply(cfg *Config, key string, n *yaml.Node) error {
 			return errors.New(`must be "block" or "warn"`)
 		}
 		cfg.Mode = v
+	case "progress":
+		var v string
+		if err := n.Decode(&v); err != nil || (v != "wave" && v != "task") {
+			return errors.New(`must be "wave" or "task"`)
+		}
+		cfg.Progress = v
 	case "max_parallel":
 		var v int
 		if err := n.Decode(&v); err != nil || v < 1 || v > 32 {

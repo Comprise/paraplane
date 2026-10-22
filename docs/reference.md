@@ -93,9 +93,10 @@ In Claude Code:
 |---|---|
 | `/paraplane:create <task or path to a spec>` | clarify the task, study the code, compose a plan, run `conflict-auditor`, fix, validate with `paraplane check` and save to `plans_dir/YYYY-MM-DD-<slug>.md` |
 | `/paraplane:check [path]` | `paraplane check --suggest` plus `conflict-auditor`, edit the plan itself and report the reorderings |
+| `/paraplane:progress [path]` | `paraplane progress` on demand: the plan being executed or the newest plan; closed, uncommitted tasks of the session in `--done`; the output in a code block |
 | `/paraplane:rules` | all the rules: block format, E/W, how to split and reorder stages, execution rules (Claude loads it by itself) |
 
-Only the user invokes `create` and `check` (they change files). The `conflict-auditor` agent is started from
+Only the user invokes `create`, `check` and `progress`. The `conflict-auditor` agent is started from
 these skills when a wave has two or more tasks and looks for what the plan does not show: hidden shared files,
 registration points, API breaks inside a wave, migrations. Its report is a list of findings and a verdict,
 `clean` or `conflicts`; the plan is edited by the main Claude. When the plan cannot be audited (unreadable file,
@@ -107,7 +108,7 @@ The command-line utility (you can run it by hand; Claude uses it by itself):
 ```
 paraplane check [--suggest] <file>   # validate a plan; - reads stdin
 paraplane audit <file> <wave>        # audit the changes of a wave
-paraplane progress <file>            # execution progress of a plan
+paraplane progress [--done <ids>] <file>  # execution progress; --done: closed, uncommitted tasks
 paraplane hook <session-start|pre-tool-use|post-tool-use> [--agent codex]
 paraplane hook <stop|prompt-submit|permission-request> --agent codex   # Codex events: see hooks/README.md
 paraplane version
@@ -199,8 +200,18 @@ W5  ⬜⬜          0/2  · waiting  T16 T17
 
 🟩 — wave done, 🟨 — in progress, ⬜ — waiting. A commit of a wave that follows the running one gives the line
 `warning: wave <id> was committed before <running id>`; a commit of a wave that is not in the plan gives
-`warning: commit for unknown wave <id>`. After each wave's commit the coordinator runs
-`paraplane progress <plan>` and shows the output to the user.
+`warning: commit for unknown wave <id>`.
+
+`--done T7,T9` (ids joined by `,`, no spaces, before the file) lists tasks closed but not committed yet. A
+wave is closed when it has a commit or all its tasks are in `--done`; closed tasks of the running wave
+count as done and are drawn 🟩, so the bar moves before the wave commit. An id that is no task of the plan
+gives `warning: --done <id> is not a task of the plan`, a task of a waiting wave
+`warning: --done <id> is in waiting wave <W>`; neither is counted. An empty list, a bad id or the flag
+twice is a usage error (exit 2).
+
+When the coordinator shows progress depends on the key `progress`: `wave` (default) — after each closed
+wave (audit and gate passed), `task` — also after each closed task. The output always goes to the user
+in a code block. The user can ask for it at any moment with `/paraplane:progress`.
 
 ## Execution rules
 
@@ -214,8 +225,8 @@ contradicting instructions ("do not run implementers in parallel", "the implemen
 3. After a wave — `paraplane audit <plan> <wave>`, then the gate. On an audit violation or a red gate — fix
    before the next wave starts.
 4. Subagents do not commit (parallel commits race for `index.lock` and pick up other tasks' files): the
-   coordinator commits once after a green wave gate with the trailers `Paraplane-Plan` and `Paraplane-Wave` and
-   shows `paraplane progress`.
+   coordinator commits once after a green wave gate with the trailers `Paraplane-Plan` and `Paraplane-Wave`.
+5. Progress is shown after each closed wave, and with `progress: task` also after each closed task.
 
 ## Hooks
 
@@ -226,7 +237,7 @@ The hooks catch a plan in any form: from plan mode, from a skill with `plan` in 
 | `SessionStart` | adds to the context a line about the rules and `paraplane:rules`; on config problems — a message |
 | `PreToolUse` `ExitPlanMode` | validates the plan; E errors (including E0) — **forbids leaving plan mode** and lists the violations (up to 20) with an instruction; only W warnings — adds them to the context |
 | `PreToolUse` `Skill` | before an execution skill (the name contains `execut` or `subagent-driven`, does not start with `paraplane:`) reminds of the execution rules and their priority; before a skill with `plan` in its name — the plan-writing rules |
-| `PreToolUse` `Bash` | approves without a prompt `paraplane check <path>`, `paraplane audit <path> <wave>`, `paraplane progress <path>`, `paraplane version` |
+| `PreToolUse` `Bash` | approves without a prompt `paraplane check <path>`, `paraplane audit <path> <wave>`, `paraplane progress [--done <ids>] <path>`, `paraplane version` |
 | `PostToolUse` `Write\|Edit` | if the file is in `plan_paths` — validates it (≤ 1 MB). E0 — only the hint `add the block before the plan is final`; E1–E7 — **block** with a reason; only W — a hint, and only for `Write` |
 
 - `Edit` is checked only if the edit touches the `paraplane` block or its keys (`waves:`, `tasks:`, `id:`,
@@ -254,6 +265,7 @@ value is a warning, the other fields apply.
 | `max_parallel` | `6` | W2 threshold, 1…32 |
 | `plans_dir` | `docs/plans` | where `/paraplane:create` saves plans; a relative path without `..` and without the glob characters `* ? [ ] { }`, otherwise ignored with a warning |
 | `audit_ignore` | `[]` | patterns of files the audit ignores (generated, caches) |
+| `progress` | `wave` | when the coordinator shows progress: `wave` — after each closed wave; `task` — also after each closed task |
 
 The project root is `CLAUDE_PROJECT_DIR`, otherwise the session `cwd`; then the nearest directory upward with
 `.git` or `.paraplane/config.yaml`.

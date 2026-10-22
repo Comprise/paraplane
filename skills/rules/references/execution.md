@@ -66,9 +66,22 @@ The coordinator is the main Claude session. Subagents implement tasks.
    Paraplane-Wave: <wave id>
    ```
 
-5. **Show progress.** After the commit run `paraplane progress <plan>` and paste its output into the
-   message to the user in a code block. Progress is read from the block and the commit trailers of the
-   current branch, so it survives a session restart.
+5. **Show progress** as the next section says.
+
+## When to show progress
+
+The moments come from the key `progress` in `.paraplane/config.yaml` (default `wave`). The execution
+digest the hooks add names the mode; when no digest named it, read the key yourself.
+
+- **`wave`:** after each closed wave (audit and gate passed) run `paraplane progress <plan>`. While the
+  wave is not committed yet, pass all its tasks: `paraplane progress --done <ids> <plan>`.
+- **`task`:** the same, and after each closed task (its subagent returned and its review, if the
+  execution skill makes one, passed) run `paraplane progress --done <closed, uncommitted tasks of the
+  wave> <plan>`, the ids joined by `,` without spaces.
+
+Always paste the output into the message to the user in a code block. Committed waves are read from the
+commit trailers of the current branch, so they survive a session restart; closed, uncommitted tasks
+exist only in `--done`. The user can ask for progress at any moment with `/paraplane:progress`.
 
 ## Progress output
 
@@ -83,13 +96,18 @@ W4  ⬜⬜          0/2  · waiting  T14 T15
 W5  ⬜⬜          0/2  · waiting  T16 T17
 ```
 
-A wave with a commit whose previous waves are all `done` is `done`; the first wave that is not
-`done` is `running`; the rest are `waiting`. Warnings to act on:
+A wave is closed when it has a commit or all its tasks are in `--done`. A closed wave whose previous
+waves are all `done` is `done`; the first wave that is not `done` is `running`; the rest are `waiting`.
+Tasks of the running wave listed in `--done` count as done and are drawn 🟩, the others 🟨.
+Warnings to act on:
 
 - `warning: wave <id> was committed before <running id>` — a later wave was committed while an
   earlier one is not done; finish the earlier wave (audit, gate, commit) before continuing.
 - `warning: commit for unknown wave <id>` — a commit's `Paraplane-Wave` trailer names a wave the plan
   does not have; check the trailer and the plan.
+- `warning: --done <id> is not a task of the plan` — a typo in `--done`; fix the id.
+- `warning: --done <id> is in waiting wave <W>` — a task of a later wave was passed; it is not counted
+  until its wave is running.
 
 ## Exit codes
 

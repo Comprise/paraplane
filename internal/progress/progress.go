@@ -76,20 +76,45 @@ func pad(s string, n int) string {
 // Render draws the progress of p (spec 7.1). name is the plan file name; done
 // lists the ids of waves that have a commit.
 func Render(p *plan.Plan, name string, done []string) string {
+	return RenderClosed(p, name, done, nil)
+}
+
+// RenderClosed is Render with closed, the ids of tasks closed but not yet
+// committed (--done). A wave is closed when it has a commit or all its tasks
+// are closed; closed tasks of the running wave count as done and are drawn
+// 🟩. A closed id that is no task of the plan, or a task of a waiting wave,
+// gets a warning and is not counted.
+func RenderClosed(p *plan.Plan, name string, done, closed []string) string {
 	doneSet := map[string]bool{}
 	for _, id := range done {
 		doneSet[id] = true
 	}
+	closedSet := map[string]bool{}
+	for _, id := range closed {
+		closedSet[id] = true
+	}
 	known := map[string]bool{}
-	for _, w := range p.Waves {
+	waveOf := map[string]int{} // task id → wave index
+	for i, w := range p.Waves {
 		known[w.ID] = true
+		for _, t := range w.Tasks {
+			waveOf[t.ID] = i
+		}
+	}
+	allClosed := func(w plan.Wave) bool {
+		for _, t := range w.Tasks {
+			if !closedSet[t.ID] {
+				return false
+			}
+		}
+		return len(w.Tasks) > 0
 	}
 
 	type row struct {
-		id    string
-		tasks []string
-		st    state
-		bad   bool // committed after the running wave
+		id     string
+		tasks  []string
+		closed []bool // per task, for the running wave
+		st     state
 	}
 	rows := make([]row, 0, len(p.Waves))
 	total, ndone, cur := 0, 0, -1
@@ -101,12 +126,18 @@ func Render(p *plan.Plan, name string, done []string) string {
 		}
 		total += len(w.Tasks)
 		switch {
-		case cur < 0 && doneSet[w.ID]:
+		case cur < 0 && (doneSet[w.ID] || allClosed(w)):
 			r.st = stDone
 			ndone += len(w.Tasks)
 		case cur < 0:
 			r.st = stRunning
 			cur = i
+			for _, t := range w.Tasks {
+				r.closed = append(r.closed, closedSet[t.ID])
+				if closedSet[t.ID] {
+					ndone++
+				}
+			}
 		default:
 			r.st = stWaiting
 			if doneSet[w.ID] {
@@ -122,6 +153,22 @@ func Render(p *plan.Plan, name string, done []string) string {
 			seen[id] = true
 			warns = append(warns, capLine("warning: commit for unknown wave "+textx.Line(id, idRunesBeforeEllipsis)))
 		}
+	}
+	warned := map[string]bool{}
+	for _, id := range closed {
+		if warned[id] {
+			continue
+		}
+		i, ok := waveOf[id]
+		switch {
+		case !ok:
+			warns = append(warns, capLine("warning: --done "+textx.Line(id, taskIDRunesBeforeEllipsis)+" is not a task of the plan"))
+		case rows[i].st == stWaiting:
+			warns = append(warns, capLine("warning: --done "+textx.Line(id, taskIDRunesBeforeEllipsis)+" is in waiting wave "+rows[i].id))
+		default:
+			continue
+		}
+		warned[id] = true
 	}
 
 	pct := 0
@@ -150,13 +197,20 @@ func Render(p *plan.Plan, name string, done []string) string {
 	counts := make([]string, len(rows))
 	for i, r := range rows {
 		k := len(r.tasks)
-		sq := strings.Repeat(map[state]string{stDone: "🟩", stRunning: "🟨", stWaiting: "⬜"}[r.st], min(k, maxSquares))
+		var sq string
+		d := 0
+		for j := range k {
+			c := map[state]string{stDone: "🟩", stRunning: "🟨", stWaiting: "⬜"}[r.st]
+			if r.st == stDone || (r.st == stRunning && r.closed[j]) {
+				c = "🟩"
+				d++
+			}
+			if j < maxSquares {
+				sq += c
+			}
+		}
 		if k > maxSquares {
 			sq += fmt.Sprintf(" +%d", k-maxSquares)
-		}
-		d := 0
-		if r.st == stDone {
-			d = k
 		}
 		cells[i] = sq
 		counts[i] = fmt.Sprintf("%d/%d", d, k)

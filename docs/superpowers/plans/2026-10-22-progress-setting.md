@@ -74,10 +74,10 @@ waves:
 **Interfaces:**
 - Produces: `Config.Progress string` — `"wave"` or `"task"`; `Default().Progress == "wave"`; `"progress"` in `knownKeys`.
 
-- [ ] **Step 1: Failing tests** in `config_test.go`: `TestDefault` asserts `Progress == "wave"`; new `TestLoadProgress` table — `progress: task` → `"task"`, no error; `progress: wave` → `"wave"`; `progress: daily` and `progress: [x]` → `"wave"` and `Load` returns `Problems` containing `progress`, while `max_parallel: 3` in the same file still applies.
-- [ ] **Step 2: Run** `go test ./internal/config/` — FAIL (`Progress` undefined).
-- [ ] **Step 3: Implement** a `case "progress":` in the key switch next to `mode` (decode a string, accept only `wave`/`task`, else `errors.New("must be wave or task")`).
-- [ ] **Step 4: Run** `go test ./internal/config/` — PASS. Update `context/internal/config.md` (the key and its default).
+- [x] **Step 1: Failing tests** in `config_test.go`: `TestDefault` asserts `Progress == "wave"`; new `TestLoadProgress` table — `progress: task` → `"task"`, no error; `progress: wave` → `"wave"`; `progress: daily` and `progress: [x]` → `"wave"` and `Load` returns `Problems` containing `progress`, while `max_parallel: 3` in the same file still applies.
+- [x] **Step 2: Run** `go test ./internal/config/` — FAIL (`Progress` undefined).
+- [x] **Step 3: Implement** a `case "progress":` in the key switch next to `mode` (decode a string, accept only `wave`/`task`, else `errors.New("must be wave or task")`).
+- [x] **Step 4: Run** `go test ./internal/config/` — PASS. Update `context/internal/config.md` (the key and its default).
 
 ### Task T2: `progress.RenderClosed`
 
@@ -88,15 +88,15 @@ waves:
 
 Rules (spec §5): a wave is closed when it has a commit or all its tasks are in `closed`; `done` = closed and every earlier wave `done`; first non-`done` is `running`. Done tasks = tasks of `done` waves + tasks of the running wave in `closed`. Header `P` and bar use that count; the running row's `d/n` counts them and draws 🟩 for them in task order. Ids in `closed` not in the plan → `warning: --done <id> is not a task of the plan`; in a `waiting` wave → `warning: --done <id> is in waiting wave <W>` (ids pass through `textx.Line` like wave ids; each id warned once, in `closed` order, after the existing warnings, each line `capLine`d).
 
-- [ ] **Step 1: Failing tests** with `mk(3, 3, 2)` (W1 T1–T3, W2 T4–T6, W3 T7–T8):
+- [x] **Step 1: Failing tests** with `mk(3, 3, 2)` (W1 T1–T3, W2 T4–T6, W3 T7–T8):
   - `TestRenderClosedRunning`: `RenderClosed(p, "p.md", []string{"W1"}, []string{"T4", "T6"})` — header ends `wave 2/3 · 62%`; line 2 is 25 `█` + 15 `░` + `  5/8 tasks`; W2 row contains `🟩🟨🟩` and `2/3` and `▶ running`.
   - `TestRenderClosedWholeWave`: `closed = T4,T5,T6`, done `W1` → W2 `✓ done`, W3 `▶ running`, `6/8 tasks`.
   - `TestRenderClosedWarnings`: `closed = X9,T7` → output ends with `warning: --done X9 is not a task of the plan\nwarning: --done T7 is in waiting wave W3\n`.
   - `TestRenderClosedDedup`: `closed = T1,T4,T4` with done `W1` → `4/8 tasks`, no warning.
   - `TestRenderClosedNil`: for every existing test case `RenderClosed(..., nil) == Render(...)`.
-- [ ] **Step 2: Run** `go test ./internal/progress/` — FAIL (`RenderClosed` undefined).
-- [ ] **Step 3: Implement** `RenderClosed`; move the body of `Render` into it.
-- [ ] **Step 4: Run** `go test ./internal/progress/` — PASS (old tests unchanged). Update `context/internal/progress.md`.
+- [x] **Step 2: Run** `go test ./internal/progress/` — FAIL (`RenderClosed` undefined).
+- [x] **Step 3: Implement** `RenderClosed`; move the body of `Render` into it.
+- [x] **Step 4: Run** `go test ./internal/progress/` — PASS (old tests unchanged). Update `context/internal/progress.md`.
 
 ### Task T3: CLI `progress [--done <ids>] <file>`
 
@@ -139,10 +139,10 @@ Mode sentences, verbatim:
 **Interfaces:**
 - Consumes (texts only): the CLI form and warnings from Global Constraints, the mode sentences of T4, the spec's §8 for the skill.
 
-- [ ] **Step 1: `skills/progress/SKILL.md`** — frontmatter `name: progress`, a `description` in the style of `skills/check/SKILL.md` ("This skill should be used when the user runs /paraplane:progress (or $paraplane:progress in Codex) to see the execution progress of a plan."), `argument-hint: "[plan file]"`, `disable-model-invocation: true`, `allowed-tools: Bash(paraplane progress *)`; body = spec §8 steps 1–3, plus the Codex absolute-path line copied from `skills/check/SKILL.md`.
-- [ ] **Step 2: Rules text.** `execution.md`: section «When to show progress» per spec §7 (mode from `progress` in `.paraplane/config.yaml`, default `wave`; the digest names it; `wave` and `task` rules; output always in a code block); the Progress output section documents `--done`, 🟩 for closed tasks and the two warnings. `SKILL.md`, `codex.md`: same rule in one sentence each.
-- [ ] **Step 3: Docs.** `skills/README*`: a `progress` row in the skills table and `disable-model-invocation` note. `README*`, `docs/reference*`: `progress [--done <ids>] <file>`, the `progress` config key, `/paraplane:progress`, approved forms of the Bash hook. `hooks/README*` (lines on PreToolUse and PermissionRequest approval): add `paraplane progress --done <ids> <path>`. Main spec: fold the design doc into §7 (CLI table), §7.1 (state rule, `--done`, warnings, execution rule), §8 (approval list), §9 (config table), §10 (skills).
-- [ ] **Step 4: Run** `go test ./internal/plugintest/` — PASS (frontmatter of the new skill, ship list).
+- [x] **Step 1: `skills/progress/SKILL.md`** — frontmatter `name: progress`, a `description` in the style of `skills/check/SKILL.md` ("This skill should be used when the user runs /paraplane:progress (or $paraplane:progress in Codex) to see the execution progress of a plan."), `argument-hint: "[plan file]"`, `disable-model-invocation: true`, `allowed-tools: Bash(paraplane progress *)`; body = spec §8 steps 1–3, plus the Codex absolute-path line copied from `skills/check/SKILL.md`.
+- [x] **Step 2: Rules text.** `execution.md`: section «When to show progress» per spec §7 (mode from `progress` in `.paraplane/config.yaml`, default `wave`; the digest names it; `wave` and `task` rules; output always in a code block); the Progress output section documents `--done`, 🟩 for closed tasks and the two warnings. `SKILL.md`, `codex.md`: same rule in one sentence each.
+- [x] **Step 3: Docs.** `skills/README*`: a `progress` row in the skills table and `disable-model-invocation` note. `README*`, `docs/reference*`: `progress [--done <ids>] <file>`, the `progress` config key, `/paraplane:progress`, approved forms of the Bash hook. `hooks/README*` (lines on PreToolUse and PermissionRequest approval): add `paraplane progress --done <ids> <path>`. Main spec: fold the design doc into §7 (CLI table), §7.1 (state rule, `--done`, warnings, execution rule), §8 (approval list), §9 (config table), §10 (skills).
+- [x] **Step 4: Run** `go test ./internal/plugintest/` — PASS (frontmatter of the new skill, ship list).
 
 ## After the plan
 

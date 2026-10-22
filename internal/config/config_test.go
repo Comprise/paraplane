@@ -37,6 +37,7 @@ func TestDefault(t *testing.T) {
 		MaxParallel: 6,
 		PlansDir:    "docs/plans",
 		AuditIgnore: []string{},
+		Progress:    "wave",
 	}
 	if got := Default(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("Default() = %+v, want %+v", got, want)
@@ -70,6 +71,31 @@ func TestLoadPartial(t *testing.T) {
 	if cfg.Enabled || cfg.Mode != d.Mode || cfg.MaxParallel != d.MaxParallel ||
 		!reflect.DeepEqual(cfg.AuditIgnore, d.AuditIgnore) || !reflect.DeepEqual(cfg.HotFiles, []string{"a.lock"}) {
 		t.Fatalf("unexpected %+v", cfg)
+	}
+}
+
+func TestLoadProgress(t *testing.T) {
+	for body, want := range map[string]string{
+		"progress: task\n": "task",
+		"progress: wave\n": "wave",
+	} {
+		root := t.TempDir()
+		write(t, root, body)
+		if cfg, err := Load(root); err != nil || cfg.Progress != want {
+			t.Errorf("%q: got %q, %v; want %q", body, cfg.Progress, err, want)
+		}
+	}
+	for _, body := range []string{"progress: daily\nmax_parallel: 3\n", "progress: [x]\nmax_parallel: 3\n"} {
+		root := t.TempDir()
+		write(t, root, body)
+		cfg, err := Load(root)
+		var pr Problems
+		if !errors.As(err, &pr) || len(pr) != 1 || !strings.Contains(err.Error(), "progress") {
+			t.Errorf("%q: want one progress problem, got %v", body, err)
+		}
+		if cfg.Progress != "wave" || cfg.MaxParallel != 3 {
+			t.Errorf("%q: got progress %q, max_parallel %d", body, cfg.Progress, cfg.MaxParallel)
+		}
 	}
 }
 

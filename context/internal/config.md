@@ -1,13 +1,14 @@
 ---
 unit: internal/config
-source_hash: sha256:8cceea624667b01f0fd22937f3c34a3450f20a49c525e43691e016f3d505b7e8
-updated: "2026-10-20"
+source_hash: sha256:a4d7a1f595fbdf8cdc8b6659c162817551455515e9194d672d1578916e4c541a
+commit: 40e679204177844d9f92fc4e5a92139a8a59efe7
+updated: "2026-10-22"
 ---
 # internal/config
 Загрузка .paraplane/config.yaml с поключевой валидацией (неверное значение → дефолт + Problems) и FindRoot.
 
 ## Назначение
-- Эффективная конфигурация paraplane (`enabled`, `mode`, `plan_paths`, `hot_files`, `default_gate`, `max_parallel`, `plans_dir`, `audit_ignore`); дефолты — раздел 9 спецификации.
+- Эффективная конфигурация paraplane (`enabled`, `mode`, `plan_paths`, `hot_files`, `default_gate`, `max_parallel`, `plans_dir`, `audit_ignore`, `progress`); дефолты — раздел 9 спецификации.
 - Определение корня проекта для команд и хуков.
 
 ## Публичный API / точки входа
@@ -29,7 +30,7 @@ updated: "2026-10-20"
   - неизвестный ключ показывается, только если это короткое слово из `[a-z_]`, иначе `(name not shown)`;
   - значения элементов списков в ошибках не цитируются, только номер элемента.
 - `default_gate`: одна строка до 256 байт; запрещены управляющие символы (включая таб и NUL), U+2028/U+2029 и категория Cf (bidi-override, zero-width, BOM) — чтобы команда gate не скрывала и не переставляла видимый текст.
-- `max_parallel` — целое 1..32; `mode` — только `block` или `warn`; `plans_dir` — без glob-символов.
+- `max_parallel` — целое 1..32; `mode` — только `block` или `warn`; `progress` — только `wave` (по умолчанию) или `task`; `plans_dir` — без glob-символов.
 - `FindRoot` не поднимается в `$HOME` снизу: случайный `~/.git` не делает домашний каталог проектом. Если `dir` сам равен `$HOME`, маркеры в нём проверяются.
 - `FindRoot` использует `os.Stat` (симлинки на маркеры допустимы); чтение конфига — нет (через `fsx`).
 

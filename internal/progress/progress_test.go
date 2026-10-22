@@ -195,3 +195,64 @@ func TestRenderWarningsCapped(t *testing.T) {
 		t.Fatalf("want 2 warnings, got %d:\n%s", n, got)
 	}
 }
+
+func rowOf(out, id string) string {
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, id+" ") {
+			return l
+		}
+	}
+	return ""
+}
+
+func TestRenderClosedRunning(t *testing.T) {
+	got := RenderClosed(mk(3, 3, 2), "p.md", []string{"W1"}, []string{"T4", "T6"})
+	lines := strings.Split(got, "\n")
+	if !strings.HasSuffix(lines[0], "wave 2/3 · 62%") {
+		t.Errorf("header %q", lines[0])
+	}
+	if want := strings.Repeat("█", 25) + strings.Repeat("░", 15) + "  5/8 tasks"; lines[1] != want {
+		t.Errorf("bar %q, want %q", lines[1], want)
+	}
+	if w2 := rowOf(got, "W2"); !strings.Contains(w2, "🟩🟨🟩") || !strings.Contains(w2, "2/3") || !strings.Contains(w2, "▶ running") {
+		t.Errorf("W2 row %q", w2)
+	}
+}
+
+func TestRenderClosedWholeWave(t *testing.T) {
+	got := RenderClosed(mk(3, 3, 2), "p.md", []string{"W1"}, []string{"T4", "T5", "T6"})
+	if !strings.Contains(rowOf(got, "W2"), "✓ done") || !strings.Contains(rowOf(got, "W3"), "▶ running") || !strings.Contains(got, "  6/8 tasks") {
+		t.Errorf("got:\n%s", got)
+	}
+	// Without any commit: W1 closed by --done alone.
+	got = RenderClosed(mk(3, 3, 2), "p.md", nil, []string{"T1", "T2", "T3"})
+	if !strings.Contains(rowOf(got, "W1"), "✓ done") || !strings.Contains(rowOf(got, "W2"), "▶ running") {
+		t.Errorf("no commits:\n%s", got)
+	}
+}
+
+func TestRenderClosedWarnings(t *testing.T) {
+	got := RenderClosed(mk(3, 3, 2), "p.md", []string{"W1"}, []string{"X9", "T7", "X9"})
+	if want := "warning: --done X9 is not a task of the plan\nwarning: --done T7 is in waiting wave W3\n"; !strings.HasSuffix(got, want) {
+		t.Errorf("got:\n%s", got)
+	}
+	if !strings.Contains(got, "  3/8 tasks") {
+		t.Errorf("warned ids counted:\n%s", got)
+	}
+}
+
+func TestRenderClosedDedup(t *testing.T) {
+	got := RenderClosed(mk(3, 3, 2), "p.md", []string{"W1"}, []string{"T1", "T4", "T4"})
+	if !strings.Contains(got, "  4/8 tasks") || strings.Contains(got, "warning") {
+		t.Errorf("got:\n%s", got)
+	}
+}
+
+func TestRenderClosedNil(t *testing.T) {
+	for _, done := range [][]string{nil, {"W1"}, {"W1", "W2"}, {"W2"}, {"W9"}} {
+		p := mk(6, 5, 2, 2, 2)
+		if a, b := RenderClosed(p, "x.md", done, nil), Render(p, "x.md", done); a != b {
+			t.Errorf("done %v:\n%s\n!=\n%s", done, a, b)
+		}
+	}
+}
