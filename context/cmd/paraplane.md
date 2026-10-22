@@ -1,7 +1,8 @@
 ---
 unit: cmd/paraplane
-source_hash: sha256:a34e107c891f1e1f5f49c75b0ae179ed489ef39cadbe49865bf740ca82935d3c
-updated: "2026-10-20"
+source_hash: sha256:169ecd329d3ce9692b2bf95a058746dc171bcaff896938348a2f096813f35c63
+commit: 8167b72b71b98595810bd4889fa93db1da5e3998
+updated: "2026-10-22"
 ---
 # cmd/paraplane
 Бинарник paraplane: CLI check, audit, progress, version и диспетчер хуков `hook <event> [--agent codex]`.

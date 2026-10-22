@@ -1,8 +1,8 @@
 ---
 unit: internal/hooks
-source_hash: sha256:38f9babdb54e2c3c0d4962f3b3901968f2c5aa127b906ff9520c383323e8b13c
-commit: c561fda5a44cad4ab07769acc3b811773093822d
-updated: "2026-10-21"
+source_hash: sha256:5b69d471589733357b1b4e6d438d95f1edd4c58d5b8d28e6cb331edb689f5457
+commit: 8167b72b71b98595810bd4889fa93db1da5e3998
+updated: "2026-10-22"
 ---
 # internal/hooks
 Обработчики хуков Claude Code и Codex: проверка плана, дайджесты правил, автоодобрение CLI paraplane.
