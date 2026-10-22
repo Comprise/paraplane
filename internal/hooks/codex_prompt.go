@@ -51,5 +51,8 @@ func PromptSubmit(env Env, in Input) ([]byte, error) {
 	if digest == "" {
 		return nil, nil
 	}
+	if digest == ExecDigest {
+		digest = execDigest(env.Config.Progress)
+	}
 	return encodeJSON(hookOutput{Hook: &hookSpecific{EventName: "UserPromptSubmit", AdditionalContext: env.Agent.text(digest)}})
 }

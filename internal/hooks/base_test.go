@@ -47,6 +47,29 @@ func TestSessionStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	golden(t, "base_session_start", out)
+
+	// progress: task adds the per-task rule to the session line.
+	env := testEnv(t)
+	env.Config.Progress = "task"
+	out, err = SessionStart(env, Input{HookEventName: "SessionStart"})
+	if err != nil || !strings.Contains(string(out), "progress: task") || !strings.Contains(string(out), "After each closed task") {
+		t.Errorf("task mode: got %s, %v", out, err)
+	}
+}
+
+func TestExecDigestMode(t *testing.T) {
+	in := toolInput(t, "Skill", map[string]any{"skill": "superpowers:executing-plans"})
+	env := testEnv(t)
+	out, err := PreToolUse(env, in)
+	if err != nil || !strings.Contains(string(out), "after each closed wave") || strings.Contains(string(out), "After each closed task") {
+		t.Errorf("wave: got %s, %v", out, err)
+	}
+	env.Config.Progress = "task"
+	out, err = PreToolUse(env, in)
+	if err != nil || !strings.Contains(string(out), "after each closed wave") ||
+		!strings.Contains(string(out), "After each closed task (its subagent returned and its review passed) run `paraplane progress --done ") {
+		t.Errorf("task: got %s, %v", out, err)
+	}
 }
 
 func TestSessionStartConfigProblem(t *testing.T) {
@@ -135,6 +158,8 @@ func TestBashAllow(t *testing.T) {
 		"paraplane check --suggest a.md",
 		"paraplane audit docs/plans/a.md W2",
 		"paraplane progress docs/plans/a.md",
+		"paraplane progress --done T1,T2.a docs/plans/a.md",
+		"paraplane progress --done T1 a.md",
 		"paraplane check .paraplane/plans/a.md",
 	}
 	deny := []string{
@@ -153,6 +178,13 @@ func TestBashAllow(t *testing.T) {
 		"paraplane audit a.md W2 extra",
 		"paraplane version x",
 		"paraplane progress a.md\n",
+		"paraplane progress --done T1, a.md",
+		"paraplane progress --done 'T1 T2' a.md",
+		"paraplane progress --done T1 T2 a.md",
+		"paraplane progress --done T1;rm a.md",
+		"paraplane progress --done ../x a.md",
+		"paraplane progress --done a.md",
+		"paraplane progress a.md --done T1",
 		"paraplane check a.md\nrm -rf /",
 		"paraplane check -x",
 		"paraplane suggest a.md",

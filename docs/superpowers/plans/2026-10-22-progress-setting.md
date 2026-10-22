@@ -106,10 +106,10 @@ Rules (spec §5): a wave is closed when it has a commit or all its tasks are in 
 - Consumes: `progress.RenderClosed(p, name, done, closed []string) string` (T2).
 - Produces: usage line `  progress [--done <ids>] <file>  show the execution progress of a plan` (column aligned with the others).
 
-- [ ] **Step 1: Failing tests** in `TestProgressCLI` (repo with `validPlan`: W1 T1, W2 T2; no commits): `progress --done T1 docs/plan.md` → code 0, W1 line `✓ done`, W2 `▶ running`; new `TestProgressDoneArgs`: `progress --done "" docs/plan.md`, `--done "T1 T2"`, `--done 1T`, `--done T1 --done T2 docs/plan.md`, `progress docs/plan.md --done T1`, `progress --done` → code 2 and usage on stderr.
-- [ ] **Step 2: Run** `go test ./cmd/paraplane/ -run Progress` — FAIL.
-- [ ] **Step 3: Implement** argument parsing in `runProgress` (optional leading `--done <ids>`, split on `,`, validate each id with the plan id rule; exactly one file left) and call `RenderClosed`.
-- [ ] **Step 4: Run** `go test ./cmd/paraplane/` — PASS. Update `context/cmd/paraplane.md`.
+- [x] **Step 1: Failing tests** in `TestProgressCLI` (repo with `validPlan`: W1 T1, W2 T2; no commits): `progress --done T1 docs/plan.md` → code 0, W1 line `✓ done`, W2 `▶ running`; new `TestProgressDoneArgs`: `progress --done "" docs/plan.md`, `--done "T1 T2"`, `--done 1T`, `--done T1 --done T2 docs/plan.md`, `progress docs/plan.md --done T1`, `progress --done` → code 2 and usage on stderr.
+- [x] **Step 2: Run** `go test ./cmd/paraplane/ -run Progress` — FAIL.
+- [x] **Step 3: Implement** argument parsing in `runProgress` (optional leading `--done <ids>`, split on `,`, validate each id with the plan id rule; exactly one file left) and call `RenderClosed`.
+- [x] **Step 4: Run** `go test ./cmd/paraplane/` — PASS. Update `context/cmd/paraplane.md`.
 
 ### Task T4: hooks — digest by mode, approval of `--done`
 
@@ -125,10 +125,10 @@ Mode sentences, verbatim:
 
 `bashOwnCLI`: the `progress` alternative becomes `progress( --done [A-Za-z][A-Za-z0-9_.-]*(,[A-Za-z][A-Za-z0-9_.-]*)*)? <path>`.
 
-- [ ] **Step 1: Failing tests:** `base_test.go` allow list gets `paraplane progress --done T1,T2.a docs/plans/a.md`, deny list gets `paraplane progress --done T1, a.md`, `paraplane progress --done 'T1 T2' a.md`, `paraplane progress --done T1;rm a.md`, `paraplane progress --done ../x a.md`; Codex permission test (codex_test.go, the `cli + …` list) gets `cli + "progress --done T1 docs/p.md"`; new `TestExecDigestMode`: with `Progress: "task"` the skill hook output contains `After each closed task`, with `"wave"` it does not and contains `after each closed wave`; for Codex the commands use `Codex.CLI()`. Update the two golden files by hand to the `wave` text.
-- [ ] **Step 2: Run** `go test ./internal/hooks/` — FAIL.
-- [ ] **Step 3: Implement** `execDigest`, use it in `skill` and `PromptSubmit`, widen `bashOwnCLI`.
-- [ ] **Step 4: Run** `go test ./internal/hooks/` — PASS. Update `context/internal/hooks.md` (digest by mode, approved forms).
+- [x] **Step 1: Failing tests:** `base_test.go` allow list gets `paraplane progress --done T1,T2.a docs/plans/a.md`, deny list gets `paraplane progress --done T1, a.md`, `paraplane progress --done 'T1 T2' a.md`, `paraplane progress --done T1;rm a.md`, `paraplane progress --done ../x a.md`; Codex permission test (codex_test.go, the `cli + …` list) gets `cli + "progress --done T1 docs/p.md"`; new `TestExecDigestMode`: with `Progress: "task"` the skill hook output contains `After each closed task`, with `"wave"` it does not and contains `after each closed wave`; for Codex the commands use `Codex.CLI()`. Update the two golden files by hand to the `wave` text.
+- [x] **Step 2: Run** `go test ./internal/hooks/` — FAIL.
+- [x] **Step 3: Implement** `execDigest`, use it in `skill` and `PromptSubmit`, widen `bashOwnCLI`.
+- [x] **Step 4: Run** `go test ./internal/hooks/` — PASS. Update `context/internal/hooks.md` (digest by mode, approved forms).
 
 ### Task T5: skills, docs, main spec
 

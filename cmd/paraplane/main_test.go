@@ -310,10 +310,37 @@ func TestProgressCLI(t *testing.T) {
 		t.Errorf("no args: code %d", code)
 	}
 
+	// --done closes tasks that are not committed yet.
+	code, out, _ = cli(t, dir, "", "progress", "--done", "T2", "docs/plan.md")
+	if code != 0 || !strings.Contains(out, "2/2 tasks") || !strings.Contains(out, "100%") {
+		t.Errorf("--done T2: code %d, out %q", code, out)
+	}
+
 	nr := notRepo(t)
 	write(t, nr, "plan.md", validPlan)
 	if code, out, _ := cli(t, nr, "", "progress", "plan.md"); code != 1 || !strings.HasPrefix(out, "error: ") {
 		t.Errorf("not a repo: code %d, out %q", code, out)
+	}
+}
+
+func TestProgressDoneArgs(t *testing.T) {
+	dir := repo(t, validPlan)
+	if code, out, _ := cli(t, dir, "", "progress", "--done", "T1", "docs/plan.md"); code != 0 || !strings.Contains(out, "✓ done") {
+		t.Fatalf("--done T1: code %d, out %q", code, out)
+	}
+	for _, args := range [][]string{
+		{"progress", "--done", "", "docs/plan.md"},
+		{"progress", "--done", "T1 T2", "docs/plan.md"},
+		{"progress", "--done", "1T", "docs/plan.md"},
+		{"progress", "--done", "T1,", "docs/plan.md"},
+		{"progress", "--done", "T1", "--done", "T2", "docs/plan.md"},
+		{"progress", "docs/plan.md", "--done", "T1"},
+		{"progress", "--done"},
+		{"progress", "--done", "T1"},
+	} {
+		if code, _, errOut := cli(t, dir, "", args...); code != 2 || !strings.Contains(errOut, "usage") {
+			t.Errorf("%q: code %d, stderr %q", args, code, errOut)
+		}
 	}
 }
 

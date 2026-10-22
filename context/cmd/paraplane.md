@@ -12,7 +12,7 @@ updated: "2026-10-20"
 ## Публичный API / точки входа
 - `check [--suggest] <file>` — находки, при `--suggest` — более короткая раскладка, затем сводка; `-` читает stdin; код 1 при ошибках.
 - `audit <file> <wave>` — файлы, изменённые в git (`gitx.Changed`), вне `owns` волны (A1); код 1 при находках.
-- `progress <file>` — прогресс по коммитам волн (`gitx.WaveCommits`), вывод показывается пользователю как есть.
+- `progress [--done <ids>] <file>` — прогресс по коммитам волн (`gitx.WaveCommits`) и закрытым незакоммиченным задачам из `--done` (`progress.RenderClosed`), вывод показывается пользователю как есть. `--done` — только перед файлом, id по правилу плана через `,` без пробелов (`doneIDs`); иначе usage и код 2.
 - `hook <event> [--agent claude|codex]` — события из `hookHandlers`: `session-start`, `pre-tool-use`, `post-tool-use`, `stop`, `prompt-submit`, `permission-request`.
 - `version` — значение `main.version`, задаётся через `-ldflags -X` в `Makefile`.
 - Коды выхода: 0 — успех, 1 — ошибка или находки, 2 — неверные аргументы (usage в stderr).

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"regexp"
+	"strings"
 
 	"paraplane/internal/config"
 	"paraplane/internal/gitx"
@@ -11,8 +13,16 @@ import (
 	"paraplane/internal/progress"
 )
 
+// doneIDs matches a --done value: task ids (the plan id rule) joined by ",".
+var doneIDs = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.-]{0,31}(,[A-Za-z][A-Za-z0-9_.-]{0,31})*$`)
+
 func runProgress(args []string, stdout, stderr io.Writer, cwd string) int {
-	if len(args) != 1 {
+	var closed []string
+	if len(args) == 3 && args[0] == "--done" && doneIDs.MatchString(args[1]) {
+		closed = strings.Split(args[1], ",")
+		args = args[2:]
+	}
+	if len(args) != 1 || strings.HasPrefix(args[0], "--") {
 		fmt.Fprint(stderr, usage)
 		return 2
 	}
@@ -30,7 +40,7 @@ func runProgress(args []string, stdout, stderr io.Writer, cwd string) int {
 		printErr(stdout, err)
 		return 1
 	}
-	out := progress.Render(p, path.Base(rel), done)
+	out := progress.RenderClosed(p, path.Base(rel), done, closed)
 	fmt.Fprint(stdout, out)
 	if len(out) > 0 && out[len(out)-1] != '\n' {
 		fmt.Fprintln(stdout)

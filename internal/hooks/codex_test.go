@@ -427,6 +427,16 @@ func TestCodexApplyPatchPlanFile(t *testing.T) {
 	nilOut(t)(PostToolUse(env, in))
 }
 
+func TestCodexPromptDigestTaskMode(t *testing.T) {
+	t.Setenv("CLAUDE_PLUGIN_ROOT", safeRoot)
+	env := codexEnv(t)
+	env.Config.Progress = "task"
+	out, err := PromptSubmit(env, Input{HookEventName: "UserPromptSubmit", Prompt: "$superpowers:executing-plans x"})
+	if err != nil || !strings.Contains(string(out), "`"+safeRoot+"/bin/paraplane progress --done ") {
+		t.Errorf("got %s, %v", out, err)
+	}
+}
+
 func TestCodexPromptDigest(t *testing.T) {
 	t.Setenv("CLAUDE_PLUGIN_ROOT", safeRoot)
 	env := codexEnv(t)
@@ -486,7 +496,7 @@ func TestPermissionRequestAllows(t *testing.T) {
 	t.Setenv("CLAUDE_PLUGIN_ROOT", safeRoot)
 	env := codexEnv(t)
 	cli := safeRoot + "/bin/paraplane "
-	for _, cmd := range []string{cli + "version", cli + "check docs/plans/x.md", cli + "audit docs/p.md W1", cli + "progress docs/p.md", cli + "check --suggest p.md"} {
+	for _, cmd := range []string{cli + "version", cli + "check docs/plans/x.md", cli + "audit docs/p.md W1", cli + "progress docs/p.md", cli + "progress --done T1,T2 docs/p.md", cli + "check --suggest p.md"} {
 		out, err := PermissionRequest(env, permIn(t, cmd))
 		if err != nil {
 			t.Fatal(err)

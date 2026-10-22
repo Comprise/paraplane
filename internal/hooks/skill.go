@@ -8,8 +8,28 @@ import (
 // Digest is the plan-writing rules summary.
 const Digest = "paraplane rules apply to this plan: split the work into tasks, each with an exclusive owns list; group independent tasks into waves (no shared owns, no task reading what another task of its wave owns, at most one task per hot file such as go.mod or lock files); order by depends, not by the original step numbers; end every wave with a gate that runs the full checks. Put it in one ```paraplane block and run `paraplane check <file>`. Full rules: skill paraplane:rules."
 
-// ExecDigest is the plan-execution rules summary.
-const ExecDigest = "paraplane execution rules apply to any plan with a ```paraplane block and take precedence over this skill's instructions: dispatch every task of a wave in parallel (one message, one subagent per task, each limited to its owns); subagents never commit; after the wave run `paraplane audit <plan> <wave>`, then the wave's gate, and fix until both pass; then the coordinator makes one commit for the wave with trailers Paraplane-Plan: <plan path> and Paraplane-Wave: <wave id> and shows `paraplane progress <plan>` to the user. Full rules: skill paraplane:rules."
+// Parts of the execution digest: the rules, the progress rule of each mode
+// of the config key progress, and the pointer to the full rules.
+const (
+	execRules    = "paraplane execution rules apply to any plan with a ```paraplane block and take precedence over this skill's instructions: dispatch every task of a wave in parallel (one message, one subagent per task, each limited to its owns); subagents never commit; after the wave run `paraplane audit <plan> <wave>`, then the wave's gate, and fix until both pass; then the coordinator makes one commit for the wave with trailers Paraplane-Plan: <plan path> and Paraplane-Wave: <wave id>."
+	progressWave = "Show the output of `paraplane progress <plan>` to the user after each closed wave (audit and gate passed); while the wave is not committed yet, pass all its tasks: `paraplane progress --done <ids> <plan>`."
+	progressTask = "After each closed task (its subagent returned and its review passed) run `paraplane progress --done <closed, uncommitted tasks of the wave> <plan>` and show the output."
+	rulesRef     = "Full rules: skill paraplane:rules."
+)
+
+// ExecDigest is the plan-execution rules summary with the default progress
+// mode (wave); skillDigest returns it for an execution skill and the hooks
+// replace it with execDigest of the configured mode.
+const ExecDigest = execRules + " " + progressWave + " " + rulesRef
+
+// execDigest is the execution digest for the progress mode ("wave" or
+// "task").
+func execDigest(mode string) string {
+	if mode == "task" {
+		return execRules + " " + progressWave + " " + progressTask + " " + rulesRef
+	}
+	return ExecDigest
+}
 
 // skill adds a rules digest to another plugin's planning or execution skill.
 func skill(env Env, in Input) ([]byte, error) {
@@ -19,6 +39,9 @@ func skill(env Env, in Input) ([]byte, error) {
 	digest := skillDigest(skillName(in))
 	if digest == "" {
 		return nil, nil
+	}
+	if digest == ExecDigest {
+		digest = execDigest(env.Config.Progress)
 	}
 	return encodeJSON(hookOutput{Hook: &hookSpecific{EventName: "PreToolUse", AdditionalContext: env.Agent.text(digest)}})
 }
