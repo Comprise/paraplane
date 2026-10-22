@@ -119,8 +119,9 @@ W3 is checked only when there are no errors at all.
 Follow `references/execution.md`. In short: dispatch all tasks of a wave in one message, each subagent
 limited to its `owns`; subagents never commit; after the wave run `paraplane audit <plan> <wave>`,
 then the gate; fix until both pass; the coordinator makes one commit per wave with the trailers
-`Paraplane-Plan` and `Paraplane-Wave`, then shows the output of `paraplane progress <plan>` to the user
-in a code block.
+`Paraplane-Plan` and `Paraplane-Wave`. Progress (`paraplane progress [--done <ids>] <plan>`, output in a
+code block) is shown after each closed wave, and with `progress: task` in `.paraplane/config.yaml` also
+after each closed task.
 
 ## Precedence
 

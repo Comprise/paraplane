@@ -1,7 +1,7 @@
 # paraplane in Codex CLI
 
 The rules are the same as in Claude Code; only the delivery differs. Skills are invoked as
-`$paraplane:<name>` (`$paraplane:rules`, `$paraplane:create`, `$paraplane:check`).
+`$paraplane:<name>` (`$paraplane:rules`, `$paraplane:create`, `$paraplane:check`, `$paraplane:progress`).
 
 ## The CLI path
 
@@ -23,7 +23,8 @@ hook text gives, `<plugin dir>/bin/paraplane` (the plugin directory in the Codex
   nothing. A file written
   indirectly can be missed, so always run `paraplane check <file>` before declaring the plan final.
 - **Skills.** `UserPromptSubmit` sees `$…` mentions in the prompt: an execution skill (`execut`,
-  `subagent-driven`) brings the execution rules, a skill with `plan` in its name brings the planning rules.
+  `subagent-driven`) brings the execution rules (with the progress mode), a skill with `plan` in its name
+  brings the planning rules. Without such a mention, read `progress` in `.paraplane/config.yaml` yourself.
 
 ## The conflict-auditor without agents
 

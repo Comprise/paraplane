@@ -78,7 +78,10 @@ codex plugin marketplace add Comprise/paraplane --ref release
    W3  ⬜      0/1  · waiting  T6
    ```
 
-В Codex команды называются `$paraplane:create`, `$paraplane:check` и `$paraplane:rules`.
+   С `progress: task` в настройке Claude показывает его ещё и после каждой закрытой задачи, до коммита волны.
+   Посмотреть самому в любой момент: `/paraplane:progress`.
+
+В Codex команды называются `$paraplane:create`, `$paraplane:check`, `$paraplane:progress` и `$paraplane:rules`.
 
 ### Как выглядит блок
 
@@ -135,7 +138,7 @@ waves:
 ```
 paraplane check [--suggest] <plan>   # проверить план; --suggest печатает раскладку короче
 paraplane audit <plan> <wave>        # после волны: изменились только файлы из owns?
-paraplane progress <plan>            # прогресс-бары по коммитам волн
+paraplane progress [--done <ids>] <plan>  # прогресс-бары; --done: закрытые незакоммиченные задачи
 ```
 
 ## Настройка
@@ -147,6 +150,7 @@ mode: block            # или warn: сообщать о проблемах, а
 plan_paths: ["docs/plans/**/*.md"]
 default_gate: "make test"
 max_parallel: 6
+progress: wave         # или task: показывать прогресс ещё и после каждой закрытой задачи
 ```
 
 Все ключи и значения по умолчанию: [справочник → Настройка](https://github.com/Comprise/paraplane/blob/main/docs/reference.ru.md#настройка).

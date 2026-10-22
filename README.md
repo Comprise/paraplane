@@ -77,7 +77,10 @@ You do not have to learn anything new: plan as usual. paraplane works in the bac
    W3  ⬜      0/1  · waiting  T6
    ```
 
-In Codex the commands are `$paraplane:create`, `$paraplane:check` and `$paraplane:rules`.
+   With `progress: task` in the config Claude also shows it after each closed task, before the wave commit.
+   To see it at any moment yourself: `/paraplane:progress`.
+
+In Codex the commands are `$paraplane:create`, `$paraplane:check`, `$paraplane:progress` and `$paraplane:rules`.
 
 ### What the block looks like
 
@@ -134,7 +137,7 @@ Errors (E) make the plan unfit; warnings (W) do not. The command line tool does 
 ```
 paraplane check [--suggest] <plan>   # validate a plan; --suggest prints a shorter layout
 paraplane audit <plan> <wave>        # after a wave: only owned files changed?
-paraplane progress <plan>            # progress bars from the wave commits
+paraplane progress [--done <ids>] <plan>  # progress bars; --done: closed, uncommitted tasks
 ```
 
 ## Configuration
@@ -146,6 +149,7 @@ mode: block            # or warn: report problems instead of blocking
 plan_paths: ["docs/plans/**/*.md"]
 default_gate: "make test"
 max_parallel: 6
+progress: wave         # or task: also show progress after each closed task
 ```
 
 All keys and their defaults: [reference → Configuration](https://github.com/Comprise/paraplane/blob/main/docs/reference.md#configuration).
