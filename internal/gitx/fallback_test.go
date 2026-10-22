@@ -737,7 +737,7 @@ func TestWaveCommitsNeedsGit222(t *testing.T) {
 				needGit(t, 2, 22, "%(trailers:key=)")
 				versionGit(t, tc.ver)
 			}
-			got, err := WaveCommits(dir, "plan.md")
+			got, _, err := WaveCommits(dir, "plan.md")
 			if !tc.ok {
 				if err == nil || !strings.Contains(err.Error(), "git 2.22 or later is required for progress") {
 					t.Fatalf("got %v, %v; want the git 2.22 error", got, err)

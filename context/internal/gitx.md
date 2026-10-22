@@ -12,7 +12,7 @@ Changed и WaveCommits поверх git, запускаемого так, что
 
 ## Публичный API / точки входа
 - `Changed(root)` — изменённые файлы относительно `root`: слэши, отсортированы, без дублей; пути вне `root` отбрасываются. Переименование даёт оба пути (`--no-renames`). Сабмодули игнорируются.
-- `WaveCommits(root, planPath)` — id волн из коммитов с трейлером `Paraplane-Plan` == `planPath`, в порядке первого появления, без дублей. Требует git ≥ 2.22. Репозиторий без коммитов → пустой список.
+- `WaveCommits(root, planPath) (waves, lost, err)` — id волн из коммитов с трейлером `Paraplane-Plan` == `planPath`, в порядке первого появления, без дублей; `lost` — `[]LostTrailer{Commit, Wave}`: коммиты, где строки `Paraplane-*` для плана есть в тексте, но git не читает их как трейлеры (не в последнем абзаце), по одному на волну и только для незасчитанных волн. Требует git ≥ 2.22. Репозиторий без коммитов → пустой список.
 - `ErrFilterDrivers`, `ErrPartialClone` — отказы `Changed`.
 
 ## Структура и поток данных
@@ -22,7 +22,7 @@ Changed и WaveCommits поверх git, запускаемого так, что
   - добавляются `GIT_NO_LAZY_FETCH=1`, `GIT_OPTIONAL_LOCKS=0` (status не пишет индекс и не дёргает index-хуки), `GIT_CONFIG_NOSYSTEM=1`, `GIT_TERMINAL_PROMPT=0`, `LC_ALL=C`;
   - таймаут 10 с; stdout ограничен 16 MiB (`maxOutput`), при переполнении git останавливается и возвращается ошибка.
 - `Changed`: `rev-parse --show-prefix` → версия git → `repoConfigSets(filterKeys)` → при git без `GIT_NO_LAZY_FETCH` проверки partial clone и `uploadpack` → `git status --porcelain=v1 -z`.
-- `WaveCommits`: `git log --reverse` с `%(trailers:key=…,unfold)` и разделителем записей `\x1e`; при повторе трейлера в одном коммите побеждает последний; id волны должен совпасть с `waveID`.
+- `WaveCommits`: `git log --reverse -i --grep=^paraplane-wave:` (только коммиты со строкой `Paraplane-Wave:`, чтобы вывод с `%B` не рос с историей), формат `%h`, `%(trailers:key=…,unfold)`, `%B` через `\x1f`, разделитель записей `\x1e`; при повторе трейлера в одном коммите побеждает последний; id волны должен совпасть с `waveID`.
 
 ## Инварианты и подводные камни
 - `run` сам не нейтрализует filter-драйверы и lazy fetch: любая новая команда, способная их запустить, обязана повторить проверки `Changed`.

@@ -100,7 +100,7 @@ func TestWaveCommitsNoSignatureProgram(t *testing.T) {
 			git(t, dir, "config", tc.key, prog)
 			git(t, dir, "config", "gpg.ssh.allowedSignersFile", signers)
 
-			got, err := WaveCommits(dir, "plan.md")
+			got, _, err := WaveCommits(dir, "plan.md")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -133,7 +133,7 @@ func TestRunDisablesShowSignature(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertNoMarker(t, marker, "git log through run")
-	if _, err := WaveCommits(dir, "plan.md"); err != nil {
+	if _, _, err := WaveCommits(dir, "plan.md"); err != nil {
 		t.Fatal(err)
 	}
 	assertNoMarker(t, marker, "WaveCommits")

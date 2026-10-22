@@ -197,9 +197,9 @@ func TestChangedNotRepo(t *testing.T) {
 func TestWaveCommits(t *testing.T) {
 	needGit(t, 2, 22, "%(trailers:key=)")
 	dir := initRepo(t)
-	got, err := WaveCommits(dir, "plan.md")
-	if err != nil || len(got) != 0 {
-		t.Fatalf("empty repo: got %v, %v", got, err)
+	got, lost, err := WaveCommits(dir, "plan.md")
+	if err != nil || len(got) != 0 || len(lost) != 0 {
+		t.Fatalf("empty repo: got %v, %v, %v", got, lost, err)
 	}
 	const p = "Paraplane-Plan: "
 	msgs := []string{
@@ -214,19 +214,57 @@ func TestWaveCommits(t *testing.T) {
 		write(t, filepath.Join(dir, "f.txt"), strings.Repeat("x", i+1))
 		commitAll(t, dir, m)
 	}
-	got, err = WaveCommits(dir, "plan.md")
+	got, lost, err = WaveCommits(dir, "plan.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"W1", "W2"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v want %v", got, want)
+	if !reflect.DeepEqual(got, want) || len(lost) != 0 {
+		t.Fatalf("got %v, lost %v; want %v", got, lost, want)
+	}
+}
+
+// TestWaveCommitsLostTrailers: Paraplane-* lines that git does not read as
+// trailers (a blank line before Co-Authored-By) are reported, once per wave,
+// unless the wave also has a commit with real trailers.
+func TestWaveCommitsLostTrailers(t *testing.T) {
+	needGit(t, 2, 22, "%(trailers:key=)")
+	dir := initRepo(t)
+	msgs := []string{
+		"w1\n\nParaplane-Plan: plan.md\nParaplane-Wave: W1\n\nCo-Authored-By: A <a@b>\n",
+		"w2\n\nparaplane-plan: plan.md\nparaplane-wave: W2\n\nCo-Authored-By: A <a@b>\n",
+		"w2 again\n\nParaplane-Plan: plan.md\nParaplane-Wave: W2\n\nSigned-off-by: A <a@b>\n",
+		"w3 ok\n\nParaplane-Plan: plan.md\nParaplane-Wave: W3\nCo-Authored-By: A <a@b>\n",
+		"w3 lost too\n\nParaplane-Plan: plan.md\nParaplane-Wave: W3\n\nCo-Authored-By: A <a@b>\n",
+		"other plan\n\nParaplane-Plan: other.md\nParaplane-Wave: W4\n\nCo-Authored-By: A <a@b>\n",
+		"prose mentions Paraplane-Wave: W5 inline\n",
+	}
+	for i, m := range msgs {
+		write(t, filepath.Join(dir, "f.txt"), strings.Repeat("x", i+1))
+		commitAll(t, dir, m)
+	}
+	got, lost, err := WaveCommits(dir, "plan.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, []string{"W3"}) {
+		t.Errorf("waves %v, want [W3]", got)
+	}
+	var ids []string
+	for _, l := range lost {
+		if len(l.Commit) < 7 {
+			t.Errorf("short commit %q", l.Commit)
+		}
+		ids = append(ids, l.Wave)
+	}
+	if !reflect.DeepEqual(ids, []string{"W1", "W2"}) {
+		t.Errorf("lost %v, want W1 W2", lost)
 	}
 }
 
 func TestWaveCommitsNotRepo(t *testing.T) {
 	needGit(t, 2, 22, "%(trailers:key=)")
-	_, err := WaveCommits(t.TempDir(), "plan.md")
+	_, _, err := WaveCommits(t.TempDir(), "plan.md")
 	if err == nil || !strings.Contains(err.Error(), "not a git repository") {
 		t.Fatalf("err = %v, want a not-a-git-repository error", err)
 	}
@@ -360,7 +398,7 @@ func TestWaveCommitsTrailers(t *testing.T) {
 		write(t, filepath.Join(dir, "f.txt"), strings.Repeat("x", i+1))
 		commitAll(t, dir, m)
 	}
-	got, err := WaveCommits(dir, "plan.md")
+	got, _, err := WaveCommits(dir, "plan.md")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -66,6 +66,11 @@ The coordinator is the main Claude session. Subagents implement tasks.
    Paraplane-Wave: <wave id>
    ```
 
+   Git reads trailers only from the last paragraph of the message. Put these two lines there, together
+   with `Co-Authored-By` and any other trailers, with no blank line between them; otherwise the wave is
+   not counted and `paraplane progress` prints `warning: wave <id> commit <hash>: trailers not in the last
+   paragraph`. Amend such a commit (`git commit --amend`) so the trailers form the last paragraph.
+
 5. **Show progress** as the next section says.
 
 ## When to show progress
@@ -105,6 +110,9 @@ Warnings to act on:
   earlier one is not done; finish the earlier wave (audit, gate, commit) before continuing.
 - `warning: commit for unknown wave <id>` — a commit's `Paraplane-Wave` trailer names a wave the plan
   does not have; check the trailer and the plan.
+- `warning: wave <id> commit <hash>: trailers not in the last paragraph` — the commit has `Paraplane-*` lines
+  that git does not read as trailers (a blank line before `Co-Authored-By`, say), so the wave is not counted;
+  amend the commit so they are in its last paragraph.
 - `warning: --done <id> is not a task of the plan` — a typo in `--done`; fix the id.
 - `warning: --done <id> is in waiting wave <W>` — a task of a later wave was passed; it is not counted
   until its wave is running.

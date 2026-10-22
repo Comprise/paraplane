@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -320,6 +321,20 @@ func TestProgressCLI(t *testing.T) {
 	write(t, nr, "plan.md", validPlan)
 	if code, out, _ := cli(t, nr, "", "progress", "plan.md"); code != 1 || !strings.HasPrefix(out, "error: ") {
 		t.Errorf("not a repo: code %d, out %q", code, out)
+	}
+}
+
+func TestProgressLostTrailers(t *testing.T) {
+	dir := repo(t, validPlan)
+	write(t, dir, "a.go", "package a\n")
+	git(t, dir, "add", "-A")
+	git(t, dir, "commit", "-q", "-m", "feat: a\n\nParaplane-Plan: docs/plan.md\nParaplane-Wave: W1\n\nCo-Authored-By: A <a@b>")
+	code, out, _ := cli(t, dir, "", "progress", "docs/plan.md")
+	if code != 0 || !strings.Contains(out, "▶ running") {
+		t.Fatalf("code %d, out %q", code, out)
+	}
+	if !regexp.MustCompile(`\nwarning: wave W1 commit [0-9a-f]{7,}: trailers not in the last paragraph\n$`).MatchString(out) {
+		t.Errorf("out %q: no lost-trailer warning", out)
 	}
 }
 

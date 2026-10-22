@@ -206,7 +206,12 @@ W5  ⬜⬜          0/2  · waiting  T16 T17
 wave is closed when it has a commit or all its tasks are in `--done`; closed tasks of the running wave
 count as done and are drawn 🟩, so the bar moves before the wave commit. An id that is no task of the plan
 gives `warning: --done <id> is not a task of the plan`, a task of a waiting wave
-`warning: --done <id> is in waiting wave <W>`; neither is counted. An empty list, a bad id or the flag
+`warning: --done <id> is in waiting wave <W>`; neither is counted.
+
+Git reads trailers only from the last paragraph of a commit message, so `Paraplane-Plan` and
+`Paraplane-Wave` go there together with `Co-Authored-By` and other trailers, without a blank line between
+them. A commit whose `Paraplane-*` lines git does not read as trailers leaves its wave uncounted and gives
+`warning: wave <id> commit <hash>: trailers not in the last paragraph`; amend it. An empty list, a bad id or the flag
 twice is a usage error (exit 2).
 
 When the coordinator shows progress depends on the key `progress`: `wave` (default) — after each closed

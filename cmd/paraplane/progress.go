@@ -11,6 +11,7 @@ import (
 	"paraplane/internal/gitx"
 	"paraplane/internal/hooks"
 	"paraplane/internal/progress"
+	"paraplane/internal/textx"
 )
 
 // doneIDs matches a --done value: task ids (the plan id rule) joined by ",".
@@ -35,7 +36,7 @@ func runProgress(args []string, stdout, stderr io.Writer, cwd string) int {
 		printErr(stdout, err)
 		return 1
 	}
-	done, err := gitx.WaveCommits(root, rel)
+	done, lost, err := gitx.WaveCommits(root, rel)
 	if err != nil {
 		printErr(stdout, err)
 		return 1
@@ -44,6 +45,12 @@ func runProgress(args []string, stdout, stderr io.Writer, cwd string) int {
 	fmt.Fprint(stdout, out)
 	if len(out) > 0 && out[len(out)-1] != '\n' {
 		fmt.Fprintln(stdout)
+	}
+	// Paraplane-* lines outside the last paragraph are not trailers: the
+	// wave stays running, so say why.
+	for _, l := range lost {
+		fmt.Fprintf(stdout, "warning: wave %s commit %s: trailers not in the last paragraph\n",
+			textx.Line(l.Wave, maxWave), textx.Line(l.Commit, 16))
 	}
 	return 0
 }

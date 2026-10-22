@@ -203,50 +203,81 @@ func runCode(root string, args ...string) ([]byte, int, error) {
 	return out.buf.Bytes(), 0, nil
 }
 
+// LostTrailer is a commit whose message has Paraplane-Plan and
+// Paraplane-Wave lines that git does not read as trailers: they are not in
+// the last paragraph (a blank line before Co-Authored-By, say).
+type LostTrailer struct {
+	Commit string // abbreviated hash
+	Wave   string
+}
+
 // WaveCommits returns the ids of waves committed with the Paraplane-Plan
 // trailer equal to planPath, in order of first appearance, without duplicates.
-// When a commit repeats a trailer, its last occurrence wins. It needs git
-// 2.22 or later: older git has no %(trailers:key=…) and would print no
-// trailers at all, so it is an error.
-func WaveCommits(root, planPath string) ([]string, error) {
+// When a commit repeats a trailer, its last occurrence wins. lost lists, once
+// per wave and only for waves missing from waves, the commits whose
+// Paraplane-* lines for planPath git does not read as trailers. Only commits
+// with a line starting with Paraplane-Wave: are read. It needs git 2.22 or
+// later: older git has no %(trailers:key=…) and would print no trailers at
+// all, so it is an error.
+func WaveCommits(root, planPath string) (waves []string, lost []LostTrailer, err error) {
 	v, ok, err := version(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if !ok || !v.atLeast(2, 22, 0) {
-		return nil, errors.New("git 2.22 or later is required for progress")
+		return nil, nil, errors.New("git 2.22 or later is required for progress")
 	}
-	out, err := run(root, "log", "--no-show-signature", "--reverse", "--format=%(trailers:key=Paraplane-Plan,key=Paraplane-Wave,unfold)%x1e")
+	out, err := run(root, "log", "--no-show-signature", "--reverse", "-i", "--grep=^paraplane-wave:",
+		"--format=%h%x1f%(trailers:key=Paraplane-Plan,key=Paraplane-Wave,unfold)%x1f%B%x1e")
 	if err != nil {
 		if _, e := run(root, "rev-parse", "--git-dir"); e == nil {
 			if _, e := run(root, "rev-parse", "--verify", "-q", "HEAD"); e != nil {
-				return []string{}, nil // no commits yet
+				return []string{}, nil, nil // no commits yet
 			}
 		}
-		return nil, err
+		return nil, nil, err
 	}
-	waves := []string{}
+	waves = []string{}
+	var lostAll []LostTrailer
 	for _, rec := range strings.Split(string(out), "\x1e") {
-		var plan, wave string
-		var hasPlan bool
-		for _, line := range strings.Split(rec, "\n") {
-			k, v, ok := strings.Cut(line, ":")
-			if !ok {
-				continue
+		hash, rest, _ := strings.Cut(strings.TrimLeft(rec, "\n"), "\x1f")
+		trailers, body, _ := strings.Cut(rest, "\x1f")
+		if wave, ok := paraplaneLines(trailers, planPath); ok {
+			if !slices.Contains(waves, wave) {
+				waves = append(waves, wave)
 			}
-			v = strings.TrimSpace(v)
-			switch strings.ToLower(strings.TrimSpace(k)) {
-			case "paraplane-plan":
-				plan, hasPlan = v, true
-			case "paraplane-wave":
-				wave = v
-			}
-		}
-		if hasPlan && plan == planPath && waveID.MatchString(wave) && !slices.Contains(waves, wave) {
-			waves = append(waves, wave)
+		} else if wave, ok := paraplaneLines(body, planPath); ok {
+			lostAll = append(lostAll, LostTrailer{Commit: hash, Wave: wave})
 		}
 	}
-	return waves, nil
+	for _, l := range lostAll {
+		if !slices.Contains(waves, l.Wave) && !slices.ContainsFunc(lost, func(x LostTrailer) bool { return x.Wave == l.Wave }) {
+			lost = append(lost, l)
+		}
+	}
+	return waves, lost, nil
+}
+
+// paraplaneLines reads Paraplane-Plan and Paraplane-Wave lines (key case
+// ignored, the last of each wins) and reports the wave when the plan is
+// planPath and the wave is a valid id.
+func paraplaneLines(text, planPath string) (string, bool) {
+	var plan, wave string
+	var hasPlan bool
+	for _, line := range strings.Split(text, "\n") {
+		k, v, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		v = strings.TrimSpace(v)
+		switch strings.ToLower(strings.TrimSpace(k)) {
+		case "paraplane-plan":
+			plan, hasPlan = v, true
+		case "paraplane-wave":
+			wave = v
+		}
+	}
+	return wave, hasPlan && plan == planPath && waveID.MatchString(wave)
 }
 
 // Changed returns the files changed in the working tree relative to root
