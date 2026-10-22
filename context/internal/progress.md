@@ -1,7 +1,8 @@
 ---
 unit: internal/progress
-source_hash: sha256:30f48d92fcdc33545da431b2745894c9b724f1867bc049fdc65efd4eaf1169dc
-updated: "2026-10-20"
+source_hash: sha256:b9641773b22c485a26b9c3f5009beda617b8361c9513774f913048712f93a854
+commit: e83fd1f7ea6d385ea24f37f41230bf99588e4597
+updated: "2026-10-22"
 ---
 # internal/progress
 Рендер прогресса плана: шапка 72 колонки, полоса задач, строка на волну с эмодзи-квадратами, предупреждения.

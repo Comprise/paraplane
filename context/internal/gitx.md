@@ -1,7 +1,8 @@
 ---
 unit: internal/gitx
-source_hash: sha256:d1cc8ddcf0d1fa87c0aea71e7b04813bd7f849ce37571e6a8657b031a8ddbaf0
-updated: "2026-10-20"
+source_hash: sha256:72cfb32fa253c7574e47d695184a139fb0b2dcbbdbed9564f7550233f2aaed31
+commit: e83fd1f7ea6d385ea24f37f41230bf99588e4597
+updated: "2026-10-22"
 ---
 # internal/gitx
 Changed и WaveCommits поверх git, запускаемого так, чтобы конфиг чужого репозитория не исполнил программ.

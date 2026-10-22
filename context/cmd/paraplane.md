@@ -1,7 +1,7 @@
 ---
 unit: cmd/paraplane
-source_hash: sha256:169ecd329d3ce9692b2bf95a058746dc171bcaff896938348a2f096813f35c63
-commit: 8167b72b71b98595810bd4889fa93db1da5e3998
+source_hash: sha256:18d59f90a3fb3ad3f6a3fbe1401311549c21aeebd72a3112d35dbfdd932ba65e
+commit: e83fd1f7ea6d385ea24f37f41230bf99588e4597
 updated: "2026-10-22"
 ---
 # cmd/paraplane
