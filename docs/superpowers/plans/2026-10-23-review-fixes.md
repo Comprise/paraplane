@@ -230,8 +230,8 @@ waves:
 - A-H2: an entry counts only if `PlanHash` matches, its head is reachable, and its task id exists in the plan; `Prune` removes entries of committed tasks and invalid ones.
 - L13: git errors are returned uniformly (no silent state skip except `ErrVersion`).
 - T-L6: tests for each source and their combinations.
-- [ ] **Step 1: Failing tests** `TestNewPlanSamePath` (entries recorded under hash A ignored for block B), `TestStatusesOneScan` (fake counter: one `Scan`, one `Unreachable` for 3 plans and 100 entries), `TestIncrementalScanCache`, `TestPruneCommitted`, `TestRecordedSeparateFromDone`, `TestBudgetExceeded` (ctx 1 ms → error, no panic), `BenchmarkStatuses` (4096 entries).
-- [ ] **Step 2–4:** FAIL → implement → PASS.
+- [x] **Step 1: Failing tests** `TestNewPlanSamePath` (entries recorded under hash A ignored for block B), `TestStatusesOneScan` (fake counter: one `Scan`, one `Unreachable` for 3 plans and 100 entries), `TestIncrementalScanCache`, `TestPruneCommitted`, `TestRecordedSeparateFromDone`, `TestBudgetExceeded` (ctx 1 ms → error, no panic), `BenchmarkStatuses` (4096 entries).
+- [x] **Step 2–4:** FAIL → implement → PASS.
 
 ### Task R10: hooks
 
