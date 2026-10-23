@@ -154,7 +154,13 @@ jobs:
     container: ${{ matrix.image }}
     steps:
       - name: Install git
+        env:
+          IMAGE: ${{ matrix.image }}
         run: |
+          # Debian 11 is past its LTS: its packages moved to archive.debian.org.
+          if [ "$IMAGE" = "debian:bullseye" ]; then
+            sed -i 's#http://deb.debian.org#http://archive.debian.org#g' /etc/apt/sources.list
+          fi
           apt-get update
           apt-get install -y --no-install-recommends git ca-certificates curl
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
