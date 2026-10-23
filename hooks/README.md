@@ -9,7 +9,7 @@
 | `SessionStart` | — | `session-start` | 10 s | `additionalContext`: one line about the rules and `paraplane:rules` (with `progress: task` — also the rule to show progress after each closed task); on config problems — `systemMessage` |
 | `PreToolUse` | `ExitPlanMode` | `pre-tool-use` | 10 s | validates the plan (`tool_input.plan`, otherwise the file `planFilePath`, ≤ 1 MB); E errors (including E0) — `deny` with a list of violations (≤ 20); only W — `additionalContext` |
 | `PreToolUse` | `Skill` | `pre-tool-use` | 10 s | an execution skill (the name contains `execut` or `subagent-driven`, not `paraplane:`) — a digest of the execution rules with the progress mode from `progress`; a skill with `plan` in its name — a digest of the plan-writing rules |
-| `PreToolUse` | `Bash`, `if: Bash(paraplane *)` | `pre-tool-use` | 10 s | auto-approves `paraplane check <path>`, `paraplane audit <path> <wave>`, `paraplane progress [--done <ids>] <path>` (ids joined by `,`), `paraplane version` |
+| `PreToolUse` | `Bash`, `if: Bash(paraplane *)` | `pre-tool-use` | 10 s | auto-approves `paraplane check <path>`, `paraplane audit <path> <wave>[,<wave>…]`, `paraplane progress [--done <ids>] <path>` (ids joined by `,`), `paraplane version` |
 | `PostToolUse` | `Write\|Edit` | `post-tool-use` | 10 s | if the file is in `plan_paths` — plan validation: E0 — context, E1–E7 — `decision: block`, only W — context (and only for `Write`) |
 
 ## Codex: `hooks/codex.json`
