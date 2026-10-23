@@ -529,3 +529,20 @@ func TestGitDir(t *testing.T) {
 		t.Fatalf("stat %v", err)
 	}
 }
+
+func TestPlanCommitFilesSubdirAndQuoting(t *testing.T) {
+	needGit(t, 2, 22, "%(trailers:key=)")
+	dir := initRepo(t)
+	root := filepath.Join(dir, "sub")
+	write(t, filepath.Join(root, "a.go"), "a")
+	write(t, filepath.Join(root, "план.md"), "p")
+	write(t, filepath.Join(dir, "outside.go"), "o")
+	commitAll(t, dir, "t1\n\nParaplane-Plan: план.md\nParaplane-Task: T1\n")
+	got, err := PlanCommitFiles(root, "план.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !reflect.DeepEqual(got[0].Files, []string{"a.go", "план.md"}) {
+		t.Errorf("got %+v", got)
+	}
+}

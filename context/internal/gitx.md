@@ -1,7 +1,7 @@
 ---
 unit: internal/gitx
-source_hash: sha256:7fe88c437809bb4b0bb22ee3563471325884177b495134d76a56e6d10f1508b2
-commit: cf351827e7241787d9a30c285c647699aa9f20f9
+source_hash: sha256:8bf6f0dcc01d1a40ed7156eb061ef6c10cb9d97f922d2926bb9e197e3341a265
+commit: 2eda41621ba2eb0a9309f6117f1210a78c331432
 updated: "2026-10-23"
 ---
 # internal/gitx
@@ -15,7 +15,7 @@ Changed и WaveCommits поверх git, запускаемого так, что
 - `Changed(root)` — изменённые файлы относительно `root`: слэши, отсортированы, без дублей; пути вне `root` отбрасываются. Переименование даёт оба пути (`--no-renames`). Сабмодули игнорируются.
 - `PlanCommits(root, planPath) (Commits, error)` — `Commits{Waves, Tasks, Lost}`: волны и задачи из трейлеров `Paraplane-Wave`/`Paraplane-Task` коммитов с `Paraplane-Plan` == `planPath`, в порядке первого появления, без дублей; значение может быть списком через запятую. `Lost` — `LostTrailer{Commit, Kind, ID, Wave}`: строки `Paraplane-*` в теле, которых нет в трейлерах (не последний абзац), по одной на id и только для незасчитанных. Требует git ≥ 2.22. Репозиторий без коммитов → пусто.
 - `WaveCommits(root, planPath) (waves, lost, err)` — обёртка над `PlanCommits` только с волнами (для старых вызовов).
-- `PlanCommitFiles(root, planPath) ([]CommitFiles, error)` — коммиты плана с волнами/задачами и изменёнными файлами (`--name-only --no-renames`, слияния без файлов), старые первыми.
+- `PlanCommitFiles(root, planPath) ([]CommitFiles, error)` — коммиты плана с волнами/задачами и изменёнными файлами (`--name-only --no-renames -z`, имена без кавычек; файлы вне `root` отбрасываются, остальные — относительно `root` через `--show-prefix`; слияния без файлов), старые первыми.
 - `Head(root)` (полный хеш, `""` без коммитов), `IsAncestor(root, a, b)` (`merge-base --is-ancestor`), `GitDir(root)` (`rev-parse --absolute-git-dir`).
 - `ErrFilterDrivers`, `ErrPartialClone` — отказы `Changed`.
 

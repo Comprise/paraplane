@@ -24,6 +24,10 @@ const (
 // lockWait bounds the wait for the lock; tests shorten it.
 var lockWait = 2 * time.Second
 
+// rename replaces the state file; tests make it fail. On Windows it fails
+// while another process has the file open, so Update retries it.
+var rename = os.Rename
+
 // ErrBusy is returned by Update when another process holds the lock.
 var ErrBusy = errors.New("paraplane state is busy")
 
@@ -75,8 +79,13 @@ func Load(gitDir string) State {
 // than staleLock is taken over.
 func Update(gitDir string, f func(*State)) error {
 	p := path(gitDir)
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	dir := filepath.Dir(p)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
+	}
+	// The repository may be untrusted: never write through a symlink.
+	if fi, err := os.Lstat(dir); err != nil || !fi.IsDir() {
+		return errors.New("paraplane state directory is not a directory")
 	}
 	lock := p + ".lock"
 	deadline := time.Now().Add(lockWait)
@@ -89,7 +98,7 @@ func Update(gitDir string, f func(*State)) error {
 		if !errors.Is(err, os.ErrExist) {
 			return err
 		}
-		if fi, e := os.Stat(lock); e == nil && time.Since(fi.ModTime()) > staleLock {
+		if fi, e := os.Lstat(lock); e == nil && time.Since(fi.ModTime()) > staleLock {
 			os.Remove(lock)
 			continue
 		}
@@ -108,11 +117,30 @@ func Update(gitDir string, f func(*State)) error {
 	if err != nil {
 		return err
 	}
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	// A fresh temporary file (O_EXCL), so a planted symlink is not followed.
+	tmp, err := os.CreateTemp(dir, "closed.json.tmp*")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, p)
+	_, werr := tmp.Write(data)
+	if cerr := tmp.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		os.Remove(tmp.Name())
+		return werr
+	}
+	for i := 0; ; i++ {
+		err = rename(tmp.Name(), p)
+		if err == nil || i == 20 {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if err != nil {
+		os.Remove(tmp.Name())
+	}
+	return err
 }
 
 // Closed returns the tasks of plan whose entry head passes valid, without

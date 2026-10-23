@@ -31,9 +31,15 @@ var commitWord = regexp.MustCompile(`(^|[^A-Za-z0-9_-])(commit|merge|cherry-pick
 // when it moved.
 func progressAfterAgent(env Env, in Input) ([]byte, error) {
 	var v struct {
-		Prompt any `json:"prompt"`
+		Prompt     any `json:"prompt"`
+		Background any `json:"run_in_background"`
 	}
 	if json.Unmarshal(in.ToolInput, &v) != nil {
+		return nil, nil
+	}
+	// A background subagent's PostToolUse fires when it is launched, not
+	// when it finishes: it is not done yet.
+	if v.Background == true || strings.Contains(string(in.ToolResponse), "Async agent launched") {
 		return nil, nil
 	}
 	prompt, _ := v.Prompt.(string)

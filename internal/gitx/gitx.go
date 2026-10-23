@@ -327,7 +327,12 @@ func PlanCommitFiles(root, planPath string) ([]CommitFiles, error) {
 			return nil, nil // no commits yet
 		}
 	}
-	args := append([]string{"log", "--no-show-signature", "--reverse", "--no-renames", "--name-only"}, planGreps...)
+	pre, err := run(root, "rev-parse", "--show-prefix")
+	if err != nil {
+		return nil, err
+	}
+	prefix := strings.TrimSpace(string(pre))
+	args := append([]string{"log", "--no-show-signature", "--reverse", "--no-renames", "--name-only", "-z"}, planGreps...)
 	out, err := run(root, append(args, "--format=%x1e%h%x1f"+planTrailers+"%x1f")...)
 	if err != nil {
 		return nil, err
@@ -342,10 +347,13 @@ func PlanCommitFiles(root, planPath string) ([]CommitFiles, error) {
 		if len(waves) == 0 && len(tasks) == 0 {
 			continue
 		}
+		// -z: names are NUL-separated and unquoted, relative to the top of
+		// the repository; those under root are kept, made relative to it.
 		var files []string
-		for _, f := range strings.Split(parts[2], "\n") {
-			if f = strings.TrimSpace(f); f != "" {
-				files = appendNew(files, f)
+		for _, f := range strings.Split(parts[2], "\x00") {
+			f = strings.TrimLeft(f, "\n")
+			if rel, ok := strings.CutPrefix(f, prefix); f != "" && ok {
+				files = appendNew(files, rel)
 			}
 		}
 		slices.Sort(files)

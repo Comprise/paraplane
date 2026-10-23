@@ -16,6 +16,7 @@ type Input struct {
 	PermissionMode string          `json:"permission_mode"`
 	ToolName       string          `json:"tool_name"`
 	ToolInput      json.RawMessage `json:"tool_input"`
+	ToolResponse   json.RawMessage `json:"tool_response"`
 
 	// Codex fields (spec section 12a.2).
 	TranscriptPath       string `json:"transcript_path"`

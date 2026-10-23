@@ -142,3 +142,56 @@ func TestClosedValid(t *testing.T) {
 		t.Errorf("got %v", got)
 	}
 }
+
+func TestUpdateRefusesSymlinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks")
+	}
+	dir := t.TempDir()
+	victim := filepath.Join(t.TempDir(), "victim")
+	if err := os.WriteFile(victim, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "paraplane"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(dir, "paraplane", "closed.json.tmp")); err != nil {
+		t.Fatal(err)
+	}
+	_ = Update(dir, func(s *State) { s.LastHead = "x" })
+	if b, _ := os.ReadFile(victim); string(b) != "keep" {
+		t.Errorf("victim overwritten: %q", b)
+	}
+	// A symlinked state directory is refused.
+	other := t.TempDir()
+	dir2 := t.TempDir()
+	if err := os.Symlink(other, filepath.Join(dir2, "paraplane")); err != nil {
+		t.Fatal(err)
+	}
+	if err := Update(dir2, func(s *State) { s.LastHead = "x" }); err == nil {
+		t.Error("symlinked state directory accepted")
+	}
+	if entries, _ := os.ReadDir(other); len(entries) != 0 {
+		t.Errorf("wrote through the symlink: %v", entries)
+	}
+}
+
+func TestRenameRetry(t *testing.T) {
+	old := rename
+	t.Cleanup(func() { rename = old })
+	fails := 2
+	rename = func(a, b string) error {
+		if fails > 0 {
+			fails--
+			return os.ErrPermission
+		}
+		return os.Rename(a, b)
+	}
+	dir := t.TempDir()
+	if err := Update(dir, func(s *State) { s.LastHead = "x" }); err != nil {
+		t.Fatalf("rename not retried: %v", err)
+	}
+	if Load(dir).LastHead != "x" {
+		t.Error("not written")
+	}
+}

@@ -127,3 +127,15 @@ func TestProgressCodexContext(t *testing.T) {
 		t.Fatalf("got %s, %v", out, err)
 	}
 }
+
+func TestProgressAfterAgentBackground(t *testing.T) {
+	env := progressEnv(t, testEnv(t), "task")
+	in := postIn(t, "Agent", map[string]any{"prompt": "Paraplane-Task: docs/plans/x.md T1", "run_in_background": true})
+	nilOut(t)(PostToolUse(env, in))
+	in = postIn(t, "Agent", map[string]any{"prompt": "Paraplane-Task: docs/plans/x.md T1"})
+	in.ToolResponse = json.RawMessage(`[{"type":"text","text":"Async agent launched successfully."}]`)
+	nilOut(t)(PostToolUse(env, in))
+	if _, err := os.Stat(filepath.Join(env.Root, ".git", "paraplane", "closed.json")); !os.IsNotExist(err) {
+		t.Errorf("a launched background subagent was recorded: %v", err)
+	}
+}
