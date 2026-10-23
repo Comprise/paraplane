@@ -33,7 +33,8 @@ const (
 // Mode, so the plan is read from the transcript (spec section 12a.2). A plan
 // with errors continues the turn with decision:block, once per turn
 // (stop_hook_active); in mode warn the text goes to the user instead.
-// Claude Code does not use this hook.
+// Claude Code's Stop only shows the progress of plans waiting since a
+// SubagentStop (flushPending).
 func Stop(env Env, in Input) ([]byte, error) {
 	if !env.Config.Enabled {
 		return nil, nil
@@ -163,7 +164,7 @@ type codexRecord struct {
 // was written for.
 func codexTranscriptPlan(tail []byte, turn string) (plan string, known bool) {
 	current := ""
-	for _, line := range bytes.Split(tail, []byte("\n")) {
+	for line := range bytes.SplitSeq(tail, []byte("\n")) {
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}

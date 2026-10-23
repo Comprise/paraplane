@@ -1,6 +1,7 @@
 // Package gitx runs git so that a repository's own config cannot make it run
-// programs, and reads from it the changed files of the working tree and the
-// paraplane trailers of commits.
+// programs, within the time budget of the caller's context. It reads the
+// changed files of the working tree, the paraplane trailers of commits, the
+// head, the git directory and ancestry.
 package gitx
 
 import (
@@ -334,8 +335,7 @@ func runIO(ctx context.Context, root string, stdin io.Reader, sink io.Writer, ar
 			}
 			return nil, -1, fmt.Errorf("git %s: %w", args[0], e)
 		}
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
+		if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 			// ExitCode is -1 when git was killed by a signal.
 			var o []byte
 			if sink == nil {
@@ -351,7 +351,7 @@ func runIO(ctx context.Context, root string, stdin io.Reader, sink io.Writer, ar
 	return out.buf.Bytes(), 0, nil
 }
 
-// ChangedContext returns the files changed in the working tree relative to
+// Changed returns the files changed in the working tree relative to
 // root (slash-separated, sorted, without duplicates); paths outside root are
 // dropped. Status runs with --no-renames, so a rename is reported as a
 // deletion and an addition and both paths are included.
@@ -361,7 +361,7 @@ func runIO(ctx context.Context, root string, stdin io.Reader, sink io.Writer, ar
 // GIT_NO_LAZY_FETCH in a partial clone. The git status output is capped at
 // 16 MiB like every git output here, so a huge untracked tree makes it fail
 // with "git output too large".
-func ChangedContext(ctx context.Context, root string) ([]string, error) {
+func Changed(ctx context.Context, root string) ([]string, error) {
 	pre, err := run(ctx, root, "rev-parse", "--show-prefix")
 	if err != nil {
 		return nil, err
@@ -474,7 +474,7 @@ func worktreeConfigMaybeOn(ctx context.Context, root string) (bool, error) {
 		case err != nil:
 			return false, err
 		}
-		for _, v := range bytes.Fields(out) {
+		for v := range bytes.FieldsSeq(out) {
 			if string(v) != "false" {
 				return true, nil
 			}

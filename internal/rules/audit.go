@@ -10,20 +10,6 @@ import (
 	"paraplane/internal/plan"
 )
 
-// Audit is AuditCommits of one wave without commits.
-//
-// Deprecated: a compatibility wrapper until R13; use AuditCommits.
-func Audit(p *plan.Plan, waveID string, changed []string, planPath string, ignore []string) ([]Finding, error) {
-	return AuditCommits(p, []string{waveID}, changed, nil, planPath, ignore)
-}
-
-// AuditWaves is AuditCommits without commits.
-//
-// Deprecated: a compatibility wrapper until R13; use AuditCommits.
-func AuditWaves(p *plan.Plan, waveIDs []string, changed []string, planPath string, ignore []string) ([]Finding, error) {
-	return AuditCommits(p, waveIDs, changed, nil, planPath, ignore)
-}
-
 // CommitFiles is a commit of the plan: the waves and tasks its trailers name
 // and the files it changed.
 type CommitFiles struct {

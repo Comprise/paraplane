@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 
 	"paraplane/internal/gitx"
 	"paraplane/internal/ids"
@@ -78,7 +79,7 @@ type Result struct {
 	// wave commit of their plan, whatever their block hash) and the entries
 	// recorded for the current block of a plan (same PlanHash) whose task is
 	// not in it. It runs no git and is safe on a state loaded later than the
-	// one given to Statuses (inside state.UpdateCtx): entries added meanwhile
+	// one given to Statuses (inside state.Update): entries added meanwhile
 	// stay unless the same rule drops them. Entries with an unreachable head
 	// or another block hash only do not count; they are kept, so a branch
 	// switch back or a reverted plan text brings them back.
@@ -101,19 +102,19 @@ func Statuses(ctx context.Context, root string, plans []PlanRef, st state.State)
 	}}, nil
 }
 
-// PlanStatusContext renders the progress of plan p at planRel from root
+// PlanStatus renders the progress of plan p at planRel from root
 // whose block hash is planHash: commits, entries of the state file (read,
 // never written; a state of another version is ignored) and extra (--done).
 // Git and state read errors are returned.
-func PlanStatusContext(ctx context.Context, root, planRel string, p *plan.Plan, planHash string, extra []string) (Status, error) {
+func PlanStatus(ctx context.Context, root, planRel string, p *plan.Plan, planHash string, extra []string) (Status, error) {
 	if err := ctx.Err(); err != nil {
 		return Status{}, err
 	}
-	g, err := gitx.GitDirContext(ctx, root)
+	g, err := gitx.GitDir(ctx, root)
 	if err != nil {
 		return Status{}, err
 	}
-	st, err := state.LoadState(g)
+	st, err := state.Load(g)
 	if err != nil && !errors.Is(err, state.ErrVersion) {
 		return Status{}, err
 	}
@@ -122,14 +123,6 @@ func PlanStatusContext(ctx context.Context, root, planRel string, p *plan.Plan, 
 		return Status{}, err
 	}
 	return r.statuses[planRel], nil
-}
-
-// PlanStatus is PlanStatusContext without a deadline and with an empty plan
-// hash, which matches the entries recorded without one.
-//
-// Deprecated: use PlanStatusContext or Statuses; R13 removes this wrapper.
-func PlanStatus(root, planRel string, p *plan.Plan, extra []string) (Status, error) {
-	return PlanStatusContext(context.Background(), root, planRel, p, "", extra)
 }
 
 // result is what compute found; nothing is applied to the state.
@@ -251,13 +244,14 @@ func (j *judge) status(recorded, extra []string) Status {
 		CommittedWaves: j.c.Waves, CommittedTasks: j.c.Tasks,
 		Closed: slices.Clone(extra), Recorded: recorded,
 	}
-	text := progress.RenderFrom(j.ref.Plan, planBase(j.ref.Rel), in)
+	var text strings.Builder
+	text.WriteString(progress.RenderFrom(j.ref.Plan, planBase(j.ref.Rel), in))
 	for _, l := range j.c.Lost {
-		text += fmt.Sprintf("warning: %s %s commit %s: trailers not in the last paragraph\n",
-			l.Kind, textx.Line(l.ID, maxID), textx.Line(l.Commit, 16))
+		text.WriteString(fmt.Sprintf("warning: %s %s commit %s: trailers not in the last paragraph\n",
+			l.Kind, textx.Line(l.ID, maxID), textx.Line(l.Commit, 16)))
 	}
 	n := progress.Count(j.ref.Plan, in)
-	return Status{Text: text, Waves: n.Waves, Tasks: n.Tasks}
+	return Status{Text: text.String(), Waves: n.Waves, Tasks: n.Tasks}
 }
 
 // loadCache decodes the cached scan; any invalid commit drops the whole

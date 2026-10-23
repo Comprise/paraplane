@@ -22,7 +22,7 @@ import (
 const FileName = ".paraplane/config.yaml"
 
 // MaxSize caps the size of the config file that is read.
-const MaxSize = 1 << 20
+const MaxSize = fsx.MaxFile
 
 const maxGateLen = 256
 

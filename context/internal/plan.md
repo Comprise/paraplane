@@ -1,7 +1,7 @@
 ---
 unit: internal/plan
-source_hash: sha256:bc667aa6ab9590149e8b4685dbe0dbd44962c7e7c9e97a064a5d7dda5c436e3c
-commit: d161a953beb07629ae51028a89aae64f5773a7c5
+source_hash: sha256:c14d50142fc87b4f05290b390199fc7fd5fdc423545097702ccd91772040886b
+commit: ee26fb1c0e795a3aaa095fbd0556059d4c9450de
 updated: "2026-10-23"
 ---
 # internal/plan

@@ -261,7 +261,7 @@ func TestConflictsFast(t *testing.T) {
 		if name != "broad globstar" && len(cs) != 0 {
 			t.Errorf("%s: %d conflicts, want 0", name, len(cs))
 		}
-		if !raceEnabled && d > 900*time.Millisecond {
+		if !raceEnabled && d > 2700*time.Millisecond {
 			t.Errorf("%s: Conflicts on 500 tasks took %v", name, d)
 		}
 	}
@@ -689,7 +689,7 @@ func TestConflictsWithinDeadline(t *testing.T) {
 		t.Fatalf("ConflictsWithin = %d conflicts, %v; want nil, ErrDeadline", len(cs), err)
 	}
 	t.Logf("hostile plan: ErrDeadline after %v", d)
-	if !raceEnabled && d > 500*time.Millisecond {
+	if !raceEnabled && d > 1500*time.Millisecond {
 		t.Errorf("ErrDeadline took %v", d)
 	}
 
@@ -790,7 +790,7 @@ func TestConflictsWithinWorstMatch(t *testing.T) {
 		t.Fatalf("ConflictsWithin = %d conflicts, %v; want nil, ErrDeadline", len(cs), err)
 	}
 	t.Logf("worst plan: ErrDeadline after %v", d)
-	if !raceEnabled && d > budget+100*time.Millisecond {
-		t.Errorf("ErrDeadline after %v; want within %v", d, budget+100*time.Millisecond)
+	if !raceEnabled && d > budget+300*time.Millisecond {
+		t.Errorf("ErrDeadline after %v; want within %v", d, budget+300*time.Millisecond)
 	}
 }

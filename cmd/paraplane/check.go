@@ -20,7 +20,7 @@ import (
 )
 
 // maxPlanFile caps the size of a plan file the CLI reads (spec section 7).
-const maxPlanFile = 1 << 20
+const maxPlanFile = fsx.MaxFile
 
 // Text limits for values that come from the plan, the config or the file system.
 const (
@@ -159,8 +159,7 @@ func readPlanFile(name, cwd, root string) (data []byte, rel string, err error) {
 
 // unwrapPath drops the path from a *fs.PathError: the caller names the file.
 func unwrapPath(err error) error {
-	var pe *os.PathError
-	if errors.As(err, &pe) {
+	if pe, ok := errors.AsType[*os.PathError](err); ok {
 		return pe.Err
 	}
 	return err

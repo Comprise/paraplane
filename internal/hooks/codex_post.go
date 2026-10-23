@@ -200,7 +200,7 @@ func patchText(in Input) string {
 func patchFiles(patch string) []shellWord {
 	var files []shellWord
 	cur := -1 // index in files of the Update File the hunk lines belong to
-	for _, line := range strings.Split(patch, "\n") {
+	for line := range strings.SplitSeq(patch, "\n") {
 		line = strings.TrimRight(line, "\r")
 		if rest, ok := strings.CutPrefix(line, "*** "); ok {
 			switch {

@@ -12,7 +12,7 @@ func TestPlansSince(t *testing.T) {
 	dir := initRepo(t)
 	write(t, filepath.Join(dir, "f"), "0")
 	commitAll(t, dir, "base")
-	base, _ := Head(dir)
+	base, _ := Head(t.Context(), dir)
 	msgs := []string{
 		"a\n\nParaplane-Plan: docs/a.md\nParaplane-Wave: W1\n",
 		"plain",
@@ -23,23 +23,23 @@ func TestPlansSince(t *testing.T) {
 		write(t, filepath.Join(dir, "f"), strings.Repeat("x", i+1))
 		commitAll(t, dir, m)
 	}
-	head, _ := Head(dir)
-	got, err := PlansSince(dir, base, head)
+	head, _ := Head(t.Context(), dir)
+	got, err := PlansSince(t.Context(), dir, base, head)
 	if err != nil || !reflect.DeepEqual(got, []string{"docs/a.md", "docs/b.md"}) {
 		t.Errorf("since base: %v %v", got, err)
 	}
 	// Without a start only HEAD is read.
-	got, err = PlansSince(dir, "", head)
+	got, err = PlansSince(t.Context(), dir, "", head)
 	if err != nil || !reflect.DeepEqual(got, []string{"docs/a.md"}) {
 		t.Errorf("HEAD only: %v %v", got, err)
 	}
 	write(t, filepath.Join(dir, "f"), "plain")
 	commitAll(t, dir, "plain after")
-	plain, _ := Head(dir)
-	if got, err := PlansSince(dir, "", plain); err != nil || len(got) != 0 {
+	plain, _ := Head(t.Context(), dir)
+	if got, err := PlansSince(t.Context(), dir, "", plain); err != nil || len(got) != 0 {
 		t.Errorf("plain HEAD: %v %v", got, err)
 	}
-	if got, err := PlansSince(dir, head, head); err != nil || len(got) != 0 {
+	if got, err := PlansSince(t.Context(), dir, head, head); err != nil || len(got) != 0 {
 		t.Errorf("no new commits: %v %v", got, err)
 	}
 }

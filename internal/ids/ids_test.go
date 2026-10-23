@@ -6,6 +6,7 @@ import (
 )
 
 func TestValid(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		in string
 		ok bool
@@ -27,6 +28,7 @@ func TestValid(t *testing.T) {
 }
 
 func TestParseList(t *testing.T) {
+	t.Parallel()
 	out, ok := ParseList("T1,T2")
 	if !ok || len(out) != 2 || out[0] != "T1" || out[1] != "T2" {
 		t.Fatalf("ParseList(T1,T2) = %v, %v", out, ok)

@@ -155,3 +155,33 @@ func TestSwappedRegular(t *testing.T) {
 		t.Fatalf("want ErrNotRegular, got %v", err)
 	}
 }
+
+// TestUnreadable: a regular file that cannot be opened returns the open error,
+// not ErrNotRegular.
+func TestUnreadable(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("file modes do not stop this user")
+	}
+	p := write(t, "secret", "x")
+	if err := os.Chmod(p, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := OpenRegular(p); !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("OpenRegular: want ErrPermission, got %v", err)
+	}
+	if _, err := ReadRegular(p, MaxFile); !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("ReadRegular: want ErrPermission, got %v", err)
+	}
+}
+
+// TestExactLimit: a file of exactly max bytes is read; one byte more is
+// ErrTooLarge.
+func TestExactLimit(t *testing.T) {
+	p := write(t, "f", "abcd")
+	if b, err := ReadRegular(p, 4); err != nil || string(b) != "abcd" {
+		t.Fatalf("at the limit: %q %v", b, err)
+	}
+	if _, err := ReadRegular(p, 3); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("over the limit: %v", err)
+	}
+}

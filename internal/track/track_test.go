@@ -52,13 +52,13 @@ func repo(t *testing.T) (string, *plan.Plan) {
 
 func record(t *testing.T, dir, task string) {
 	t.Helper()
-	g, err := gitx.GitDir(dir)
+	g, err := gitx.GitDir(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	head, _ := gitx.Head(dir)
-	if err := state.Update(g, func(s *state.State) {
-		s.Entries = append(s.Entries, state.Entry{Plan: "plan.md", Task: task, Head: head})
+	head, _ := gitx.Head(t.Context(), dir)
+	if err := state.Update(t.Context(), g, func(s *state.State) {
+		s.Entries = append(s.Entries, state.Entry{Plan: "plan.md", PlanHash: hashA, Task: task, Head: head})
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -68,14 +68,14 @@ func TestPlanStatusCommitAndState(t *testing.T) {
 	dir, p := repo(t)
 	commit(t, dir, "a.txt", "t1\n\nParaplane-Plan: plan.md\nParaplane-Task: T1\n")
 	record(t, dir, "T2")
-	st, err := PlanStatus(dir, "plan.md", p, nil)
+	st, err := PlanStatus(t.Context(), dir, "plan.md", p, hashA, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if st.Waves != 1 || st.Tasks != 2 || !strings.Contains(st.Text, "✓ done") {
 		t.Errorf("%+v", st)
 	}
-	st, _ = PlanStatus(dir, "plan.md", p, []string{"T3"})
+	st, _ = PlanStatus(t.Context(), dir, "plan.md", p, hashA, []string{"T3"})
 	if st.Waves != 2 || st.Tasks != 3 {
 		t.Errorf("extra: %+v", st)
 	}
@@ -86,7 +86,7 @@ func TestPlanStatusReset(t *testing.T) {
 	commit(t, dir, "b.txt", "work")
 	record(t, dir, "T1")
 	git(t, dir, "reset", "-q", "--hard", "HEAD~1")
-	st, err := PlanStatus(dir, "plan.md", p, nil)
+	st, err := PlanStatus(t.Context(), dir, "plan.md", p, hashA, nil)
 	if err != nil || st.Tasks != 0 {
 		t.Errorf("after reset: %+v %v", st, err)
 	}
@@ -95,7 +95,7 @@ func TestPlanStatusReset(t *testing.T) {
 func TestPlanStatusLostTask(t *testing.T) {
 	dir, p := repo(t)
 	commit(t, dir, "c.txt", "t1\n\nParaplane-Plan: plan.md\nParaplane-Task: T1\n\nCo-Authored-By: A <a@b>\n")
-	st, err := PlanStatus(dir, "plan.md", p, nil)
+	st, err := PlanStatus(t.Context(), dir, "plan.md", p, hashA, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

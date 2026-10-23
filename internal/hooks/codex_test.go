@@ -3,6 +3,7 @@ package hooks
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -42,9 +43,7 @@ func codexPayload(t *testing.T, name string, set map[string]any) Input {
 	if err := json.Unmarshal(data, &m); err != nil {
 		t.Fatal(err)
 	}
-	for k, v := range set {
-		m[k] = v
-	}
+	maps.Copy(m, set)
 	raw, err := json.Marshal(m)
 	if err != nil {
 		t.Fatal(err)

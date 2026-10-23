@@ -21,7 +21,8 @@ The coordinator is the main Claude session. Subagents implement tasks.
    - the text of its task from the plan and the global constraints of the plan;
    - its `owns`, `reads` and `verify`, verbatim;
    - a line `Paraplane-Task: <plan path from the project root> <task id>` on its own (the progress hook
-     reads it when the subagent returns, to count the task as done);
+     reads it when the subagent returns, to count the task as done; see "When a `Paraplane-Task` line
+     counts" below);
    - the rule: "Change only files in your `owns`. Do not touch files outside `owns`; if you need one,
      or a consumed interface does not match the plan, stop and report instead of editing it."
    - the rule: "Do not commit, do not tick checkboxes in the plan, run formatters (`gofmt -w` and the
@@ -61,7 +62,9 @@ The coordinator is the main Claude session. Subagents implement tasks.
    It also refuses when git output exceeds 16 MiB (`git output too large`). Report the refusal to the user and check the wave's files against `owns`
    by hand.
 2. **Gate:** run the wave's gate (`wave.gate`, else `plan.gate`, else `default_gate`) — the full
-   check run, not only the new tests.
+   check run, not only the new tests. The gate, `verify` and `default_gate` are commands from the
+   repository, code like any other: in a repository you did not write yourself, show the command to the
+   user before you run it the first time, and never run one that does more than build and test.
 3. **Fix before the next wave.** An audit violation or a red gate is fixed before the next wave
    starts: revert stray changes, or let the subagent of the task that owns the broken file in this
    wave fix it. A breakage in a file of an earlier wave is a change to the plan, not a silent fix.
@@ -95,25 +98,61 @@ The coordinator is the main Claude session. Subagents implement tasks.
 
 ## When to show progress
 
-The moments come from the key `progress` in `.paraplane/config.yaml` (default `wave`). The execution
-digest the hooks add names the mode; when no digest named it, read the key yourself.
+The moments come from the key `progress` in `.paraplane/config.yaml` (default `wave`): `wave` — after
+each wave that got done, `task` — also after each task that got done. The execution digest the hooks add
+names the mode; when no digest named it, read the key yourself. Who shows the progress depends on the
+agent.
 
-**Claude Code:** hooks show the progress to the user by themselves (`systemMessage`) when a subagent
-with a `Paraplane-Task` line finishes (a background one: at the end of your turn) or a commit names the
-plan, at the moments below. Do not repeat it; show
-it yourself only when the user asks or no hook message appeared. **Codex:** the hook passes the progress
-to you; show it to the user as the rules below say.
+### Claude Code: the hooks show it
+
+The hooks show the progress to the user by themselves (`systemMessage`) at those moments: when a
+subagent with a `Paraplane-Task` line returns (a background one: at the end of your turn, from the `Stop`
+hook) or when a commit names the plan. When the hook showed it, its context says
+`paraplane: progress of <plan> was shown to the user; do not repeat it.` Do not repeat it. Run
+`paraplane progress <plan>` yourself only when the user asks, or when a wave got done and no hook
+message appeared for it; then paste the output into your message in a code block. Pass in `--done` only
+tasks closed without a subagent (see below).
+
+### Codex: you show it
+
+Codex has no subagent tool, so no hook sees returned subagents. After a commit that names the plan the
+`PostToolUse` hook passes the progress to you as context; show it to the user in a code block. Otherwise
+show it yourself:
 
 - **`wave`:** after each closed wave (audit and gate passed) run `paraplane progress <plan>`. Pass in
   `--done` every closed task that is not committed yet, of all uncommitted waves (in a stage, the earlier
   waves too): `paraplane progress --done <ids> <plan>`.
-- **`task`:** the same, and after each closed task (its subagent returned and its review, if the
-  execution skill makes one, passed) run `paraplane progress --done <every closed, uncommitted task>
-  <plan>`, the ids joined by `,` without spaces.
+- **`task`:** the same, and after each closed task (its work finished and its review, if the execution
+  skill makes one, passed) run `paraplane progress --done <every closed, uncommitted task> <plan>`, the
+  ids joined by `,` without spaces.
 
-Always paste the output into the message to the user in a code block. Committed waves are read from the
-commit trailers of the current branch, so they survive a session restart; closed, uncommitted tasks
-exist only in `--done`. The user can ask for progress at any moment with `/paraplane:progress`.
+Paste the output into the message to the user in a code block.
+
+### Where "done" comes from
+
+Closed tasks come from three places, and `paraplane progress` reads the first two itself: task and wave
+commits on the current branch (their trailers, so they survive a session restart), the returned
+subagents the hook recorded in `<git-dir>/paraplane/closed.json`, and `--done`. Pass in `--done` only
+tasks closed without a subagent. The user can ask for progress at any moment with `/paraplane:progress`.
+
+### When a `Paraplane-Task` line counts
+
+The hook records a returned subagent only when its prompt line:
+
+- stands on a line of its own (only spaces or tabs around it) and is among the first 16 such lines;
+- names the plan by a path without spaces, from the project root (an absolute path inside the root also
+  works), that matches `plan_paths` and is a regular file;
+- names a task id of that plan (`[A-Za-z][A-Za-z0-9_.-]{0,31}`).
+
+The entry is tied to the plan block as it was then (its SHA-256): after the block changes, the entry no
+longer counts. It counts toward the progress shown only while the plan has no E errors, and only while
+the commit it was recorded on is reachable from `HEAD` (after a branch switch it waits, it is not lost).
+Any line that misses these conditions is ignored silently, and the task is not counted.
+
+The hook records the task when its subagent returns, **before** your review and the gate. When a
+recorded task fails its review, undo the record: `paraplane progress --forget <ids> <plan>` (ids joined by
+`,`; it prints `forgot <ids> in <plan>`, or `nothing recorded for …`). Then the hook shows the plan's
+progress again at its next moment.
 
 ## Progress output
 
@@ -129,10 +168,11 @@ W5  ⬜⬜          0/2  · waiting  T16 T17
 ```
 
 A task is done when a commit names it (`Paraplane-Task`), its wave has a commit (`Paraplane-Wave`), its
-subagent returned with the `Paraplane-Task` line (kept in `.git/paraplane/closed.json`), or it is in
-`--done`. A wave is closed when it has a commit or all its tasks are done. A closed wave whose previous
-waves are all `done` is `done`; the first wave that is not `done` is `running`; the rest are `waiting`.
-Tasks of the running wave listed in `--done` count as done and are drawn 🟩, the others 🟨.
+subagent returned with the `Paraplane-Task` line (kept in `<git-dir>/paraplane/closed.json`, as the
+previous section says), or it is in `--done`. A wave is closed when it has a commit or all its tasks are
+done. A closed wave whose previous waves are all `done` is `done`; the first wave that is not `done` is
+`running`; the rest are `waiting`. Done tasks of the running wave, from any of these sources, are drawn
+🟩, the others 🟨.
 Warnings to act on:
 
 - `warning: wave <id> was committed before <running id>` — a later wave was committed while an
@@ -148,10 +188,14 @@ Warnings to act on:
 - `warning: --done <id> is not a task of the plan` — a typo in `--done`; fix the id.
 - `warning: --done <id> is in waiting wave <W>` — a task of a later wave was passed; it is not counted
   until its wave is running.
+- `warning: task <id> finished before <running id>` — the subagent of a task of a later wave returned
+  while an earlier wave is not done; it is not counted until its wave is running. Finish the earlier
+  wave first.
 
 ## Exit codes
 
 `paraplane check`, `audit` and `progress` exit 0 when there are no errors, 1 on errors or an
 unreadable file, 2 on wrong arguments. A line starting with `error:` (no git, not a repository,
-unknown wave, a plan with E errors, filter drivers in the repository config for `audit`) means the
-command could not run: report it and stop.
+unknown wave, a plan with E errors, filter drivers in the repository config for `audit`, a task id
+the plan does not have for `progress --forget`) means the command could not run: report it and stop.
+`audit` prints at most 100 A1 lines, then `… and <n> more`; the summary counts all of them.

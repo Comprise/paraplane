@@ -1,3 +1,9 @@
+---
+unit: internal/shellx
+source_hash: sha256:07aa91a733ab671ff1c33ea7524c4c4ac1c6953409dfe6216ebbe5f0a1669511
+commit: ee26fb1c0e795a3aaa095fbd0556059d4c9450de
+updated: "2026-10-23"
+---
 # internal/shellx
 Лексер shell-команд для хуков Codex: какие литеральные пути команда читает, правит (`sed -i`) или пишет, и какие команды в ней запускаются.
 

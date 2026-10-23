@@ -26,6 +26,7 @@ func randomIDs(r *rand.Rand, pool []string, n int) []string {
 // TestCountMatchesRender: over random plans and inputs, Count gives the
 // numbers and states RenderFrom prints.
 func TestCountMatchesRender(t *testing.T) {
+	t.Parallel()
 	r := rand.New(rand.NewSource(8))
 	labels := map[WaveState]string{Done: "✓ done", Running: "▶ running", Waiting: "· waiting"}
 	for iter := range 2000 {
@@ -84,6 +85,7 @@ func TestCountMatchesRender(t *testing.T) {
 }
 
 func TestCountRunningTasks(t *testing.T) {
+	t.Parallel()
 	c := Count(mk(3, 3, 2), Input{CommittedWaves: []string{"W1"}, CommittedTasks: []string{"T4"}, Closed: []string{"T5"}, Recorded: []string{"T6", "T8"}})
 	want := Counts{Waves: 2, Tasks: 7, State: []WaveState{Done, Done, Running}}
 	if fmt.Sprint(c) != fmt.Sprint(want) {
@@ -95,6 +97,7 @@ func TestCountRunningTasks(t *testing.T) {
 // warned about as finished early, not as a --done; an id outside the plan
 // is not shown; recorded tasks of the running wave count.
 func TestRecordedWaitingWarning(t *testing.T) {
+	t.Parallel()
 	got := RenderFrom(mk(3, 3, 2), "p.md", Input{CommittedWaves: []string{"W1"}, Recorded: []string{"T7", "T4", "X9", "T7"}})
 	if want := "warning: task T7 finished before W2\n"; !strings.HasSuffix(got, want) || strings.Count(got, "warning") != 1 {
 		t.Errorf("got:\n%s", got)
@@ -115,12 +118,13 @@ func TestRecordedWaitingWarning(t *testing.T) {
 // TestWidthWide: wide runes in the plan name take two columns, so the
 // header stays 72 columns.
 func TestWidthWide(t *testing.T) {
+	t.Parallel()
 	if w := width("план-漢字.md"); w != 12 {
 		t.Errorf("width = %d, want 12", w)
 	}
 	for _, name := range []string{"план-漢字.md", strings.Repeat("漢字", 40) + ".md", "a" + strings.Repeat("漢", 60), "한국어-ｆｕｌｌ.md"} {
 		got := RenderFrom(mk(2, 2), name, Input{})
-		head := strings.Split(got, "\n")[0]
+		head, _, _ := strings.Cut(got, "\n")
 		if cols(head) != 72 {
 			t.Errorf("%s: header %d columns: %q", name, cols(head), head)
 		}

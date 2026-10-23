@@ -106,7 +106,7 @@ waves:
     tasks:
       - id: R12
         title: "docs: model texts, threat model, spec sync, CHANGELOG, indexes"
-        owns: ["skills/**", "agents/**", README.md, README.ru.md, docs/reference.md, docs/reference.ru.md, hooks/README.md, hooks/README.ru.md, docs/superpowers/specs/2026-10-20-paraplane-design.md, docs/superpowers/specs/2026-10-23-progress-hook-design.md, CHANGELOG.md, CHANGELOG.ru.md, CLAUDE.md, context/_root.md]
+        owns: ["skills/**", "agents/**", README.md, README.ru.md, docs/reference.md, docs/reference.ru.md, hooks/README.md, hooks/README.ru.md, docs/superpowers/specs/2026-10-20-paraplane-design.md, docs/superpowers/specs/2026-10-23-progress-hook-design.md, CHANGELOG.md, CHANGELOG.ru.md, CLAUDE.md, context/_root.md, .auto-context/config.yaml]
         depends: [R11, R5]
         verify: "go test ./internal/plugintest/"
       - id: R13
@@ -271,7 +271,7 @@ waves:
 - D-H3/A-M7: spec §7 usage (`subagent-stop`, `stop`, `--forget`, wave lists), §8 (no "pure functions"; events table), §8.1 (Codex `systemMessage` check pending), state format with `pending`, `planHash`, `scan`, §10 verdict `error`, §11 structure (`ids`, `testgit`, `shellx`, `state`, `track`, `codex.json`, `skills/progress`), status line; design doc 2026-10-23 §5/§7 aligned or marked superseded.
 - D-H4/C-M6: `CHANGELOG.md` + `.ru.md` for 1.0.0 … 1.2.0 with migration notes (audit checks wave commits, state in `.git`, new hook events, `--done`, `--forget`, wave lists, `progress` key).
 - D-M1, D-M2, D-M3 (escape `|` in tables), D-M5 (budget and limits), D-M6 (root `CLAUDE.md` units incl. `ids`, `testgit`, `shellx`), D-L1, D-L2, D-L5, D-L6, D-L7; the declined items of the Rulings with reasons.
-- [ ] **Step 1:** `internal/plugintest` already checks skills; run it after editing. **Step 2:** `go test ./internal/plugintest/` — PASS.
+- [x] **Step 1:** `internal/plugintest` already checks skills; run it after editing. **Step 2:** `go test ./internal/plugintest/` — PASS.
 
 ### Task R13: modernize
 
@@ -283,7 +283,7 @@ waves:
 - T-M6: wall-clock assertions get 3× slack or move under `testing/synctest`.
 - L3 (fsx part): `fsx` limits shared with the other packages' copies; T-L4: the uncovered `fsx` error branches get tests.
 - D-L3/Q L2: stale doc comments (`codex_stop.go:36`, `post_tool_use.go:24`, `gitx.go:1`); unit `CLAUDE.md` file lists (A-L9).
-- [ ] **Step 1:** `go fix -diff ./...` shows the changes; apply. **Step 2:** `go vet ./... && go test ./...` — PASS; `auto-context ack` for every unit.
+- [x] **Step 1:** `go fix -diff ./...` shows the changes; apply. **Step 2:** `go vet ./... && go test ./...` — PASS; `auto-context ack` for every unit.
 
 ## After the plan
 

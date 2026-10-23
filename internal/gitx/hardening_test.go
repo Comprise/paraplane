@@ -101,7 +101,7 @@ func TestWaveCommitsNoSignatureProgram(t *testing.T) {
 			git(t, dir, "config", tc.key, prog)
 			git(t, dir, "config", "gpg.ssh.allowedSignersFile", signers)
 
-			got, _, err := waveCommits(dir, "plan.md")
+			got, _, err := waveCommits(t, dir, "plan.md")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -134,7 +134,7 @@ func TestRunDisablesShowSignature(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertNoMarker(t, marker, "git log through run")
-	if _, _, err := waveCommits(dir, "plan.md"); err != nil {
+	if _, _, err := waveCommits(t, dir, "plan.md"); err != nil {
 		t.Fatal(err)
 	}
 	assertNoMarker(t, marker, "WaveCommits")
@@ -187,7 +187,7 @@ func TestChangedNoIndexWriteOrHook(t *testing.T) {
 	git(t, dir, "config", "core.hooksPath", hooks)
 	ts := racy(t, dir, "a.txt")
 
-	got, err := Changed(dir)
+	got, err := Changed(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +246,7 @@ func TestChangedNoLazyFetch(t *testing.T) {
 	}
 
 	racy(t, dir, "a.txt")
-	_, err := Changed(dir) // may fail closed; it must not run the transport
+	_, err := Changed(t.Context(), dir) // may fail closed; it must not run the transport
 	assertNoMarker(t, marker, "Changed (lazy fetch)")
 	// A git that may ignore GIT_NO_LAZY_FETCH must not get to git status.
 	if v, ok, _ := version(context.Background(), dir); !lazyFetchSafe(v, ok) && !errors.Is(err, ErrPartialClone) {
@@ -265,7 +265,7 @@ func TestChangedNoFsmonitor(t *testing.T) {
 	git(t, dir, "config", "core.fsmonitor", prog)
 	write(t, filepath.Join(dir, "a.txt"), "changed\n")
 
-	got, err := Changed(dir)
+	got, err := Changed(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +295,7 @@ func TestChangedNoSystemConfig(t *testing.T) {
 		t.Skipf("control: git does not read GIT_CONFIG_SYSTEM here (%v), the test proves nothing", err)
 	}
 	write(t, filepath.Join(dir, "a.txt"), "changed\n")
-	got, err := Changed(dir)
+	got, err := Changed(t.Context(), dir)
 	if err != nil {
 		t.Fatalf("Changed read the system config: %v", err)
 	}

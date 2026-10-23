@@ -2,9 +2,9 @@
 Плагин Claude Code и Codex CLI на Go: проверяет, что план реализации пригоден для параллельного исполнения субагентами (блок `paraplane`, владение файлами `owns`, волны, gate).
 
 - `cmd/paraplane/` — бинарник (check, audit, progress, hook, version)
-- `internal/` — ядро: `config`, `plan`, `pathset`, `rules` (E0–E7, W1–W5, аудит A1), `layout`, `gitx`, `fsx`, `progress`, `hooks`, `textx`, `plugintest`
+- `internal/` — ядро: `config`, `ids`, `plan`, `pathset`, `rules` (E0–E7, W1–W5, аудит A1), `layout`, `gitx`, `state`, `track`, `fsx`, `progress`, `hooks`, `shellx`, `textx`, `testgit`, `plugintest`
 - `hooks/`, `skills/`, `agents/`, `bin/`, `.claude-plugin/`, `.codex-plugin/`, `.agents/` — упаковка плагина; `ship.txt` — что попадает в релиз
-- `Makefile`, `.github/workflows/` — сборка, CI, релиз
+- `Makefile`, `.github/workflows/` — сборка, CI, релиз; `CHANGELOG.md` (+ `.ru.md`) — журнал изменений
 - `docs/superpowers/` — спецификация и планы (источник правды по поведению)
 
 Details: context/_root.md
@@ -59,13 +59,18 @@ gives you structural context (callers, dependents, test coverage) that file sear
 - `cmd/paraplane` — Бинарник paraplane: CLI check, audit, progress, version и диспетчер хуков `hook <event> [--agent codex]`.
 - `internal/config` — Загрузка .paraplane/config.yaml с поключевой валидацией (неверное значение → дефолт + Problems) и FindRoot.
 - `internal/fsx` — Чтение только обычных файлов: симлинк, FIFO, устройство, каталог или подмена файла дают ErrNotRegular.
-- `internal/gitx` — Changed и WaveCommits поверх git, запускаемого так, чтобы конфиг чужого репозитория не исполнил программ.
+- `internal/gitx` — Чтение изменённых файлов и трейлеров paraplane из git, запускаемого так, чтобы конфиг чужого репозитория не исполнил программ; общий бюджет времени через `context.Context`.
 - `internal/hooks` — Обработчики хуков Claude Code и Codex: проверка плана, дайджесты правил, автоодобрение CLI paraplane.
+- `internal/ids` — Единая грамматика идентификаторов задач и волн: одна константа вместо копий регулярки в разных пакетах.
 - `internal/layout` — Находит конфликты пар задач под дедлайном, строит кратчайшую раскладку (ASAP) и рендерит её блоком paraplane.
 - `internal/pathset` — Валидирует пути плана и консервативно решает, могут ли два глоба описать один файл (без учёта регистра).
 - `internal/plan` — Извлекает блок ```paraplane из Markdown и строго разбирает YAML в Plan с лимитами и типизированными ошибками.
 - `internal/plugintest` — Тесты упаковки плагина: frontmatter скиллов и агентов, POSIX-шим, манифесты Claude/Codex, ship.txt, примеры планов.
 - `internal/progress` — Рендер прогресса плана: шапка 72 колонки, полоса задач, строка на волну с эмодзи-квадратами, предупреждения.
 - `internal/rules` — Валидирует блок paraplane по правилам E0–E7, W1–W5 и проверяет изменения волны против owns (A1).
+- `internal/shellx` — Лексер shell-команд для хуков Codex: какие литеральные пути команда читает, правит (`sed -i`) или пишет, и какие команды в ней запускаются.
+- `internal/state` — Состояние вне git: задачи, чьи субагенты вернулись, в `<git-dir>/paraplane/closed.json` под блокировкой.
+- `internal/testgit` — Хелперы git для тестов других пакетов: изоляция окружения, временный репозиторий, поддельный старый git, программа-маркер.
 - `internal/textx` — Очистка недоверенного текста перед выводом: `Line` — одна строка по рунам, `Block` — многострочный текст по байтам.
+- `internal/track` — Сводит коммиты, состояние и `--done` в готовый прогресс плана и счётчики сделанного.
 <!-- /auto-context:units -->

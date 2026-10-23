@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,7 +35,7 @@ func gitDirOf(env Env) string { return filepath.Join(env.Root, ".git") }
 // loadState reads the state of env's repository.
 func loadState(t *testing.T, env Env) state.State {
 	t.Helper()
-	st, err := state.LoadState(gitDirOf(env))
+	st, err := state.Load(gitDirOf(env))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +45,7 @@ func loadState(t *testing.T, env Env) state.State {
 // setState changes the state of env's repository.
 func setState(t *testing.T, env Env, f func(*state.State)) {
 	t.Helper()
-	if err := state.UpdateCtx(context.Background(), gitDirOf(env), f); err != nil {
+	if err := state.Update(context.Background(), gitDirOf(env), f); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -52,7 +53,7 @@ func setState(t *testing.T, env Env, f func(*state.State)) {
 // noStateDir fails when the hooks created <git-dir>/paraplane.
 func noStateDir(t *testing.T, env Env) {
 	t.Helper()
-	if _, err := os.Lstat(filepath.Join(gitDirOf(env), "paraplane")); !os.IsNotExist(err) {
+	if _, err := os.Lstat(filepath.Join(gitDirOf(env), "paraplane")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("state directory exists: %v", err)
 	}
 }
@@ -408,7 +409,7 @@ func checkQuoted(t *testing.T, text, plan string) {
 		t.Errorf("no closing note: %q", text)
 	}
 	found := false
-	for _, l := range strings.Split(text, "\n") {
+	for l := range strings.SplitSeq(text, "\n") {
 		if strings.Contains(l, plan) {
 			found = true
 			if !strings.HasPrefix(l, "> ") {
@@ -674,7 +675,7 @@ func TestHookGitMarkers(t *testing.T) {
 	PostToolUse(env, commitBash(t))
 	subagentDone(t, env, "Paraplane-Task: "+planRel+" T3")
 	Stop(env, stopEvent)
-	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+	if _, err := os.Stat(marker); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("a program from the repository config ran: %v", err)
 	}
 }

@@ -1,3 +1,9 @@
+---
+unit: internal/testgit
+source_hash: sha256:de28405a2a8bdc393481952bb17792248ee93e0efe032db0cf244522a5d5a301
+commit: ee26fb1c0e795a3aaa095fbd0556059d4c9450de
+updated: "2026-10-23"
+---
 # internal/testgit
 Хелперы git для тестов других пакетов: изоляция окружения, временный репозиторий, поддельный старый git, программа-маркер.
 

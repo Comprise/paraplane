@@ -13,7 +13,7 @@ func mk(sizes ...int) *plan.Plan {
 	n := 0
 	for i, s := range sizes {
 		w := plan.Wave{ID: fmt.Sprintf("W%d", i+1)}
-		for j := 0; j < s; j++ {
+		for range s {
 			n++
 			w.Tasks = append(w.Tasks, plan.Task{ID: fmt.Sprintf("T%d", n)})
 		}
@@ -58,6 +58,7 @@ const specExample = "paraplane · example.md                                    
 	"W5  ⬜⬜          0/2  · waiting  T16 T17\n"
 
 func TestRenderSpecExample(t *testing.T) {
+	t.Parallel()
 	got := render(mk(6, 5, 2, 2, 2), "example.md", []string{"W1", "W2"})
 	if got != specExample {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, specExample)
@@ -65,6 +66,7 @@ func TestRenderSpecExample(t *testing.T) {
 }
 
 func TestRenderNothingDone(t *testing.T) {
+	t.Parallel()
 	got := render(mk(2, 2), "p.md", nil)
 	if !strings.Contains(got, "wave 1/2 · 0%") || !strings.Contains(got, strings.Repeat("░", 40)+"  0/4 tasks") {
 		t.Fatalf("bad header:\n%s", got)
@@ -75,6 +77,7 @@ func TestRenderNothingDone(t *testing.T) {
 }
 
 func TestRenderAllDone(t *testing.T) {
+	t.Parallel()
 	got := render(mk(2, 2), "p.md", []string{"W1", "W2"})
 	if !strings.Contains(got, "wave 2/2 · 100%") || strings.Count(got, "✓ done") != 2 ||
 		strings.Contains(got, "░") || !strings.Contains(got, strings.Repeat("█", 40)+"  4/4 tasks") {
@@ -83,6 +86,7 @@ func TestRenderAllDone(t *testing.T) {
 }
 
 func TestRenderManyTasks(t *testing.T) {
+	t.Parallel()
 	got := render(mk(15), "p.md", nil)
 	if !strings.Contains(got, strings.Repeat("🟨", 12)+" +3") || strings.Contains(got, strings.Repeat("🟨", 13)) {
 		t.Fatalf("bad:\n%s", got)
@@ -90,6 +94,7 @@ func TestRenderManyTasks(t *testing.T) {
 }
 
 func TestRenderUnknownWave(t *testing.T) {
+	t.Parallel()
 	got := render(mk(2), "p.md", []string{"W9"})
 	if !strings.Contains(got, "warning: commit for unknown wave W9\n") {
 		t.Fatalf("no warning:\n%s", got)
@@ -97,6 +102,7 @@ func TestRenderUnknownWave(t *testing.T) {
 }
 
 func TestRenderCommittedOutOfOrder(t *testing.T) {
+	t.Parallel()
 	got := render(mk(1, 1, 1), "p.md", []string{"W1", "W3"})
 	lines := strings.Split(got, "\n")
 	if !strings.HasPrefix(lines[0], "paraplane · p.md") || !strings.HasSuffix(lines[0], "wave 2/3 · 33%") {
@@ -113,6 +119,7 @@ func TestRenderCommittedOutOfOrder(t *testing.T) {
 }
 
 func TestRenderWidth(t *testing.T) {
+	t.Parallel()
 	p := mk(15, 3)
 	p.Waves[0].ID = strings.Repeat("LongWaveID", 10)
 	p.Waves[1].Tasks[0].ID = strings.Repeat("task", 40)
@@ -120,7 +127,7 @@ func TestRenderWidth(t *testing.T) {
 	if !strings.Contains(got, "…") {
 		t.Fatalf("no ellipsis:\n%s", got)
 	}
-	for _, l := range strings.Split(got, "\n") {
+	for l := range strings.SplitSeq(got, "\n") {
 		if cols(l) > 72 {
 			t.Fatalf("line %d cols: %q", cols(l), l)
 		}
@@ -131,6 +138,7 @@ func TestRenderWidth(t *testing.T) {
 }
 
 func TestRenderLongWaveIDs(t *testing.T) {
+	t.Parallel()
 	p := mk(2, 2)
 	p.Waves[0].ID = "backend-api-01"
 	p.Waves[1].ID = "backend-api-02"
@@ -140,7 +148,7 @@ func TestRenderLongWaveIDs(t *testing.T) {
 			t.Fatalf("missing full id %q:\n%s", id, got)
 		}
 	}
-	for _, l := range strings.Split(got, "\n") {
+	for l := range strings.SplitSeq(got, "\n") {
 		if cols(l) > 72 {
 			t.Fatalf("line %d cols: %q", cols(l), l)
 		}
@@ -148,6 +156,7 @@ func TestRenderLongWaveIDs(t *testing.T) {
 }
 
 func TestRenderShrunkIDsStayDistinct(t *testing.T) {
+	t.Parallel()
 	for _, n := range []int{40, 300} {
 		p := mk(n, n)
 		p.Waves[0].ID = strings.Repeat("x", 24) + "-wave-01"
@@ -167,6 +176,7 @@ func TestRenderShrunkIDsStayDistinct(t *testing.T) {
 }
 
 func TestRenderUnknownWaveDedup(t *testing.T) {
+	t.Parallel()
 	got := render(mk(2), "p.md", []string{"W9", "W9", "W9"})
 	if n := strings.Count(got, "commit for unknown wave W9"); n != 1 {
 		t.Fatalf("want 1 warning, got %d:\n%s", n, got)
@@ -174,6 +184,7 @@ func TestRenderUnknownWaveDedup(t *testing.T) {
 }
 
 func TestRenderSanitisesControls(t *testing.T) {
+	t.Parallel()
 	p := mk(1, 1)
 	p.Waves[0].ID = "W\x1b[31m1\n"
 	p.Waves[0].Tasks[0].ID = "T\x07\u202e1"
@@ -191,12 +202,13 @@ func TestRenderSanitisesControls(t *testing.T) {
 }
 
 func TestRenderWarningsCapped(t *testing.T) {
+	t.Parallel()
 	p := mk(1, 1, 1)
 	p.Waves[1].ID = strings.Repeat("b", 50)
 	p.Waves[2].ID = strings.Repeat("c", 50)
 	got := render(p, "p.md", []string{p.Waves[2].ID, strings.Repeat("u", 80)})
 	n := 0
-	for _, l := range strings.Split(got, "\n") {
+	for l := range strings.SplitSeq(got, "\n") {
 		if strings.HasPrefix(l, "warning:") {
 			n++
 			if cols(l) > 72 || (strings.Contains(l, "unknown") && !strings.HasSuffix(l, "…")) {
@@ -210,7 +222,7 @@ func TestRenderWarningsCapped(t *testing.T) {
 }
 
 func rowOf(out, id string) string {
-	for _, l := range strings.Split(out, "\n") {
+	for l := range strings.SplitSeq(out, "\n") {
 		if strings.HasPrefix(l, id+" ") {
 			return l
 		}
@@ -219,6 +231,7 @@ func rowOf(out, id string) string {
 }
 
 func TestRenderClosedRunning(t *testing.T) {
+	t.Parallel()
 	got := renderClosed(mk(3, 3, 2), "p.md", []string{"W1"}, []string{"T4", "T6"})
 	lines := strings.Split(got, "\n")
 	if !strings.HasSuffix(lines[0], "wave 2/3 · 62%") {
@@ -233,6 +246,7 @@ func TestRenderClosedRunning(t *testing.T) {
 }
 
 func TestRenderClosedWholeWave(t *testing.T) {
+	t.Parallel()
 	got := renderClosed(mk(3, 3, 2), "p.md", []string{"W1"}, []string{"T4", "T5", "T6"})
 	if !strings.Contains(rowOf(got, "W2"), "✓ done") || !strings.Contains(rowOf(got, "W3"), "▶ running") || !strings.Contains(got, "  6/8 tasks") {
 		t.Errorf("got:\n%s", got)
@@ -245,6 +259,7 @@ func TestRenderClosedWholeWave(t *testing.T) {
 }
 
 func TestRenderClosedWarnings(t *testing.T) {
+	t.Parallel()
 	got := renderClosed(mk(3, 3, 2), "p.md", []string{"W1"}, []string{"X9", "T7", "X9"})
 	if want := "warning: --done X9 is not a task of the plan\nwarning: --done T7 is in waiting wave W3\n"; !strings.HasSuffix(got, want) {
 		t.Errorf("got:\n%s", got)
@@ -255,28 +270,15 @@ func TestRenderClosedWarnings(t *testing.T) {
 }
 
 func TestRenderClosedDedup(t *testing.T) {
+	t.Parallel()
 	got := renderClosed(mk(3, 3, 2), "p.md", []string{"W1"}, []string{"T1", "T4", "T4"})
 	if !strings.Contains(got, "  4/8 tasks") || strings.Contains(got, "warning") {
 		t.Errorf("got:\n%s", got)
 	}
 }
 
-// TestRenderWrappers: the compatibility wrappers (removed in R13) render
-// like RenderFrom.
-func TestRenderWrappers(t *testing.T) {
-	for _, done := range [][]string{nil, {"W1"}, {"W1", "W2"}, {"W2"}, {"W9"}} {
-		p := mk(6, 5, 2, 2, 2)
-		want := RenderFrom(p, "x.md", Input{CommittedWaves: done, Closed: []string{"T7"}})
-		if a := RenderClosed(p, "x.md", done, []string{"T7"}); a != want {
-			t.Errorf("RenderClosed, done %v:\n%s\n!=\n%s", done, a, want)
-		}
-		if a, b := Render(p, "x.md", done), RenderFrom(p, "x.md", Input{CommittedWaves: done}); a != b {
-			t.Errorf("Render, done %v:\n%s\n!=\n%s", done, a, b)
-		}
-	}
-}
-
 func TestRenderFromCommittedTasks(t *testing.T) {
+	t.Parallel()
 	got := RenderFrom(mk(3, 3, 2), "p.md", Input{CommittedTasks: []string{"T1", "T2", "T3"}})
 	if !strings.Contains(rowOf(got, "W1"), "✓ done") || !strings.Contains(rowOf(got, "W2"), "▶ running") {
 		t.Errorf("tasks close a wave:\n%s", got)
@@ -288,6 +290,7 @@ func TestRenderFromCommittedTasks(t *testing.T) {
 }
 
 func TestRenderFromMixed(t *testing.T) {
+	t.Parallel()
 	got := RenderFrom(mk(3, 3, 2), "p.md", Input{CommittedWaves: []string{"W1"}, CommittedTasks: []string{"T4"}, Closed: []string{"T5"}})
 	if !strings.Contains(rowOf(got, "W2"), "🟩🟩🟨") || !strings.Contains(got, "  5/8 tasks") || strings.Contains(got, "warning") {
 		t.Errorf("got:\n%s", got)

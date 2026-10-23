@@ -47,7 +47,7 @@ func runChild(dir, task, goFile string) int {
 	defer cancel()
 	inside := filepath.Join(dir, "inside")
 	var overlap error
-	err := UpdateCtx(ctx, dir, func(s *State) {
+	err := Update(ctx, dir, func(s *State) {
 		m, err := os.OpenFile(inside, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if err != nil {
 			overlap = err
@@ -102,7 +102,7 @@ func TestStaleLockOneWinner(t *testing.T) {
 				t.Errorf("round %d: child: %v", round, err)
 			}
 		}
-		s, err := LoadState(dir)
+		s, err := Load(dir)
 		if err != nil {
 			t.Fatal(err)
 		}

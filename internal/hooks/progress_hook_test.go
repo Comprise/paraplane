@@ -2,6 +2,8 @@ package hooks
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -86,7 +88,7 @@ func TestProgressAfterAgentNoMarker(t *testing.T) {
 			t.Errorf("%q: got %s, %v", prompt, out, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(env.Root, ".git", "paraplane", "closed.json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(env.Root, ".git", "paraplane", "closed.json")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("state written: %v", err)
 	}
 }
@@ -136,7 +138,7 @@ func TestProgressAfterAgentBackground(t *testing.T) {
 	in = postIn(t, "Agent", map[string]any{"prompt": "Paraplane-Task: docs/plans/x.md T1"})
 	in.ToolResponse = json.RawMessage(`[{"type":"text","text":"Async agent launched successfully."}]`)
 	nilOut(t)(PostToolUse(env, in))
-	if _, err := os.Stat(filepath.Join(env.Root, ".git", "paraplane", "closed.json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(env.Root, ".git", "paraplane", "closed.json")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("a launched background subagent was recorded: %v", err)
 	}
 }

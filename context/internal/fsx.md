@@ -1,7 +1,8 @@
 ---
 unit: internal/fsx
-source_hash: sha256:612d85d611eeaf4e3dc1647128bf294b155d9b77d6dfba24e04c356e31f6973a
-updated: "2026-10-20"
+source_hash: sha256:c6feb50fb684648fab5fabb19403d0e6933692809b75f6cbb735d2bd86592a27
+commit: ee26fb1c0e795a3aaa095fbd0556059d4c9450de
+updated: "2026-10-23"
 ---
 # internal/fsx
 Чтение только обычных файлов: симлинк, FIFO, устройство, каталог или подмена файла дают ErrNotRegular.
@@ -12,7 +13,7 @@ updated: "2026-10-20"
 ## Публичный API / точки входа
 - `OpenRegular(name)` — открытый файл и его `FileInfo`; вызывающий закрывает файл.
 - `ReadRegular(name, max)` — весь файл; больше `max` байт — `ErrTooLarge`. `math.MaxInt64` снимает лимит.
-- `MaxFile` (1 MiB) — лимит по умолчанию для хуков и команд.
+- `MaxFile` (1 MiB) — лимит по умолчанию для хуков и команд. Те же 1 MiB берут `config.MaxSize` и `maxPlanFile` в `cmd/paraplane` (константы от `fsx.MaxFile`, не копии).
 - Отсутствующий файл возвращает исходную ошибку `os` (проверять через `fs.ErrNotExist`), а не `ErrNotRegular`.
 
 ## Структура и поток данных

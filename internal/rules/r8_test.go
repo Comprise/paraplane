@@ -108,18 +108,3 @@ func TestCommitsOfWaves(t *testing.T) {
 		t.Errorf("nil plan: %d", got)
 	}
 }
-
-// TestAuditWrappers: the compatibility wrappers (removed in R13) are
-// AuditCommits without commits.
-func TestAuditWrappers(t *testing.T) {
-	p := auditPlan(t)
-	changed := []string{"a/x", "b/x", "c/x", "z"}
-	want, _ := AuditCommits(p, []string{"W1"}, changed, nil, "plan.md", nil)
-	if got, err := Audit(p, "W1", changed, "plan.md", nil); err != nil || !reflect.DeepEqual(got, want) {
-		t.Errorf("Audit = %v, %v; want %v", got, err, want)
-	}
-	want, _ = AuditCommits(p, []string{"W1", "W2"}, changed, nil, "plan.md", nil)
-	if got, err := AuditWaves(p, []string{"W1", "W2"}, changed, "plan.md", nil); err != nil || !reflect.DeepEqual(got, want) {
-		t.Errorf("AuditWaves = %v, %v; want %v", got, err, want)
-	}
-}

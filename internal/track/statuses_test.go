@@ -62,7 +62,7 @@ func countCalls(t testing.TB) *counters {
 }
 
 // statusesApply runs Statuses on *st and applies the result to it, as the
-// hook does inside state.UpdateCtx.
+// hook does inside state.Update.
 func statusesApply(t testing.TB, dir string, plans []PlanRef, st *state.State) (map[string]Status, error) {
 	t.Helper()
 	r, err := Statuses(ctx(t), dir, plans, *st)
@@ -120,19 +120,19 @@ func TestNewPlanSamePath(t *testing.T) {
 func TestPlanStatusContextHash(t *testing.T) {
 	dir, head := newRepo(t)
 	g := testgit.Run(t, dir, "rev-parse", "--absolute-git-dir")
-	if err := state.UpdateCtx(ctx(t), g, func(s *state.State) {
+	if err := state.Update(ctx(t), g, func(s *state.State) {
 		s.Add(state.Entry{Plan: "plan.md", Task: "T1", Head: head, PlanHash: hashA})
 	}); err != nil {
 		t.Fatal(err)
 	}
 	p := threeWaves()
-	if s, err := PlanStatusContext(ctx(t), dir, "plan.md", p, hashB, nil); err != nil || s.Tasks != 0 {
+	if s, err := PlanStatus(ctx(t), dir, "plan.md", p, hashB, nil); err != nil || s.Tasks != 0 {
 		t.Errorf("hash B: %+v %v", s, err)
 	}
-	if s, err := PlanStatusContext(ctx(t), dir, "plan.md", p, hashA, nil); err != nil || s.Tasks != 1 {
+	if s, err := PlanStatus(ctx(t), dir, "plan.md", p, hashA, nil); err != nil || s.Tasks != 1 {
 		t.Errorf("hash A: %+v %v", s, err)
 	}
-	if s, _ := state.LoadState(g); len(s.Entries) != 1 {
+	if s, _ := state.Load(g); len(s.Entries) != 1 {
 		t.Errorf("read-only form changed the state: %+v", s)
 	}
 }
@@ -319,12 +319,12 @@ func TestApplyLaterState(t *testing.T) {
 func TestRecordedSeparateFromDone(t *testing.T) {
 	dir, head := newRepo(t)
 	g := testgit.Run(t, dir, "rev-parse", "--absolute-git-dir")
-	if err := state.UpdateCtx(ctx(t), g, func(s *state.State) {
+	if err := state.Update(ctx(t), g, func(s *state.State) {
 		s.Add(state.Entry{Plan: "plan.md", Task: "T3", Head: head, PlanHash: hashA})
 	}); err != nil {
 		t.Fatal(err)
 	}
-	s, err := PlanStatusContext(ctx(t), dir, "plan.md", threeWaves(), hashA, []string{"T4", "Z9"})
+	s, err := PlanStatus(ctx(t), dir, "plan.md", threeWaves(), hashA, []string{"T4", "Z9"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,14 +372,14 @@ func TestSources(t *testing.T) {
 			}
 			head := testgit.Run(t, dir, "rev-parse", "HEAD")
 			g := testgit.Run(t, dir, "rev-parse", "--absolute-git-dir")
-			if err := state.UpdateCtx(ctx(t), g, func(s *state.State) {
+			if err := state.Update(ctx(t), g, func(s *state.State) {
 				for _, id := range c.entries {
 					s.Add(state.Entry{Plan: "plan.md", Task: id, Head: head, PlanHash: hashA})
 				}
 			}); err != nil {
 				t.Fatal(err)
 			}
-			s, err := PlanStatusContext(ctx(t), dir, "plan.md", threeWaves(), hashA, c.extra)
+			s, err := PlanStatus(ctx(t), dir, "plan.md", threeWaves(), hashA, c.extra)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -429,7 +429,7 @@ func TestGitErrorsReturned(t *testing.T) {
 	if len(st.Entries) != 1 || st.Scan != nil {
 		t.Errorf("state changed on error: %+v", st)
 	}
-	if _, err := PlanStatusContext(ctx(t), t.TempDir(), "plan.md", threeWaves(), hashA, nil); err == nil {
+	if _, err := PlanStatus(ctx(t), t.TempDir(), "plan.md", threeWaves(), hashA, nil); err == nil {
 		t.Error("not a repository: no error")
 	}
 }
@@ -446,7 +446,7 @@ func TestStateVersionIgnored(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(g, "paraplane", "closed.json"), []byte(data), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if s, err := PlanStatusContext(ctx(t), dir, "plan.md", threeWaves(), hashA, nil); err != nil || s.Tasks != 0 {
+	if s, err := PlanStatus(ctx(t), dir, "plan.md", threeWaves(), hashA, nil); err != nil || s.Tasks != 0 {
 		t.Errorf("%+v %v", s, err)
 	}
 }
@@ -460,8 +460,8 @@ func TestBudgetExceeded(t *testing.T) {
 	if _, err := Statuses(c, dir, []PlanRef{{Rel: "plan.md", Hash: hashA, Plan: threeWaves()}}, *st); err == nil {
 		t.Error("Statuses: no error")
 	}
-	if _, err := PlanStatusContext(c, dir, "plan.md", threeWaves(), hashA, nil); err == nil {
-		t.Error("PlanStatusContext: no error")
+	if _, err := PlanStatus(c, dir, "plan.md", threeWaves(), hashA, nil); err == nil {
+		t.Error("PlanStatus: no error")
 	}
 }
 

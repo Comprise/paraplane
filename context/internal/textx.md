@@ -1,7 +1,7 @@
 ---
 unit: internal/textx
-source_hash: sha256:b0252ab018b08dd9efda38e38027a34bbe3b3a82aa1ffc8062b5e586f1232223
-commit: d161a953beb07629ae51028a89aae64f5773a7c5
+source_hash: sha256:57f79356d792b1ba8655d73e28d893caa44487aca409fd8d69533b137817b7e2
+commit: ee26fb1c0e795a3aaa095fbd0556059d4c9450de
 updated: "2026-10-23"
 ---
 # internal/textx

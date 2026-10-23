@@ -1,7 +1,7 @@
 ---
 unit: internal/progress
-source_hash: sha256:904fe4349155355125c1d086e6a218260c73e301ea5df421c40da4dead4dadf4
-commit: 1ad392a8cc668fcc44ffd6e2d14e9965d92cfa05
+source_hash: sha256:e3c322c14e8bbe783c06b699ec237ae1636eaa5c20234156347f3a3fa980cad9
+commit: ee26fb1c0e795a3aaa095fbd0556059d4c9450de
 updated: "2026-10-23"
 ---
 # internal/progress
@@ -15,7 +15,6 @@ updated: "2026-10-23"
 - `Input{CommittedWaves, CommittedTasks, Closed, Recorded}` — что известно сделанным: волны и задачи из трейлеров коммитов, `Closed` — задачи из `--done`, `Recorded` — задачи вернувшихся субагентов из файла состояния. Три списка задач считаются одинаково, различаются только предупреждения (A-M6).
 - `Count(p, Input) Counts` — единственное правило «что сделано» (A-M3): `Counts{Waves, Tasks int; State []WaveState}` — число `done`-волн, число сделанных задач и состояние каждой волны (`Done`, `Running`, `Waiting`). `track` берёт числа отсюда, а не считает сам.
 - `RenderFrom(p, name, Input) string` — текст прогресса из `Count`; `name` — имя файла плана. Пакет не ходит в git и в файловую систему.
-- `Render(p, name, done)`, `RenderClosed(p, name, done, closed)` — устаревшие обёртки над `RenderFrom` до R13.
 
 ## Структура и поток данных
 - `Count`: по порядку плана волна `done`, пока у неё есть коммит или все её задачи (хотя бы одна) сделаны; первая другая — `running` и добавляет свои сделанные задачи; все дальнейшие — `waiting`, их задачи не считаются, даже если сделаны.

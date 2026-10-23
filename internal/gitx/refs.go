@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-// HeadContext returns the full hash of HEAD, or "" in a repository without
+// Head returns the full hash of HEAD, or "" in a repository without
 // commits.
-func HeadContext(ctx context.Context, root string) (string, error) {
+func Head(ctx context.Context, root string) (string, error) {
 	out, code, err := runCode(ctx, root, "rev-parse", "--verify", "-q", "HEAD")
 	if err != nil {
 		if code == 1 && len(bytes.TrimSpace(out)) == 0 {
@@ -22,9 +22,9 @@ func HeadContext(ctx context.Context, root string) (string, error) {
 	return string(bytes.TrimSpace(out)), nil
 }
 
-// GitDirContext returns the absolute git directory of the repository at
+// GitDir returns the absolute git directory of the repository at
 // root (a worktree has its own).
-func GitDirContext(ctx context.Context, root string) (string, error) {
+func GitDir(ctx context.Context, root string) (string, error) {
 	out, err := run(ctx, root, "rev-parse", "--absolute-git-dir")
 	if err != nil {
 		return "", err
@@ -32,10 +32,10 @@ func GitDirContext(ctx context.Context, root string) (string, error) {
 	return string(bytes.TrimSpace(out)), nil
 }
 
-// IsAncestorContext reports whether commit a is an ancestor of b or equal to
+// IsAncestor reports whether commit a is an ancestor of b or equal to
 // it. Both must be full hashes; for many hashes use Unreachable. It needs
 // git 2.24 or later (ErrOldGit).
-func IsAncestorContext(ctx context.Context, root, a, b string) (bool, error) {
+func IsAncestor(ctx context.Context, root, a, b string) (bool, error) {
 	if err := checkHashes(a, b); err != nil {
 		return false, err
 	}
@@ -48,7 +48,7 @@ func IsAncestorContext(ctx context.Context, root, a, b string) (bool, error) {
 	return isAncestor(ctx, root, a, b)
 }
 
-// isAncestor is IsAncestorContext for validated hashes and a guarded
+// isAncestor is IsAncestor for validated hashes and a guarded
 // repository.
 func isAncestor(ctx context.Context, root, a, b string) (bool, error) {
 	_, code, err := runCode(ctx, root, "merge-base", "--is-ancestor", "--end-of-options", a, b)

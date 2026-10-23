@@ -6,12 +6,12 @@ import (
 	"fmt"
 )
 
-// PlansSinceContext returns the plans that the commits from..to name in a
+// PlansSince returns the plans that the commits from..to name in a
 // Paraplane-Plan trailer next to a Paraplane-Wave or Paraplane-Task trailer,
 // in order of first appearance (oldest commit first). With from empty only
 // the commit to is read. from (when set) and to must be full hashes. It
 // needs git 2.24 or later (ErrOldGit) and refuses like guardLazyFetch.
-func PlansSinceContext(ctx context.Context, root, from, to string) ([]string, error) {
+func PlansSince(ctx context.Context, root, from, to string) ([]string, error) {
 	if err := requireGit(ctx, root, minGit[0], minGit[1], minGit[2]); err != nil {
 		return nil, fmt.Errorf("%w for progress", err)
 	}

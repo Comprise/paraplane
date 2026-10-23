@@ -1,7 +1,7 @@
 ---
 unit: internal/rules
-source_hash: sha256:f5dfbb3df59227569b3b0ab8115c154e0a8215dac9f43fef87ad3beb0c36a2cf
-commit: 1ad392a8cc668fcc44ffd6e2d14e9965d92cfa05
+source_hash: sha256:652405ed42d8bb1f397c6f6798f583a34f7ba5d0ce7e41f02864556b15198c1f
+commit: ee26fb1c0e795a3aaa095fbd0556059d4c9450de
 updated: "2026-10-23"
 ---
 # internal/rules
@@ -18,7 +18,6 @@ updated: "2026-10-23"
 - `Result.Errors()`, `Warnings()`, `Summary()` — последняя строка `paraplane check`.
 - `AuditCommits(p, waveIDs, changed, commits []CommitFiles, planPath, ignore)` — основной API аудита A1: файлы рабочего дерева `changed` должны входить в `owns` задачи одной из волн `waveIDs` (этап из нескольких волн: файл может принадлежать задаче любой из них; `Where` — id через `,`, в тексте — через `, `); неизвестная волна — ошибка, не находка. Плюс коммиты волн (`CommitFiles{Hash, Waves, Tasks, Files}`): коммит задачи — файл должен входить в `owns` названной задачи (`changed by T3 (commit h) but T3 does not own it`; несколько задач — `but none of them owns it`), коммит волны или этапа — в `owns` задачи любой названной волны (`changed in commit h but no task of W1, W2 owns it`). Находки коммитов идут первыми, по порядку коммитов, файл — один раз на коммит.
 - `CommitsOfWaves(p, waves, commits)` — сколько коммитов относится к волнам по тому же правилу, по которому их проверяет `AuditCommits` (коммит называет волну из списка или задачу такой волны; волны, которых нет в плане, не считаются). Заменяет `waveCommits` из CLI (Q-M9).
-- `Audit`, `AuditWaves` — устаревшие обёртки над `AuditCommits` без коммитов; живут до R13 ради совместимости вызывающих.
 - `Finding.String()` — `error E2 W1: …`.
 
 ## Структура и поток данных

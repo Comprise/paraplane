@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"os"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -194,25 +193,25 @@ func progressAfterBash(env Env, in Input) ([]byte, error) {
 		return nil, nil
 	}
 	ctx := env.ctx()
-	gitDir, err := gitx.GitDirContext(ctx, env.Root)
+	gitDir, err := gitx.GitDir(ctx, env.Root)
 	if err != nil {
 		return nil, nil
 	}
-	head, err := gitx.HeadContext(ctx, env.Root)
+	head, err := gitx.Head(ctx, env.Root)
 	if err != nil || head == "" {
 		return nil, nil
 	}
-	st, err := state.LoadState(gitDir)
+	st, err := state.Load(gitDir)
 	if err != nil || st.LastHead == head {
 		return nil, nil
 	}
 	from := ""
 	if st.LastHead != "" {
-		if ok, err := gitx.IsAncestorContext(ctx, env.Root, st.LastHead, head); err == nil && ok {
+		if ok, err := gitx.IsAncestor(ctx, env.Root, st.LastHead, head); err == nil && ok {
 			from = st.LastHead
 		}
 	}
-	named, err := gitx.PlansSinceContext(ctx, env.Root, from, head)
+	named, err := gitx.PlansSince(ctx, env.Root, from, head)
 	if err != nil {
 		return nil, nil
 	}
@@ -228,8 +227,8 @@ func progressAfterBash(env Env, in Input) ([]byte, error) {
 		plans = appendUnique(plans, p)
 	}
 	if len(plans) == 0 {
-		if stateExists(gitDir) {
-			state.UpdateCtx(ctx, gitDir, func(s *state.State) { moveLastHead(s, st.LastHead, head) })
+		if state.Exists(gitDir) {
+			state.Update(ctx, gitDir, func(s *state.State) { moveLastHead(s, st.LastHead, head) })
 		}
 		return nil, nil
 	}
@@ -242,13 +241,6 @@ func moveLastHead(s *state.State, prev, head string) {
 	if s.LastHead == prev || s.LastHead == "" {
 		s.LastHead = head
 	}
-}
-
-// stateExists reports whether <gitDir>/paraplane/closed.json exists (the
-// names of the state package).
-func stateExists(gitDir string) bool {
-	_, err := os.Lstat(filepath.Join(gitDir, "paraplane", "closed.json"))
-	return err == nil
 }
 
 // showOpts is what a showProgress write does besides the shown counts.
@@ -295,7 +287,7 @@ func showProgress(env Env, in Input, cache planCache, gitDir string, plans []str
 		return nil, nil
 	}
 	ctx := env.ctx()
-	st, err := state.LoadState(gitDir)
+	st, err := state.Load(gitDir)
 	if err != nil {
 		return nil, nil
 	}
@@ -313,7 +305,7 @@ func showProgress(env Env, in Input, cache planCache, gitDir string, plans []str
 		beforeShowWrite()
 	}
 	var texts, names []string
-	err = state.UpdateCtx(ctx, gitDir, func(s *state.State) {
+	err = state.Update(ctx, gitDir, func(s *state.State) {
 		take := dead
 		for _, r := range refs {
 			if !slices.ContainsFunc(s.Entries, func(e state.Entry) bool { return e.Plan == r.Rel && !seen[e] }) {
@@ -433,15 +425,15 @@ func recordTasks(env Env, cache planCache, prompt string, pending bool) (gitDir 
 		return "", nil, false
 	}
 	ctx := env.ctx()
-	gitDir, err := gitx.GitDirContext(ctx, env.Root)
+	gitDir, err := gitx.GitDir(ctx, env.Root)
 	if err != nil {
 		return "", nil, false
 	}
-	head, err := gitx.HeadContext(ctx, env.Root)
+	head, err := gitx.Head(ctx, env.Root)
 	if err != nil || head == "" {
 		return "", nil, false
 	}
-	err = state.UpdateCtx(ctx, gitDir, func(s *state.State) {
+	err = state.Update(ctx, gitDir, func(s *state.State) {
 		for _, e := range entries {
 			e.Head = head
 			s.Add(e)
@@ -509,11 +501,11 @@ func SubagentStop(env Env, in Input) ([]byte, error) {
 // (Claude Code's Stop shows a systemMessage); showProgress takes them from
 // Pending only once handled.
 func flushPending(env Env, in Input) ([]byte, error) {
-	gitDir, err := gitx.GitDirContext(env.ctx(), env.Root)
+	gitDir, err := gitx.GitDir(env.ctx(), env.Root)
 	if err != nil {
 		return nil, nil
 	}
-	st, err := state.LoadState(gitDir)
+	st, err := state.Load(gitDir)
 	if err != nil || len(st.Pending) == 0 {
 		return nil, nil
 	}

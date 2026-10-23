@@ -141,21 +141,6 @@ func pad(s string, n int) string {
 	return s
 }
 
-// Render draws the progress of p with the waves done committed.
-//
-// Deprecated: a compatibility wrapper until R13; use RenderFrom.
-func Render(p *plan.Plan, name string, done []string) string {
-	return RenderFrom(p, name, Input{CommittedWaves: done})
-}
-
-// RenderClosed draws the progress of p with the waves done committed and
-// the tasks closed passed with --done.
-//
-// Deprecated: a compatibility wrapper until R13; use RenderFrom.
-func RenderClosed(p *plan.Plan, name string, done, closed []string) string {
-	return RenderFrom(p, name, Input{CommittedWaves: done, Closed: closed})
-}
-
 // Input is what is known done: waves and tasks named by commit trailers,
 // tasks passed with --done (Closed) and tasks of returned subagents kept in
 // the state file (Recorded). The three task lists count alike; only their

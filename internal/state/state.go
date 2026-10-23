@@ -17,6 +17,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -33,6 +34,14 @@ const (
 	lockName = fileName + ".lock"
 )
 
+// Exists reports whether the state file of gitDir exists (even if it is not
+// a regular file or is invalid): a hook that has no plan to show writes into
+// <gitDir>/paraplane only when it does.
+func Exists(gitDir string) bool {
+	_, err := os.Lstat(filepath.Join(gitDir, dirName, fileName))
+	return err == nil
+}
+
 // Limits and timings.
 const (
 	version    = 1
@@ -43,9 +52,6 @@ const (
 	staleLock = 11 * time.Second
 	pollEvery = 10 * time.Millisecond
 )
-
-// lockWait bounds the lock wait of the context-free Update wrapper.
-var lockWait = 2 * time.Second
 
 // rename replaces the state file; tests make it fail. On Windows it fails
 // while another process has the file open, so the write retries it.
@@ -111,11 +117,11 @@ type file struct {
 	State
 }
 
-// LoadState reads the state of gitDir. A missing, irregular (symlink, FIFO),
+// Load reads the state of gitDir. A missing, irregular (symlink, FIFO),
 // too large or invalid file, or a state directory that is not a directory,
 // is an empty State; another version is ErrVersion. Invalid values are
 // dropped (see clean).
-func LoadState(gitDir string) (State, error) {
+func Load(gitDir string) (State, error) {
 	r, err := openDir(gitDir, false)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, errNotDir) {
@@ -127,21 +133,13 @@ func LoadState(gitDir string) (State, error) {
 	return load(r)
 }
 
-// Load is LoadState without the error: any error is an empty State.
-//
-// Deprecated: use LoadState; R13 removes this wrapper.
-func Load(gitDir string) State {
-	s, _ := LoadState(gitDir)
-	return s
-}
-
-// UpdateCtx changes the state of gitDir under the lock: it loads the state,
+// Update changes the state of gitDir under the lock: it loads the state,
 // calls f, drops invalid values, keeps the last maxEntries entries and
 // writes the file atomically (temporary file, Sync, rename). It returns
 // ErrBusy when the lock is not taken before ctx ends or the lock path is not
 // a regular file, and ErrVersion (f not called, file untouched) for another
 // version. A lock older than staleLock is taken over.
-func UpdateCtx(ctx context.Context, gitDir string, f func(*State)) error {
+func Update(ctx context.Context, gitDir string, f func(*State)) error {
 	r, err := openDir(gitDir, true)
 	if err != nil {
 		return err
@@ -162,15 +160,6 @@ func UpdateCtx(ctx context.Context, gitDir string, f func(*State)) error {
 		return err
 	}
 	return write(r, data)
-}
-
-// Update is UpdateCtx with the lock wait bounded by lockWait.
-//
-// Deprecated: use UpdateCtx; R13 removes this wrapper.
-func Update(gitDir string, f func(*State)) error {
-	ctx, cancel := context.WithTimeout(context.Background(), lockWait)
-	defer cancel()
-	return UpdateCtx(ctx, gitDir, f)
 }
 
 // openDir opens <gitDir>/paraplane as a Root, creating it when create is set.

@@ -120,10 +120,12 @@ Follow `references/execution.md`. In short: dispatch all tasks of a wave in one 
 limited to its `owns`; subagents never commit; after the wave run `paraplane audit <plan> <wave>`,
 then the gate; fix until both pass; the coordinator makes one commit per wave with the trailers
 `Paraplane-Plan` and `Paraplane-Wave` (a commit per task or per stage only when the project's rules
-require it). Each subagent prompt carries a line `Paraplane-Task: <plan> <task id>`. In Claude Code a
-hook shows the progress to the user after each closed wave (with `progress: task` in
-`.paraplane/config.yaml`, after each closed task); in Codex show `paraplane progress [--done <ids>] <plan>`
-yourself in a code block.
+require it). Each subagent prompt carries a line `Paraplane-Task: <plan> <task id>` on its own. Who
+shows the progress: in Claude Code the hooks show it to the user after each wave that got done (with
+`progress: task` in `.paraplane/config.yaml`, after each task), so do not repeat it; undo the record of a
+task that fails its review with `paraplane progress --forget <ids> <plan>`. In Codex show
+`paraplane progress [--done <ids>] <plan>` yourself in a code block. Gate and `verify` commands are
+repository code: in a repository you did not write, show them to the user before running them.
 
 ## Precedence
 

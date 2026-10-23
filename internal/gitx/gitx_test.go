@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -110,8 +111,8 @@ func write(t *testing.T, path, content string) {
 
 // waveCommits is PlanCommits reduced to waves: the committed waves and the
 // lost wave lines (the former WaveCommits).
-func waveCommits(root, planPath string) (waves []string, lost []LostTrailer, err error) {
-	c, err := PlanCommits(root, planPath)
+func waveCommits(t testing.TB, root, planPath string) (waves []string, lost []LostTrailer, err error) {
+	c, err := PlanCommits(t.Context(), root, planPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -146,7 +147,7 @@ func TestChangedModifiedUntracked(t *testing.T) {
 	commitAll(t, dir, "init")
 	write(t, filepath.Join(dir, "z.go"), "z2\n")
 	write(t, filepath.Join(dir, "new", "n.go"), "n\n")
-	got, err := Changed(dir)
+	got, err := Changed(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +162,7 @@ func TestChangedRename(t *testing.T) {
 	write(t, filepath.Join(dir, "old.go"), "content that is long enough to detect a rename\n")
 	commitAll(t, dir, "init")
 	git(t, dir, "mv", "old.go", "new.go")
-	got, err := Changed(dir)
+	got, err := Changed(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +177,7 @@ func TestChangedSpacesInName(t *testing.T) {
 	write(t, filepath.Join(dir, "a.go"), "a\n")
 	commitAll(t, dir, "init")
 	write(t, filepath.Join(dir, "my dir", "a b.go"), "x\n")
-	got, err := Changed(dir)
+	got, err := Changed(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +194,7 @@ func TestChangedSubdirRoot(t *testing.T) {
 	commitAll(t, dir, "init")
 	write(t, filepath.Join(dir, "sub", "a.go"), "a2\n")
 	write(t, filepath.Join(dir, "other", "b.go"), "b2\n")
-	got, err := Changed(filepath.Join(dir, "sub"))
+	got, err := Changed(t.Context(), filepath.Join(dir, "sub"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +205,7 @@ func TestChangedSubdirRoot(t *testing.T) {
 }
 
 func TestChangedNotRepo(t *testing.T) {
-	_, err := Changed(t.TempDir())
+	_, err := Changed(t.Context(), t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "not a git repository") {
 		t.Fatalf("err = %v, want a not-a-git-repository error", err)
 	}
@@ -213,7 +214,7 @@ func TestChangedNotRepo(t *testing.T) {
 func TestWaveCommits(t *testing.T) {
 	needGit(t, 2, 24, "--end-of-options")
 	dir := initRepo(t)
-	got, lost, err := waveCommits(dir, "plan.md")
+	got, lost, err := waveCommits(t, dir, "plan.md")
 	if err != nil || len(got) != 0 || len(lost) != 0 {
 		t.Fatalf("empty repo: got %v, %v, %v", got, lost, err)
 	}
@@ -230,7 +231,7 @@ func TestWaveCommits(t *testing.T) {
 		write(t, filepath.Join(dir, "f.txt"), strings.Repeat("x", i+1))
 		commitAll(t, dir, m)
 	}
-	got, lost, err = waveCommits(dir, "plan.md")
+	got, lost, err = waveCommits(t, dir, "plan.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +262,7 @@ func TestWaveCommitsLostTrailers(t *testing.T) {
 		write(t, filepath.Join(dir, "f.txt"), strings.Repeat("x", i+1))
 		commitAll(t, dir, m)
 	}
-	got, lost, err := waveCommits(dir, "plan.md")
+	got, lost, err := waveCommits(t, dir, "plan.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +274,7 @@ func TestWaveCommitsLostTrailers(t *testing.T) {
 		if len(l.Commit) < 7 {
 			t.Errorf("short commit %q", l.Commit)
 		}
-		ids = append(ids, l.Wave)
+		ids = append(ids, l.ID)
 	}
 	if !reflect.DeepEqual(ids, []string{"W1", "W2", "W5", "W6", "W7"}) {
 		t.Errorf("lost %v, want W1 W2 W5 W6 W7", lost)
@@ -282,7 +283,7 @@ func TestWaveCommitsLostTrailers(t *testing.T) {
 
 func TestWaveCommitsNotRepo(t *testing.T) {
 	needGit(t, 2, 24, "--end-of-options")
-	_, _, err := waveCommits(t.TempDir(), "plan.md")
+	_, _, err := waveCommits(t, t.TempDir(), "plan.md")
 	if err == nil || !strings.Contains(err.Error(), "not a git repository") {
 		t.Fatalf("err = %v, want a not-a-git-repository error", err)
 	}
@@ -295,11 +296,11 @@ func TestChangedRefusesFilterDriver(t *testing.T) {
 	commitAll(t, dir, "init")
 	git(t, dir, "config", "filter.x.clean", "touch PWNED")
 	write(t, filepath.Join(dir, "a.txt"), "changed\n") // tracked and modified: git status would run the clean filter
-	_, err := Changed(dir)
+	_, err := Changed(t.Context(), dir)
 	if !errors.Is(err, ErrFilterDrivers) {
 		t.Fatalf("err = %v, want ErrFilterDrivers", err)
 	}
-	if _, statErr := os.Stat(filepath.Join(dir, "PWNED")); !os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(filepath.Join(dir, "PWNED")); !errors.Is(statErr, fs.ErrNotExist) {
 		t.Fatalf("filter driver ran: PWNED exists (stat err %v)", statErr)
 	}
 }
@@ -308,7 +309,7 @@ func TestChangedNoFilterDriversOK(t *testing.T) {
 	dir := initRepo(t)
 	git(t, dir, "config", "filter.x.required", "true") // not clean/smudge/process
 	write(t, filepath.Join(dir, "a.txt"), "a\n")
-	got, err := Changed(dir)
+	got, err := Changed(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +329,7 @@ func TestChangedIgnoresSubmodules(t *testing.T) {
 	commitAll(t, dir, "add submodule")
 	write(t, filepath.Join(dir, "mod", "s.txt"), "dirty\n")
 	write(t, filepath.Join(dir, "mod", "untracked.txt"), "u\n")
-	got, err := Changed(dir)
+	got, err := Changed(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,11 +350,11 @@ func filterRepo(t *testing.T) string {
 func assertRefused(t *testing.T, dir string) {
 	t.Helper()
 	write(t, filepath.Join(dir, "a.txt"), "changed\n")
-	_, err := Changed(dir)
+	_, err := Changed(t.Context(), dir)
 	if !errors.Is(err, ErrFilterDrivers) {
 		t.Fatalf("err = %v, want ErrFilterDrivers", err)
 	}
-	if _, statErr := os.Stat(filepath.Join(dir, "PWNED")); !os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(filepath.Join(dir, "PWNED")); !errors.Is(statErr, fs.ErrNotExist) {
 		t.Fatalf("filter driver ran (stat err %v)", statErr)
 	}
 }
@@ -382,7 +383,7 @@ func TestChangedAllowsGlobalFilter(t *testing.T) {
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, ".gitconfig"))
 	dir := initRepo(t)
 	write(t, filepath.Join(dir, "a.txt"), "a\n")
-	got, err := Changed(dir)
+	got, err := Changed(t.Context(), dir)
 	if err != nil {
 		t.Fatalf("global filter must not refuse: %v", err)
 	}
@@ -418,7 +419,7 @@ func TestWaveCommitsTrailers(t *testing.T) {
 		write(t, filepath.Join(dir, "f.txt"), strings.Repeat("x", i+1))
 		commitAll(t, dir, m)
 	}
-	got, _, err := waveCommits(dir, "plan.md")
+	got, _, err := waveCommits(t, dir, "plan.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +445,7 @@ func TestChangedDeletedAndStaged(t *testing.T) {
 	git(t, dir, "add", "staged.go") // staged only: work tree equals index
 	write(t, filepath.Join(dir, "added.go"), "new\n")
 	git(t, dir, "add", "added.go") // new file, staged only
-	got, err := Changed(dir)
+	got, err := Changed(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +470,7 @@ func TestPlanCommitsTasks(t *testing.T) {
 		write(t, filepath.Join(dir, "f.txt"), strings.Repeat("x", i+1))
 		commitAll(t, dir, m)
 	}
-	c, err := PlanCommits(dir, "plan.md")
+	c, err := PlanCommits(t.Context(), dir, "plan.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -480,7 +481,7 @@ func TestPlanCommitsTasks(t *testing.T) {
 		t.Errorf("lost %+v", c.Lost)
 	}
 	// WaveCommits keeps reporting waves only.
-	waves, lost, err := waveCommits(dir, "plan.md")
+	waves, lost, err := waveCommits(t, dir, "plan.md")
 	if err != nil || !reflect.DeepEqual(waves, []string{"W1"}) || len(lost) != 0 {
 		t.Errorf("WaveCommits %v %v %v", waves, lost, err)
 	}
@@ -496,7 +497,7 @@ func TestPlanCommitFiles(t *testing.T) {
 	commitAll(t, dir, "stage\n\nParaplane-Plan: plan.md\nParaplane-Wave: W1\nParaplane-Wave: W2\n")
 	write(t, filepath.Join(dir, "d.go"), "d")
 	commitAll(t, dir, "unrelated")
-	got, err := PlanCommitFiles(dir, "plan.md")
+	got, err := PlanCommitFiles(t.Context(), dir, "plan.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,32 +513,32 @@ func TestPlanCommitFiles(t *testing.T) {
 
 func TestHeadAndAncestor(t *testing.T) {
 	dir := initRepo(t)
-	if h, err := Head(dir); err != nil || h != "" {
+	if h, err := Head(t.Context(), dir); err != nil || h != "" {
 		t.Fatalf("empty repo: %q, %v", h, err)
 	}
 	write(t, filepath.Join(dir, "a"), "1")
 	commitAll(t, dir, "one")
-	first, err := Head(dir)
+	first, err := Head(t.Context(), dir)
 	if err != nil || len(first) < 40 {
 		t.Fatalf("head %q %v", first, err)
 	}
 	write(t, filepath.Join(dir, "a"), "2")
 	commitAll(t, dir, "two")
-	second, _ := Head(dir)
-	if ok, err := IsAncestor(dir, first, second); err != nil || !ok {
+	second, _ := Head(t.Context(), dir)
+	if ok, err := IsAncestor(t.Context(), dir, first, second); err != nil || !ok {
 		t.Errorf("first before second: %v %v", ok, err)
 	}
-	if ok, err := IsAncestor(dir, second, first); err != nil || ok {
+	if ok, err := IsAncestor(t.Context(), dir, second, first); err != nil || ok {
 		t.Errorf("second before first: %v %v", ok, err)
 	}
-	if _, err := IsAncestor(dir, "deadbeef", second); err == nil {
+	if _, err := IsAncestor(t.Context(), dir, "deadbeef", second); err == nil {
 		t.Error("unknown commit: no error")
 	}
 }
 
 func TestGitDir(t *testing.T) {
 	dir := initRepo(t)
-	g, err := GitDir(dir)
+	g, err := GitDir(t.Context(), dir)
 	if err != nil || !filepath.IsAbs(g) {
 		t.Fatalf("%q %v", g, err)
 	}
@@ -554,7 +555,7 @@ func TestPlanCommitFilesSubdirAndQuoting(t *testing.T) {
 	write(t, filepath.Join(root, "план.md"), "p")
 	write(t, filepath.Join(dir, "outside.go"), "o")
 	commitAll(t, dir, "t1\n\nParaplane-Plan: план.md\nParaplane-Task: T1\n")
-	got, err := PlanCommitFiles(root, "план.md")
+	got, err := PlanCommitFiles(t.Context(), root, "план.md")
 	if err != nil {
 		t.Fatal(err)
 	}

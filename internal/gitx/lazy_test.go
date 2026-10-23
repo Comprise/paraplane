@@ -59,13 +59,13 @@ func TestLazyFetchAllFunctions(t *testing.T) {
 		name string
 		call func(dir, base, head string) error
 	}{
-		{"Changed", func(d, _, _ string) error { _, err := ChangedContext(ctx, d); return err }},
-		{"PlanCommits", func(d, _, _ string) error { _, err := PlanCommitsContext(ctx, d, "plan.md"); return err }},
-		{"PlanCommitFiles", func(d, _, _ string) error { _, err := PlanCommitFilesContext(ctx, d, "plan.md"); return err }},
-		{"PlansSince", func(d, b, h string) error { _, err := PlansSinceContext(ctx, d, b, h); return err }},
+		{"Changed", func(d, _, _ string) error { _, err := Changed(ctx, d); return err }},
+		{"PlanCommits", func(d, _, _ string) error { _, err := PlanCommits(ctx, d, "plan.md"); return err }},
+		{"PlanCommitFiles", func(d, _, _ string) error { _, err := PlanCommitFiles(ctx, d, "plan.md"); return err }},
+		{"PlansSince", func(d, b, h string) error { _, err := PlansSince(ctx, d, b, h); return err }},
 		{"Scan", func(d, _, _ string) error { _, err := Scan(ctx, d, ""); return err }},
 		{"Unreachable", func(d, b, h string) error { _, err := Unreachable(ctx, d, []string{b, h}, h); return err }},
-		{"IsAncestor", func(d, b, h string) error { _, err := IsAncestorContext(ctx, d, b, h); return err }},
+		{"IsAncestor", func(d, b, h string) error { _, err := IsAncestor(ctx, d, b, h); return err }},
 	}
 	for _, c := range calls {
 		t.Run(c.name, func(t *testing.T) {

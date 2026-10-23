@@ -7,6 +7,7 @@ import (
 )
 
 func TestShellLexHeredoc(t *testing.T) {
+	t.Parallel()
 	for cmd, want := range map[string]string{
 		"cat <<EOF >o\nbody x\nEOF\nls y":   "cat o ls y",
 		"cat <<-EOF\n\tbody\n\tEOF\nls":     "cat ls",
@@ -33,6 +34,7 @@ func TestShellLexHeredoc(t *testing.T) {
 }
 
 func TestShellWordsCopyTarget(t *testing.T) {
+	t.Parallel()
 	kinds := func(cmd string) map[string]Kind {
 		got := map[string]Kind{}
 		for _, w := range Words(cmd) {
@@ -52,6 +54,7 @@ func TestShellWordsCopyTarget(t *testing.T) {
 }
 
 func TestSedPlain(t *testing.T) {
+	t.Parallel()
 	for script, want := range map[string]string{
 		"s/a/b/":                   "b",
 		"s|a|b/c|g":                "b/c",
@@ -77,6 +80,7 @@ func TestSedPlain(t *testing.T) {
 }
 
 func TestWordsSedEdit(t *testing.T) {
+	t.Parallel()
 	ws := Words("sed -i s/a/b/ f.md; sed -i -f x.sed g.md; sed s/a/b/ h.md")
 	got := map[string]Word{}
 	for _, w := range ws {
@@ -94,6 +98,7 @@ func TestWordsSedEdit(t *testing.T) {
 }
 
 func TestCommandNames(t *testing.T) {
+	t.Parallel()
 	for cmd, want := range map[string][]string{
 		"cd x && git commit -m m":       {"cd", "git"},
 		"echo git commit":               {"echo"},

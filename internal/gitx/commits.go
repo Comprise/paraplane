@@ -18,7 +18,6 @@ type LostTrailer struct {
 	Commit string // abbreviated hash
 	Kind   string // "wave" or "task"
 	ID     string // the wave or task id
-	Wave   string // ID for kind "wave"; R13 removes it
 }
 
 // Commits is what the commits of a plan record: waves and tasks named by
@@ -67,7 +66,7 @@ func Scan(ctx context.Context, root, from string) (Scanned, error) {
 	if err := requireGit(ctx, root, minGit[0], minGit[1], minGit[2]); err != nil {
 		return Scanned{}, fmt.Errorf("%w for progress", err)
 	}
-	head, err := HeadContext(ctx, root)
+	head, err := Head(ctx, root)
 	if err != nil || head == "" {
 		return Scanned{}, err
 	}
@@ -151,7 +150,7 @@ func CommitsOf(commits []TrailerCommit, plan string) Commits {
 		c.Waves = appendNew(c.Waves, tc.Waves...)
 		c.Tasks = appendNew(c.Tasks, tc.Tasks...)
 		for _, w := range tc.LostWaves {
-			lost = append(lost, LostTrailer{Commit: short(tc.Hash), Kind: "wave", ID: w, Wave: w})
+			lost = append(lost, LostTrailer{Commit: short(tc.Hash), Kind: "wave", ID: w})
 		}
 		for _, id := range tc.LostTasks {
 			lost = append(lost, LostTrailer{Commit: short(tc.Hash), Kind: "task", ID: id})
@@ -172,9 +171,9 @@ func CommitsOf(commits []TrailerCommit, plan string) Commits {
 // short abbreviates a full hash to 12 digits.
 func short(h string) string { return h[:min(12, len(h))] }
 
-// PlanCommitsContext returns the waves and tasks committed with the
+// PlanCommits returns the waves and tasks committed with the
 // Paraplane-Plan trailer equal to planPath: CommitsOf over a full Scan.
-func PlanCommitsContext(ctx context.Context, root, planPath string) (Commits, error) {
+func PlanCommits(ctx context.Context, root, planPath string) (Commits, error) {
 	s, err := Scan(ctx, root, "")
 	if err != nil {
 		return Commits{Waves: []string{}, Tasks: []string{}}, err
@@ -189,16 +188,16 @@ type CommitFiles struct {
 	Waves, Tasks, Files []string
 }
 
-// PlanCommitFilesContext returns the commits of the current branch whose
+// PlanCommitFiles returns the commits of the current branch whose
 // trailers name planPath and at least one wave or task, oldest first, with
 // their changed files under root, relative to it (sorted; --no-renames, so a
 // rename gives both paths; a merge gives none). It needs git 2.24 or later
 // (ErrOldGit) and refuses like guardLazyFetch.
-func PlanCommitFilesContext(ctx context.Context, root, planPath string) ([]CommitFiles, error) {
+func PlanCommitFiles(ctx context.Context, root, planPath string) ([]CommitFiles, error) {
 	if err := requireGit(ctx, root, minGit[0], minGit[1], minGit[2]); err != nil {
 		return nil, fmt.Errorf("%w for audit of commits", err)
 	}
-	head, err := HeadContext(ctx, root)
+	head, err := Head(ctx, root)
 	if err != nil || head == "" {
 		return nil, err
 	}

@@ -53,10 +53,8 @@ func Clean(p string) (string, error) {
 	case !doublestar.ValidatePattern(p):
 		return "", errors.New("invalid glob pattern")
 	}
-	for _, seg := range strings.Split(p, "/") {
-		if seg == ".." {
-			return "", errors.New("path contains '..'")
-		}
+	if slices.Contains(strings.Split(p, "/"), "..") {
+		return "", errors.New("path contains '..'")
 	}
 	if err := checkGroups(p); err != nil {
 		return "", err

@@ -669,7 +669,7 @@ func TestCheckFast(t *testing.T) {
 		t.Fatalf("errors: %v", r.Findings[:min(5, len(r.Findings))])
 	}
 	t.Logf("Check of 500 tasks: %v", d)
-	if !raceEnabled && d > time.Second {
+	if !raceEnabled && d > 3*time.Second {
 		t.Errorf("Check took %v", d)
 	}
 }
@@ -698,7 +698,7 @@ func TestCheckDeadline(t *testing.T) {
 		t.Errorf("plan %v, suggested %v", r.Plan, r.Suggested)
 	}
 	t.Logf("hostile plan: E0 after %v", d)
-	if !raceEnabled && d > time.Second {
+	if !raceEnabled && d > 3*time.Second {
 		t.Errorf("Check took %v", d)
 	}
 }

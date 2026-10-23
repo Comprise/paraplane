@@ -115,8 +115,7 @@ func Parse(body []byte) (*Plan, error) {
 // quoteHint is added by matching the library's messages for an unquoted glob;
 // TestDecodeErrorKinds pins those messages for the version in go.mod.
 func decodeError(err error) error {
-	var te *yaml.TypeError
-	if errors.As(err, &te) {
+	if te, ok := errors.AsType[*yaml.TypeError](err); ok {
 		return &SchemaError{Msg: oneLine("yaml: " + strings.Join(te.Errors, "\n"))}
 	}
 	msg := oneLine(err.Error())

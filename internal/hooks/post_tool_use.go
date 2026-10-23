@@ -22,6 +22,8 @@ type postInput struct {
 
 // PostToolUse checks a plan file after Write or Edit. It stays quiet while a
 // plan is being written and while checkboxes are ticked (spec section 8).
+// Agent, Task and Bash calls (and Codex's Bash and apply_patch) go to the
+// progress and plan-read paths instead.
 func PostToolUse(env Env, in Input) ([]byte, error) {
 	if !env.Config.Enabled {
 		return nil, nil

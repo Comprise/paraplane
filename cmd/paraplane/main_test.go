@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -294,7 +295,7 @@ func TestProgressCLI(t *testing.T) {
 		t.Fatalf("code %d, out %q", code, out)
 	}
 	var w1, w2 string
-	for _, l := range strings.Split(out, "\n") {
+	for l := range strings.SplitSeq(out, "\n") {
 		switch {
 		case strings.HasPrefix(l, "W1 "):
 			w1 = l
@@ -364,12 +365,12 @@ func TestProgressTaskCommits(t *testing.T) {
 
 func TestProgressState(t *testing.T) {
 	dir := repo(t, validPlan)
-	g, err := gitx.GitDir(dir)
+	g, err := gitx.GitDir(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	head, _ := gitx.Head(dir)
-	if err := state.Update(g, func(s *state.State) {
+	head, _ := gitx.Head(t.Context(), dir)
+	if err := state.Update(t.Context(), g, func(s *state.State) {
 		s.Entries = append(s.Entries, state.Entry{Plan: "docs/plan.md", Task: "T1", Head: head, PlanHash: track.PlanHash([]byte(validPlan))})
 	}); err != nil {
 		t.Fatal(err)
@@ -962,7 +963,7 @@ func TestAuditOutputCap(t *testing.T) {
 
 func TestProgressForget(t *testing.T) {
 	dir := repo(t, validPlan)
-	g, err := gitx.GitDir(dir)
+	g, err := gitx.GitDir(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -971,13 +972,13 @@ func TestProgressForget(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "nothing recorded") {
 		t.Errorf("empty: code %d, out %q", code, out)
 	}
-	if _, err := os.Stat(filepath.Join(g, "paraplane")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(g, "paraplane")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("state dir created: %v", err)
 	}
 
-	head, _ := gitx.Head(dir)
+	head, _ := gitx.Head(t.Context(), dir)
 	hash := track.PlanHash([]byte(validPlan))
-	if err := state.Update(g, func(s *state.State) {
+	if err := state.Update(t.Context(), g, func(s *state.State) {
 		s.Entries = append(s.Entries,
 			state.Entry{Plan: "docs/plan.md", Task: "T1", Head: head, PlanHash: hash},
 			state.Entry{Plan: "other.md", Task: "T1", Head: head, PlanHash: hash})
@@ -992,7 +993,7 @@ func TestProgressForget(t *testing.T) {
 	if code != 0 || strings.Contains(out, "error") {
 		t.Fatalf("forget: code %d, out %q", code, out)
 	}
-	st, _ := state.LoadState(g)
+	st, _ := state.Load(g)
 	if len(st.Entries) != 1 || st.Entries[0].Plan != "other.md" {
 		t.Errorf("entries: %+v", st.Entries)
 	}

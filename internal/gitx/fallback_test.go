@@ -170,7 +170,7 @@ func TestChangedFallbackLinkedWorktreeNoExtension(t *testing.T) {
 			git(t, main, "worktree", "add", wt) // git < 2.20 has no -q
 			dir := map[string]string{"main": main, "linked": wt}[tc.dirOf]
 			write(t, filepath.Join(dir, "a.txt"), "changed\n")
-			got, err := Changed(dir)
+			got, err := Changed(t.Context(), dir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -239,7 +239,7 @@ func TestChangedFallbackWorktreeQueryGate(t *testing.T) {
 				git(t, dir, "config", "include.path", cfg)
 			}
 			write(t, filepath.Join(dir, "a.txt"), "a\n")
-			Changed(dir) // the result depends on what git makes of the values
+			Changed(t.Context(), dir) // the result depends on what git makes of the values
 			assertFellBack(t, marker)
 			if exists(wt) != tc.wantWt {
 				t.Fatalf("--worktree queried: %v, want %v", exists(wt), tc.wantWt)
@@ -253,7 +253,7 @@ func TestChangedFallbackNoFilters(t *testing.T) {
 	dir := initRepo(t)
 	git(t, dir, "config", "filter.x.required", "true") // not clean/smudge/process
 	write(t, filepath.Join(dir, "a.txt"), "a\n")
-	got, err := Changed(dir)
+	got, err := Changed(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestChangedFallbackAllowsGlobalFilter(t *testing.T) {
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, ".gitconfig"))
 	dir := initRepo(t)
 	write(t, filepath.Join(dir, "a.txt"), "a\n")
-	got, err := Changed(dir)
+	got, err := Changed(t.Context(), dir)
 	if err != nil {
 		t.Fatalf("global filter must not refuse: %v", err)
 	}
@@ -290,7 +290,7 @@ func TestChangedFallbackNoWorktreeOption(t *testing.T) {
 		fakeGit(t, reject)
 		dir := initRepo(t)
 		write(t, filepath.Join(dir, "a.txt"), "a\n")
-		got, err := Changed(dir)
+		got, err := Changed(t.Context(), dir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -334,7 +334,7 @@ func TestChangedFallbackFailureRefuses(t *testing.T) {
 				git(t, dir, "config", "extensions.worktreeConfig", "true")
 			}
 			write(t, filepath.Join(dir, "a.txt"), "a\n")
-			got, err := Changed(dir)
+			got, err := Changed(t.Context(), dir)
 			if err == nil {
 				t.Fatalf("got %v, nil error; want a refusal", got)
 			}
@@ -368,7 +368,7 @@ func TestChangedShowScopeFailureRefuses(t *testing.T) {
 			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 			dir := initRepo(t)
 			write(t, filepath.Join(dir, "a.txt"), "a\n")
-			got, err := Changed(dir)
+			got, err := Changed(t.Context(), dir)
 			if err == nil {
 				t.Fatalf("got %v, nil error; want a refusal", got)
 			}
@@ -386,7 +386,7 @@ func TestChangedShowScopeTrustedScopes(t *testing.T) {
 	t.Setenv("GIT_CONFIG_COUNT", "1")
 	t.Setenv("GIT_CONFIG_KEY_0", "filter.y.clean")
 	t.Setenv("GIT_CONFIG_VALUE_0", "cat")
-	got, err := Changed(dir)
+	got, err := Changed(t.Context(), dir)
 	if err != nil {
 		t.Fatalf("command-scope filter must not refuse: %v", err)
 	}
@@ -538,7 +538,7 @@ func TestChangedPartialCloneOldGit(t *testing.T) {
 					dir := initRepo(t)
 					tc.setup(t, dir)
 					write(t, filepath.Join(dir, "a.txt"), "a\n")
-					if _, err := Changed(dir); !errors.Is(err, ErrPartialClone) {
+					if _, err := Changed(t.Context(), dir); !errors.Is(err, ErrPartialClone) {
 						t.Fatalf("err = %v, want ErrPartialClone", err)
 					}
 					if marker != "" {
@@ -554,7 +554,7 @@ func TestChangedPartialCloneOldGit(t *testing.T) {
 				dir := initRepo(t)
 				git(t, dir, "config", "remote.origin.url", "file:///nonexistent")
 				write(t, filepath.Join(dir, "a.txt"), "a\n")
-				got, err := Changed(dir)
+				got, err := Changed(t.Context(), dir)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -575,7 +575,7 @@ func TestChangedPartialCloneSafeGit(t *testing.T) {
 			dir := initRepo(t)
 			git(t, dir, "config", "extensions.partialClone", "origin")
 			write(t, filepath.Join(dir, "a.txt"), "a\n")
-			got, err := Changed(dir)
+			got, err := Changed(t.Context(), dir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -604,7 +604,7 @@ func TestChangedPartialCloneSafeGit(t *testing.T) {
 				git(t, dir, "config", "remote.origin.url", "file:///nonexistent")
 				git(t, dir, "config", "remote.origin.uploadpack", "/bin/upload.sh")
 				write(t, filepath.Join(dir, "a.txt"), "a\n")
-				got, err := Changed(dir)
+				got, err := Changed(t.Context(), dir)
 				if !tc.safe {
 					if !errors.Is(err, ErrPartialClone) {
 						t.Fatalf("err = %v, want ErrPartialClone", err)
@@ -658,7 +658,7 @@ func TestChangedPartialCloneSafeGit(t *testing.T) {
 					t.Setenv("GIT_CONFIG_VALUE_0", "origin")
 				}
 				write(t, filepath.Join(dir, "a.txt"), "a\n")
-				got, err := Changed(dir)
+				got, err := Changed(t.Context(), dir)
 				if !tc.safe {
 					if !errors.Is(err, ErrPartialClone) {
 						t.Fatalf("err = %v, want ErrPartialClone", err)
@@ -681,7 +681,7 @@ func TestChangedPartialCloneSafeGit(t *testing.T) {
 		t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, ".gitconfig"))
 		dir := initRepo(t)
 		write(t, filepath.Join(dir, "a.txt"), "a\n")
-		if _, err := Changed(dir); err != nil {
+		if _, err := Changed(t.Context(), dir); err != nil {
 			t.Fatalf("a global uploadpack without a partial clone must not refuse: %v", err)
 		}
 	})
@@ -711,7 +711,7 @@ func TestChangedPartialCloneQueryFailureRefuses(t *testing.T) {
 			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 			dir := initRepo(t)
 			write(t, filepath.Join(dir, "a.txt"), "a\n")
-			if got, err := Changed(dir); err == nil {
+			if got, err := Changed(t.Context(), dir); err == nil {
 				t.Fatalf("got %v, nil error; want a refusal", got)
 			}
 		})
@@ -739,7 +739,7 @@ func TestPlanCommitsNeedsGit224(t *testing.T) {
 				needGit(t, 2, 24, "--end-of-options")
 				versionGit(t, tc.ver)
 			}
-			got, _, err := waveCommits(dir, "plan.md")
+			got, _, err := waveCommits(t, dir, "plan.md")
 			if !tc.ok {
 				if !errors.Is(err, ErrOldGit) || !strings.Contains(err.Error(), "git 2.24 or later is required for progress") {
 					t.Fatalf("got %v, %v; want the git 2.24 error", got, err)

@@ -2,8 +2,13 @@ language: ru
 include:
   - internal/config
   - internal/gitx
+  - internal/ids
   - internal/layout
   - internal/pathset
   - internal/plan
   - internal/progress
+  - internal/shellx
+  - internal/state
+  - internal/testgit
   - internal/textx
+  - internal/track

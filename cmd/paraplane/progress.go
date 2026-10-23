@@ -56,7 +56,7 @@ func runProgress(args []string, stdout, stderr io.Writer, cwd string) int {
 		}
 		return forgetTasks(ctx, stdout, root, rel, forget)
 	}
-	st, err := track.PlanStatusContext(ctx, root, rel, p, track.PlanHash(md), closed)
+	st, err := track.PlanStatus(ctx, root, rel, p, track.PlanHash(md), closed)
 	if err != nil {
 		printErr(stdout, err)
 		return 1
@@ -69,12 +69,12 @@ func runProgress(args []string, stdout, stderr io.Writer, cwd string) int {
 // plan's shown counts (they only grow, so the progress hook would stay
 // silent otherwise). A state with nothing to remove is not written.
 func forgetTasks(ctx context.Context, stdout io.Writer, root, rel string, tasks []string) int {
-	gitDir, err := gitx.GitDirContext(ctx, root)
+	gitDir, err := gitx.GitDir(ctx, root)
 	if err != nil {
 		printErr(stdout, err)
 		return 1
 	}
-	st, err := state.LoadState(gitDir)
+	st, err := state.Load(gitDir)
 	if err != nil && !errors.Is(err, state.ErrVersion) {
 		printErr(stdout, err)
 		return 1
@@ -86,7 +86,7 @@ func forgetTasks(ctx context.Context, stdout io.Writer, root, rel string, tasks 
 		fmt.Fprintf(stdout, "nothing recorded for %s in %s\n", strings.Join(tasks, ","), textx.Line(rel, maxName))
 		return 0
 	}
-	err = state.UpdateCtx(ctx, gitDir, func(s *state.State) {
+	err = state.Update(ctx, gitDir, func(s *state.State) {
 		s.Forget(rel, tasks)
 		delete(s.Shown, rel)
 	})

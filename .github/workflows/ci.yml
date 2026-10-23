@@ -99,12 +99,9 @@ jobs:
         run: pipx run zizmor==1.31.1 --persona regular --min-severity medium .github/workflows
 
   fix:
-    # `go fix -diff` lists code a newer Go would modernize.
-    # TODO: made blocking after R13 (the code is modernized there); until then
-    # the job reports without failing the run.
+    # `go fix -diff` lists code a newer Go would modernize; it must be empty.
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: true
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:

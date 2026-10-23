@@ -3,6 +3,7 @@ package textx
 import "testing"
 
 func TestLine(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		in   string
@@ -30,6 +31,7 @@ func TestLine(t *testing.T) {
 }
 
 func TestBlock(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		in   string
@@ -58,6 +60,7 @@ func TestBlock(t *testing.T) {
 }
 
 func TestHasControl(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		in   string

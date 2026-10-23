@@ -18,7 +18,7 @@ func TestLoadFIFO(t *testing.T) {
 	if err := syscall.Mkfifo(filepath.Join(dir, "paraplane", "closed.json"), 0o644); err != nil {
 		t.Skip(err)
 	}
-	if s := Load(dir); !reflect.DeepEqual(s, State{}) {
-		t.Errorf("fifo: %+v", s)
+	if s, err := Load(dir); err != nil || !reflect.DeepEqual(s, State{}) {
+		t.Errorf("fifo: %+v %v", s, err)
 	}
 }

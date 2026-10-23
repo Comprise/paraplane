@@ -39,12 +39,12 @@ func runAudit(args []string, stdout, stderr io.Writer, cwd string) int {
 	}
 	// The CLI has no deadline of its own; gitx bounds every git call.
 	ctx := context.Background()
-	changed, err := gitx.ChangedContext(ctx, root)
+	changed, err := gitx.Changed(ctx, root)
 	if err != nil {
 		printErr(stdout, auditGitError(err))
 		return 1
 	}
-	commits, err := gitx.PlanCommitFilesContext(ctx, root, rel)
+	commits, err := gitx.PlanCommitFiles(ctx, root, rel)
 	if err != nil {
 		printErr(stdout, auditGitError(err))
 		return 1

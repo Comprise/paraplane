@@ -226,7 +226,7 @@ func refClassClosure(class string) string {
 		return c
 	}
 	in := map[rune]bool{}
-	for r := rune(0); r < refClassScan; r++ {
+	for r := range rune(refClassScan) {
 		if r == '/' || !utf8.ValidRune(r) {
 			continue
 		}
@@ -373,7 +373,7 @@ func TestOverlapNoMisses(t *testing.T) {
 		return strings.Join(segs, "/")
 	}
 
-	for i := 0; i < 3000; i++ {
+	for range 3000 {
 		a, b := randPattern(), randPattern()
 		ma, mb := matches(a), matches(b)
 		for j := range paths {
@@ -637,7 +637,7 @@ func noMissesFolded(t *testing.T, patSegs, pathSegs []string, depth int, seed in
 	}
 
 	hits := 0
-	for i := 0; i < 5000; i++ {
+	for range 5000 {
 		a, b := randPattern(), randPattern()
 		ma, mb := classes(a), classes(b)
 		for c := range reps {

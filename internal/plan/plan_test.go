@@ -34,6 +34,7 @@ waves:
 `
 
 func TestExtract(t *testing.T) {
+	t.Parallel()
 	body := "waves: []\n"
 	cases := []struct {
 		name, open, close string
@@ -64,6 +65,7 @@ func TestExtract(t *testing.T) {
 }
 
 func TestExtractCRLFAndUnclosed(t *testing.T) {
+	t.Parallel()
 	md := "x\r\n```paraplane\r\nwaves: []\r\n```\r\ny\r\n"
 	b, err := Extract([]byte(md))
 	if err != nil {
@@ -87,6 +89,7 @@ func TestExtractCRLFAndUnclosed(t *testing.T) {
 }
 
 func TestExtractNotFences(t *testing.T) {
+	t.Parallel()
 	for _, md := range []string{
 		"    ```paraplane\n    waves: []\n    ```\n", // indented 4: code block, not fence
 		"``paraplane\nwaves: []\n``\n",               // too short
@@ -101,6 +104,7 @@ func TestExtractNotFences(t *testing.T) {
 }
 
 func TestExtractIgnoresNestedExample(t *testing.T) {
+	t.Parallel()
 	md := "# How to\n\n````markdown\n```paraplane\nwaves: []\n```\n````\n"
 	if _, err := Extract([]byte(md)); !errors.Is(err, ErrNoBlock) {
 		t.Fatalf("err = %v, want ErrNoBlock", err)
@@ -126,6 +130,7 @@ func TestExtractIgnoresNestedExample(t *testing.T) {
 }
 
 func TestExtractMany(t *testing.T) {
+	t.Parallel()
 	md := "```paraplane\nwaves: []\n```\n\n~~~paraplane\nwaves: []\n~~~\n"
 	if _, err := Extract([]byte(md)); !errors.Is(err, ErrManyBlocks) {
 		t.Fatalf("err = %v, want ErrManyBlocks", err)
@@ -133,6 +138,7 @@ func TestExtractMany(t *testing.T) {
 }
 
 func TestParseUnknownKey(t *testing.T) {
+	t.Parallel()
 	body := "waves:\n  - id: W1\n    tasks:\n      - id: T1\n        title: x\n        depnds: [T0]\n"
 	_, err := Parse([]byte(body))
 	var se *SchemaError
@@ -148,6 +154,7 @@ func TestParseUnknownKey(t *testing.T) {
 }
 
 func TestParseWrongType(t *testing.T) {
+	t.Parallel()
 	for _, body := range []string{
 		"waves: 5\n",
 		"version: x\n",
@@ -161,6 +168,7 @@ func TestParseWrongType(t *testing.T) {
 }
 
 func TestParseAliasHint(t *testing.T) {
+	t.Parallel()
 	for _, owns := range []string{"[**/x]", "[*.go]", "[a/{x}.go]"} {
 		body := "waves:\n  - id: W1\n    tasks:\n      - id: T1\n        title: x\n        owns: " + owns + "\n"
 		_, err := Parse([]byte(body))
@@ -178,6 +186,7 @@ func TestParseAliasHint(t *testing.T) {
 }
 
 func TestParseSyntaxNoHint(t *testing.T) {
+	t.Parallel()
 	_, err := Parse([]byte("waves:\n  - id: W1\n   bad: [\n"))
 	var se *SyntaxError
 	if !errors.As(err, &se) {
@@ -191,17 +200,17 @@ func TestParseSyntaxNoHint(t *testing.T) {
 func genPlan(tasks, ownsPer, readsPer int) string {
 	var sb strings.Builder
 	sb.WriteString("waves:\n  - id: W1\n    tasks:\n")
-	for i := 0; i < tasks; i++ {
+	for i := range tasks {
 		fmt.Fprintf(&sb, "      - id: T%d\n        title: t\n", i)
 		if ownsPer > 0 {
 			sb.WriteString("        owns:\n")
-			for j := 0; j < ownsPer; j++ {
+			for j := range ownsPer {
 				fmt.Fprintf(&sb, "          - o%d/%d\n", i, j)
 			}
 		}
 		if readsPer > 0 {
 			sb.WriteString("        reads:\n")
-			for j := 0; j < readsPer; j++ {
+			for j := range readsPer {
 				fmt.Fprintf(&sb, "          - r%d/%d\n", i, j)
 			}
 		}
@@ -210,6 +219,7 @@ func genPlan(tasks, ownsPer, readsPer int) string {
 }
 
 func TestParseLimits(t *testing.T) {
+	t.Parallel()
 	ok := []struct {
 		name string
 		body string
@@ -250,6 +260,7 @@ func TestParseLimits(t *testing.T) {
 }
 
 func TestParseEmpty(t *testing.T) {
+	t.Parallel()
 	p, err := Parse([]byte("  \n# only a comment\n"))
 	if err != nil || p == nil || len(p.Waves) != 0 {
 		t.Fatalf("Parse(empty) = %#v, %v", p, err)
@@ -257,6 +268,7 @@ func TestParseEmpty(t *testing.T) {
 }
 
 func TestLoadOK(t *testing.T) {
+	t.Parallel()
 	md := "# Plan\n\nSome text.\n\n```paraplane\n" + specBlock + "```\n"
 	p, err := Load([]byte(md))
 	if err != nil {
@@ -295,6 +307,7 @@ func TestLoadOK(t *testing.T) {
 }
 
 func TestLoadErrors(t *testing.T) {
+	t.Parallel()
 	if _, err := Load([]byte("# nothing\n")); !errors.Is(err, ErrNoBlock) {
 		t.Errorf("err = %v, want ErrNoBlock", err)
 	}
@@ -305,6 +318,7 @@ func TestLoadErrors(t *testing.T) {
 }
 
 func TestExtractBOM(t *testing.T) {
+	t.Parallel()
 	md := []byte("\xef\xbb\xbf```paraplane\nversion: 1\n```\n")
 	b, err := Extract(md)
 	if err != nil {
@@ -322,6 +336,7 @@ func TestExtractBOM(t *testing.T) {
 }
 
 func TestParseVersionZero(t *testing.T) {
+	t.Parallel()
 	var se *SchemaError
 	_, err := Parse([]byte("version: 0\nwaves: []\n"))
 	if !errors.As(err, &se) || !strings.Contains(err.Error(), "unsupported version 0 (only 1 is supported)") {
@@ -335,6 +350,7 @@ func TestParseVersionZero(t *testing.T) {
 }
 
 func TestParseLimitBeforeVersion(t *testing.T) {
+	t.Parallel()
 	var sb strings.Builder
 	sb.WriteString("version: 0\nwaves:\n  - id: W1\n    tasks:\n")
 	for i := 0; i <= MaxTasks; i++ {
@@ -347,6 +363,7 @@ func TestParseLimitBeforeVersion(t *testing.T) {
 }
 
 func TestExtractDeindentsIndentedFence(t *testing.T) {
+	t.Parallel()
 	md := "intro\n  ```paraplane\n  waves: []\n    x: 1\n bad: 2\n\n  ```\nend\n"
 	b, err := Extract([]byte(md))
 	if err != nil {
@@ -361,6 +378,7 @@ func TestExtractDeindentsIndentedFence(t *testing.T) {
 }
 
 func TestExtractDeindentsTabs(t *testing.T) {
+	t.Parallel()
 	// CommonMark tab stops are every 4 columns from the start of the line; a
 	// tab straddling the fence's indent leaves the columns past it as spaces.
 	for _, tc := range []struct{ ind, body, want string }{
@@ -388,6 +406,7 @@ func TestExtractDeindentsTabs(t *testing.T) {
 }
 
 func TestParseTabDeindentKeepsLines(t *testing.T) {
+	t.Parallel()
 	// The body keeps its line count, so a YAML error points at the same line
 	// as for the same plan indented with spaces.
 	parse := func(md string) error {
@@ -406,6 +425,7 @@ func TestParseTabDeindentKeepsLines(t *testing.T) {
 }
 
 func TestExtractDeindentsCRLF(t *testing.T) {
+	t.Parallel()
 	md := " ```paraplane\r\n a: 1\r\n ```\r\n"
 	b, err := Extract([]byte(md))
 	if err != nil {
@@ -417,6 +437,7 @@ func TestExtractDeindentsCRLF(t *testing.T) {
 }
 
 func TestExtractClosingFenceRules(t *testing.T) {
+	t.Parallel()
 	// indented >= 4 does not close; shorter does not close
 	for _, closer := range []string{"    ```", "``"} {
 		md := "```paraplane\na: 1\n" + closer + "\nb: 2\n"
@@ -434,6 +455,7 @@ func TestExtractClosingFenceRules(t *testing.T) {
 }
 
 func TestExtractManyWithUnclosed(t *testing.T) {
+	t.Parallel()
 	md := "```paraplane\na: 1\n```\n\n```paraplane\nb: 2\n"
 	if _, err := Extract([]byte(md)); !errors.Is(err, ErrManyBlocks) {
 		t.Errorf("err = %v, want ErrManyBlocks", err)
@@ -441,6 +463,7 @@ func TestExtractManyWithUnclosed(t *testing.T) {
 }
 
 func TestLoadWithinDeadline(t *testing.T) {
+	t.Parallel()
 	md := []byte("# p\n\n```paraplane\n" + specBlock + "```\n")
 	past := time.Now().Add(-time.Second)
 	if _, err := LoadWithin(md, past); !errors.Is(err, ErrDeadline) {
@@ -457,6 +480,7 @@ func TestLoadWithinDeadline(t *testing.T) {
 // TestDecodeErrorKinds pins the messages of the YAML library that decodeError
 // relies on: one case per error kind.
 func TestDecodeErrorKinds(t *testing.T) {
+	t.Parallel()
 	wrap := func(owns string) string {
 		return "waves:\n  - id: W1\n    tasks:\n      - id: T1\n        title: x\n        owns: " + owns + "\n"
 	}
@@ -477,16 +501,14 @@ func TestDecodeErrorKinds(t *testing.T) {
 	}
 	for _, c := range cases {
 		_, err := Parse([]byte(c.body))
-		var se *SchemaError
-		var sy *SyntaxError
 		switch c.kind {
 		case "schema":
-			if !errors.As(err, &se) {
+			if _, ok := errors.AsType[*SchemaError](err); !ok {
 				t.Errorf("%s: err = %#v, want *SchemaError", c.name, err)
 				continue
 			}
 		default:
-			if !errors.As(err, &sy) {
+			if _, ok := errors.AsType[*SyntaxError](err); !ok {
 				t.Errorf("%s: err = %#v, want *SyntaxError", c.name, err)
 				continue
 			}

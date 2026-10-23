@@ -1,3 +1,9 @@
+---
+unit: internal/ids
+source_hash: sha256:695be68f83f489e607fb900afaff5f285f84d005f850372a98dffae6df106d03
+commit: ee26fb1c0e795a3aaa095fbd0556059d4c9450de
+updated: "2026-10-23"
+---
 # internal/ids
 Единая грамматика идентификаторов задач и волн: одна константа вместо копий регулярки в разных пакетах.
 

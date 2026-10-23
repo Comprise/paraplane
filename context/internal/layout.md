@@ -1,7 +1,7 @@
 ---
 unit: internal/layout
-source_hash: sha256:27a0da85f371d0dc9d107b06617854a81178210b932a2d12b79a127657a684c8
-commit: 1ad392a8cc668fcc44ffd6e2d14e9965d92cfa05
+source_hash: sha256:11da4524aef77d6b21d2e093422110f603b5b309d008252056cac856e8fa385c
+commit: ee26fb1c0e795a3aaa095fbd0556059d4c9450de
 updated: "2026-10-23"
 ---
 # internal/layout

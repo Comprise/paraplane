@@ -66,20 +66,24 @@ You do not have to learn anything new: plan as usual. paraplane works in the bac
 
 3. **Run the plan.** Ask Claude to execute it (for example with `superpowers:subagent-driven-development`).
    The tasks of each wave start in parallel. After a wave, Claude checks that only the owned files changed,
-   runs the gate, commits the wave and shows the progress:
+   runs the gate, commits the wave and shows the progress (here for the block below, after its first wave):
 
    ```
-   paraplane · 2026-10-20-csv-export.md                      wave 2/3 · 50%
-   ████████████████████░░░░░░░░░░░░░░░░░░░░  3/6 tasks
+   paraplane · 2026-10-20-csv-export.md                      wave 2/2 · 66%
+   ██████████████████████████░░░░░░░░░░░░░░  2/3 tasks
 
-   W1  🟩🟩🟩  3/3  ✓ done     T1 T2 T3
-   W2  🟨🟨    0/2  ▶ running  T4 T5
-   W3  ⬜      0/1  · waiting  T6
+   W1  🟩🟩  2/2  ✓ done     T1 T2
+   W2  🟨    0/1  ▶ running  T3
    ```
 
    In Claude Code a hook shows this to you by itself when a wave is done, committed or not; with
-   `progress: task` in the config also after each finished task. To see it at any moment yourself:
-   `/paraplane:progress`. A project that commits once per task or per stage works too (see the reference).
+   `progress: task` in the config also after each finished task. In Codex Claude shows it after each wave.
+   To see it at any moment yourself: `/paraplane:progress`. A project that commits once per task or per stage
+   works too (see the reference).
+
+   To count the tasks of returned subagents, the progress hook keeps a small state file in
+   `.git/paraplane/` (never in the working tree, and only in repositories with a plan); `enabled: false`
+   turns it off with the rest of the plugin.
 
 In Codex the commands are `$paraplane:create`, `$paraplane:check`, `$paraplane:progress` and `$paraplane:rules`.
 
@@ -137,8 +141,9 @@ Errors (E) make the plan unfit; warnings (W) do not. The command line tool does 
 
 ```
 paraplane check [--suggest] <plan>   # validate a plan; --suggest prints a shorter layout
-paraplane audit <plan> <wave>        # after a wave: only owned files changed?
-paraplane progress [--done <ids>] <plan>  # progress bars; --done: closed, uncommitted tasks
+paraplane audit <plan> <wave>[,<wave>…]  # after a wave (or a stage): only owned files changed?
+paraplane progress [--done <ids>] <plan>  # progress bars; --done: tasks closed without a subagent
+paraplane progress --forget <ids> <plan>  # undo the recorded return of a task that failed review
 ```
 
 ## Configuration
@@ -158,7 +163,8 @@ All keys and their defaults: [reference → Configuration](https://github.com/Co
 ## More
 
 - [Reference](https://github.com/Comprise/paraplane/blob/main/docs/reference.md): the block format and limits, all rules, command output, audit security,
-  hooks, Codex differences, limitations, troubleshooting, development.
+  hooks, threat model, Codex differences, limitations, troubleshooting, development.
+- [Changelog](https://github.com/Comprise/paraplane/blob/main/CHANGELOG.md): what changed in each version and how to migrate.
 - [Specification](https://github.com/Comprise/paraplane/blob/main/docs/superpowers/specs/2026-10-20-paraplane-design.md)
   (in Russian).
 

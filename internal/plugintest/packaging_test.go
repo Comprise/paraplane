@@ -17,7 +17,7 @@ func TestGitattributesPinLF(t *testing.T) {
 		t.Fatal(err)
 	}
 	found := false
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		f := strings.Fields(line)
 		if len(f) == 0 || f[0] != "bin/paraplane" {
 			continue

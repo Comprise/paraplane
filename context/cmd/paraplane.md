@@ -1,7 +1,7 @@
 ---
 unit: cmd/paraplane
-source_hash: sha256:55d04d26d668644d6f5f22436c6fcc06a64c6caf8c0dc5c54c0ab0eb889d4c1e
-commit: 930e887a622e41e57d7c9f836e7bf379ad8ab08f
+source_hash: sha256:947edcb2e552b0b355a649e2aedc5f529cc709003696a6eb97abaa7483658307
+commit: ee26fb1c0e795a3aaa095fbd0556059d4c9450de
 updated: "2026-10-23"
 ---
 # cmd/paraplane
@@ -12,9 +12,9 @@ updated: "2026-10-23"
 
 ## Публичный API / точки входа
 - `check [--suggest] <file>` — находки, при `--suggest` — более короткая раскладка, затем сводка; `-` читает stdin; код 1 при ошибках.
-- `audit <file> <wave>[,<wave>…]` — файлы рабочего дерева (`gitx.ChangedContext`) и коммитов волн (`gitx.PlanCommitFilesContext`) против `owns` (`rules.AuditCommits`, A1); число коммитов волн — `rules.CommitsOfWaves`; итог `audit ok: W, n changed file(s)[, m commit(s)]`; код 1 при находках; каждый id волны (и в списке, и одиночный) проверяется `ids.ParseList`, иначе usage и код 2. Печатается не больше 100 строк A1, остальное — `… and <n> more`; ошибка «git output too large» (16 МиБ) дополняется подсказкой добавить файлы в `.gitignore` (`auditGitError`).
-- `progress [--done <ids>] <file>` — прогресс через `track.PlanStatusContext` с хэшем блока плана (`track.PlanHash`): коммиты волн, этапов и задач, задачи вернувшихся субагентов из `<git-dir>/paraplane/closed.json` (только записи с тем же хэшем) и `--done`; вывод (с предупреждениями о потерянных трейлерах) показывается пользователю как есть. `--done` — только перед файлом, id через `,` без пробелов (`ids.ParseList`); иначе usage и код 2. После вывода — `warning: wave <id> commit <hash>: trailers not in the last paragraph` для каждой волны из `lost` `gitx.WaveCommits`.
-- `progress --forget <ids> <file>` — убирает записи этих задач плана (`State.Forget`) и ключ плана в `State.Shown` одним `state.UpdateCtx` (иначе хук прогресса молчал бы: `Shown` только растёт). Нет записей — ничего не пишет и говорит `nothing recorded for …`; id не из плана — `error: task … is not in …`, код 2.
+- `audit <file> <wave>[,<wave>…]` — файлы рабочего дерева (`gitx.Changed`) и коммитов волн (`gitx.PlanCommitFiles`) против `owns` (`rules.AuditCommits`, A1); число коммитов волн — `rules.CommitsOfWaves`; итог `audit ok: W, n changed file(s)[, m commit(s)]`; код 1 при находках; каждый id волны (и в списке, и одиночный) проверяется `ids.ParseList`, иначе usage и код 2. Печатается не больше 100 строк A1, остальное — `… and <n> more`; ошибка «git output too large» (16 МиБ) дополняется подсказкой добавить файлы в `.gitignore` (`auditGitError`).
+- `progress [--done <ids>] <file>` — прогресс через `track.PlanStatus` с хэшем блока плана (`track.PlanHash`): коммиты волн, этапов и задач, задачи вернувшихся субагентов из `<git-dir>/paraplane/closed.json` (только записи с тем же хэшем) и `--done`; вывод (с предупреждениями о потерянных трейлерах) показывается пользователю как есть. `--done` — только перед файлом, id через `,` без пробелов (`ids.ParseList`); иначе usage и код 2. После вывода — `warning: wave <id> commit <hash>: trailers not in the last paragraph` для каждой волны из `lost` `Commits.Lost` (`gitx.PlanCommits`).
+- `progress --forget <ids> <file>` — убирает записи этих задач плана (`State.Forget`) и ключ плана в `State.Shown` одним `state.Update` (иначе хук прогресса молчал бы: `Shown` только растёт). Нет записей — ничего не пишет и говорит `nothing recorded for …`; id не из плана — `error: task … is not in …`, код 2.
 - `hook <event> [--agent claude|codex]` — события из `hookHandlers`: `session-start`, `pre-tool-use`, `post-tool-use`, `subagent-stop` (только Claude), `stop` (Codex — проверка плана, Claude — показ ожидающего прогресса), `prompt-submit`, `permission-request`.
 - `version [-v]` — `main.version` из `-ldflags -X` (пусто — версия модуля из `debug.ReadBuildInfo`, иначе `dev`); `-v` печатает `paraplane <версия>`, `go <версия Go>`, `revision <vcs.revision>[ (modified)]` (`unknown` без VCS-штампа).
 - Коды выхода: 0 — успех, 1 — ошибка или находки, 2 — неверные аргументы (usage в stderr).

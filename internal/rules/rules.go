@@ -92,8 +92,7 @@ const defaultMaxParallel = 6
 func Check(md []byte, o Options) Result {
 	p, err := plan.LoadWithin(md, o.Deadline)
 	if err != nil {
-		var se *plan.SchemaError
-		if errors.As(err, &se) {
+		if se, ok := errors.AsType[*plan.SchemaError](err); ok {
 			return Result{Findings: []Finding{{Code: "E1", Severity: Error, Msg: se.Error()}}}
 		}
 		return e0(err)

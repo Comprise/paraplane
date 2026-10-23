@@ -1,7 +1,7 @@
 ---
 unit: internal/pathset
-source_hash: sha256:959b62bf799f0f041ddec089968eac8a5e72e8dc5b07e362842849af54883784
-commit: 1ad392a8cc668fcc44ffd6e2d14e9965d92cfa05
+source_hash: sha256:e78229779e9db3739167d4df099ab7e60800d1c74d5520d13d5016f67181270e
+commit: ee26fb1c0e795a3aaa095fbd0556059d4c9450de
 updated: "2026-10-23"
 ---
 # internal/pathset

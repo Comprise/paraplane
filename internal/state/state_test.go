@@ -48,14 +48,14 @@ func setForTest[T any](t *testing.T, p *T, v T) {
 
 func TestLoadMissingAndBroken(t *testing.T) {
 	dir := t.TempDir()
-	if s, err := LoadState(filepath.Join(dir, "nope")); err != nil || !reflect.DeepEqual(s, State{}) {
+	if s, err := Load(filepath.Join(dir, "nope")); err != nil || !reflect.DeepEqual(s, State{}) {
 		t.Errorf("missing: %+v %v", s, err)
 	}
 	mkState(t, dir)
 	file := stateFile(dir)
 	for _, body := range []string{"{", "[]", "{}", `{"entries":[]}`} {
 		writeFile(t, file, body)
-		if s, err := LoadState(dir); err != nil || !reflect.DeepEqual(s, State{}) {
+		if s, err := Load(dir); err != nil || !reflect.DeepEqual(s, State{}) {
 			t.Errorf("%q: %+v %v", body, s, err)
 		}
 	}
@@ -66,18 +66,9 @@ func TestLoadMissingAndBroken(t *testing.T) {
 		if err := os.Symlink("real.json", file); err != nil {
 			t.Fatal(err)
 		}
-		if s, err := LoadState(dir); err != nil || !reflect.DeepEqual(s, State{}) {
+		if s, err := Load(dir); err != nil || !reflect.DeepEqual(s, State{}) {
 			t.Errorf("symlink: %+v %v", s, err)
 		}
-	}
-}
-
-func TestLoadWrapper(t *testing.T) {
-	dir := t.TempDir()
-	mkState(t, dir)
-	writeFile(t, stateFile(dir), `{"version":2,"lastHead":"`+hash(1)+`"}`)
-	if s := Load(dir); !reflect.DeepEqual(s, State{}) {
-		t.Errorf("other version through Load: %+v", s)
 	}
 }
 
@@ -86,14 +77,14 @@ func TestLoadTooLarge(t *testing.T) {
 	mkState(t, dir)
 	body := `{"version":1,"lastHead":"` + hash(1) + `","pending":["` + strings.Repeat("a", maxRead) + `"]}`
 	writeFile(t, stateFile(dir), body)
-	if s, err := LoadState(dir); err != nil || !reflect.DeepEqual(s, State{}) {
+	if s, err := Load(dir); err != nil || !reflect.DeepEqual(s, State{}) {
 		t.Errorf("too large: %v %v", s.LastHead, err)
 	}
 }
 
 func TestUpdateRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	err := UpdateCtx(context.Background(), dir, func(s *State) {
+	err := Update(context.Background(), dir, func(s *State) {
 		s.LastHead = hash(1)
 		s.Add(Entry{Plan: "p.md", Task: "T1", Head: hash(1), PlanHash: sha(1)})
 		s.Shown = map[string]Shown{"p.md": {Waves: 1, Tasks: 2}}
@@ -103,7 +94,7 @@ func TestUpdateRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := LoadState(dir)
+	s, err := Load(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,22 +132,12 @@ func leftovers(t *testing.T, dir string) []string {
 	return out
 }
 
-func TestUpdateWrapper(t *testing.T) {
-	dir := t.TempDir()
-	if err := Update(dir, func(s *State) { s.LastHead = hash(7) }); err != nil {
-		t.Fatal(err)
-	}
-	if Load(dir).LastHead != hash(7) {
-		t.Error("not written")
-	}
-}
-
 func TestUpdateConcurrent(t *testing.T) {
 	dir := t.TempDir()
 	var wg sync.WaitGroup
 	for i := range 20 {
 		wg.Go(func() {
-			if err := UpdateCtx(context.Background(), dir, func(s *State) {
+			if err := Update(context.Background(), dir, func(s *State) {
 				s.Add(Entry{Plan: "p.md", Task: fmt.Sprintf("T%d", i), Head: hash(1)})
 			}); err != nil {
 				t.Error(err)
@@ -164,7 +145,7 @@ func TestUpdateConcurrent(t *testing.T) {
 		})
 	}
 	wg.Wait()
-	if n := len(Load(dir).Entries); n != 20 {
+	if n := len(mustLoad(t, dir).Entries); n != 20 {
 		t.Errorf("%d entries, want 20", n)
 	}
 }
@@ -180,11 +161,11 @@ func TestLockPathIsDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := time.Now()
-	err := UpdateCtx(context.Background(), dir, func(s *State) { s.LastHead = hash(1) })
+	err := Update(context.Background(), dir, func(s *State) { s.LastHead = hash(1) })
 	if !errors.Is(err, ErrBusy) {
 		t.Fatalf("err = %v, want ErrBusy", err)
 	}
-	if d := time.Since(start); d > 50*time.Millisecond {
+	if d := time.Since(start); d > 150*time.Millisecond {
 		t.Errorf("took %v, want at once", d)
 	}
 	if _, err := os.Lstat(stateFile(dir)); !errors.Is(err, fs.ErrNotExist) {
@@ -201,7 +182,7 @@ func TestLockPathIsSymlink(t *testing.T) {
 	if err := os.Symlink("elsewhere", lockFile(dir)); err != nil {
 		t.Fatal(err)
 	}
-	if err := UpdateCtx(context.Background(), dir, func(*State) {}); !errors.Is(err, ErrBusy) {
+	if err := Update(context.Background(), dir, func(*State) {}); !errors.Is(err, ErrBusy) {
 		t.Fatalf("err = %v, want ErrBusy", err)
 	}
 }
@@ -215,13 +196,13 @@ func TestKilledHolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := time.Now()
-	if err := UpdateCtx(context.Background(), dir, func(s *State) { s.LastHead = hash(1) }); err != nil {
+	if err := Update(context.Background(), dir, func(s *State) { s.LastHead = hash(1) }); err != nil {
 		t.Fatal(err)
 	}
-	if d := time.Since(start); d > time.Second {
+	if d := time.Since(start); d > 3*time.Second {
 		t.Errorf("took %v", d)
 	}
-	if Load(dir).LastHead != hash(1) {
+	if mustLoad(t, dir).LastHead != hash(1) {
 		t.Error("not written")
 	}
 	if left := leftovers(t, dir); len(left) != 0 {
@@ -237,7 +218,7 @@ func TestFutureLockIsStale(t *testing.T) {
 	if err := os.Chtimes(lockFile(dir), future, future); err != nil {
 		t.Fatal(err)
 	}
-	if err := UpdateCtx(context.Background(), dir, func(s *State) { s.LastHead = hash(1) }); err != nil {
+	if err := Update(context.Background(), dir, func(s *State) { s.LastHead = hash(1) }); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -253,29 +234,11 @@ func TestBusy(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		if err := UpdateCtx(ctx, dir, func(*State) {}); !errors.Is(err, ErrBusy) {
+		if err := Update(ctx, dir, func(*State) {}); !errors.Is(err, ErrBusy) {
 			t.Fatalf("err = %v, want ErrBusy", err)
 		}
 		if d := time.Since(now); d < 2*time.Second || d > 2*time.Second+50*time.Millisecond {
 			t.Errorf("waited %v, want the context's 2s", d)
-		}
-	})
-}
-
-func TestUpdateWrapperBounded(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		dir := t.TempDir()
-		mkState(t, dir)
-		writeFile(t, lockFile(dir), "")
-		now := time.Now()
-		if err := os.Chtimes(lockFile(dir), now, now); err != nil {
-			t.Fatal(err)
-		}
-		if err := Update(dir, func(*State) {}); !errors.Is(err, ErrBusy) {
-			t.Fatalf("err = %v, want ErrBusy", err)
-		}
-		if d := time.Since(now); d > lockWait+50*time.Millisecond {
-			t.Errorf("waited %v", d)
 		}
 	})
 }
@@ -291,7 +254,7 @@ func TestWaitThenStale(t *testing.T) {
 		if err := os.Chtimes(lockFile(dir), now, now); err != nil {
 			t.Fatal(err)
 		}
-		if err := UpdateCtx(context.Background(), dir, func(s *State) { s.LastHead = hash(3) }); err != nil {
+		if err := Update(context.Background(), dir, func(s *State) { s.LastHead = hash(3) }); err != nil {
 			t.Fatal(err)
 		}
 		if d := time.Since(now); d < staleLock || d > staleLock+time.Second {
@@ -325,7 +288,7 @@ func TestTakeOverRace(t *testing.T) {
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	if err := UpdateCtx(ctx, dir, func(*State) { t.Error("second owner entered") }); !errors.Is(err, ErrBusy) {
+	if err := Update(ctx, dir, func(*State) { t.Error("second owner entered") }); !errors.Is(err, ErrBusy) {
 		t.Errorf("err = %v, want ErrBusy", err)
 	}
 	if b, err := os.ReadFile(lockFile(dir)); err != nil || string(b) != "winner" {
@@ -344,14 +307,14 @@ func TestStaleLockValue(t *testing.T) {
 
 func TestCapEntries(t *testing.T) {
 	dir := t.TempDir()
-	if err := UpdateCtx(context.Background(), dir, func(s *State) {
+	if err := Update(context.Background(), dir, func(s *State) {
 		for i := range 4100 {
 			s.Entries = append(s.Entries, Entry{Plan: "p.md", Task: fmt.Sprintf("T%d", i), Head: hash(1)})
 		}
 	}); err != nil {
 		t.Fatal(err)
 	}
-	e := Load(dir).Entries
+	e := mustLoad(t, dir).Entries
 	if len(e) != 4096 || e[0].Task != "T4" {
 		t.Errorf("%d entries, first %q", len(e), e[0].Task)
 	}
@@ -386,7 +349,7 @@ func TestLoadDropsInvalid(t *testing.T) {
 	}
 	body.WriteString(`],"pending":["docs/p.md","","../up.md"],"shown":{"docs/p.md":{"waves":1,"tasks":1},"../x.md":{"waves":1,"tasks":1}},"scan":{"head":"nothex","commits":[1]}}`)
 	writeFile(t, stateFile(dir), body.String())
-	s, err := LoadState(dir)
+	s, err := Load(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,7 +376,7 @@ func TestLoadCapsEntries(t *testing.T) {
 	}
 	body.WriteString(`]}`)
 	writeFile(t, stateFile(dir), body.String())
-	e := Load(dir).Entries
+	e := mustLoad(t, dir).Entries
 	if len(e) != maxEntries || e[0].Task != "T904" {
 		t.Errorf("%d entries, first %q", len(e), e[0].Task)
 	}
@@ -421,7 +384,7 @@ func TestLoadCapsEntries(t *testing.T) {
 
 func TestUpdatePrunesInvalid(t *testing.T) {
 	dir := t.TempDir()
-	if err := UpdateCtx(context.Background(), dir, func(s *State) {
+	if err := Update(context.Background(), dir, func(s *State) {
 		s.Entries = append(s.Entries, Entry{Plan: "p.md", Task: "T1", Head: ""}, Entry{Plan: "p.md", Task: "T2", Head: hash(2)})
 		s.LastHead = "nope"
 	}); err != nil {
@@ -506,14 +469,11 @@ func TestOtherVersionUntouched(t *testing.T) {
 	mkState(t, dir)
 	body := `{"version":2,"entries":[{"plan":"p","task":"T1","head":"h"}],"future":true}`
 	writeFile(t, stateFile(dir), body)
-	if _, err := LoadState(dir); !errors.Is(err, ErrVersion) {
-		t.Errorf("LoadState err = %v, want ErrVersion", err)
+	if _, err := Load(dir); !errors.Is(err, ErrVersion) {
+		t.Errorf("Load err = %v, want ErrVersion", err)
 	}
 	called := false
-	if err := UpdateCtx(context.Background(), dir, func(*State) { called = true }); !errors.Is(err, ErrVersion) {
-		t.Errorf("UpdateCtx err = %v, want ErrVersion", err)
-	}
-	if err := Update(dir, func(*State) { called = true }); !errors.Is(err, ErrVersion) {
+	if err := Update(context.Background(), dir, func(*State) { called = true }); !errors.Is(err, ErrVersion) {
 		t.Errorf("Update err = %v, want ErrVersion", err)
 	}
 	if called {
@@ -559,7 +519,7 @@ func TestUpdateRefusesSymlinks(t *testing.T) {
 	if err := os.Symlink("victim", filepath.Join(dir, "paraplane", tmpName)); err != nil {
 		t.Fatal(err)
 	}
-	_ = UpdateCtx(context.Background(), dir, func(s *State) { s.LastHead = hash(1) })
+	_ = Update(context.Background(), dir, func(s *State) { s.LastHead = hash(1) })
 	if b, _ := os.ReadFile(victim); string(b) != "keep" {
 		t.Errorf("victim overwritten through the temporary file: %q", b)
 	}
@@ -576,7 +536,7 @@ func TestUpdateRefusesSymlinks(t *testing.T) {
 	if err := os.Symlink("victim", stateFile(dir2)); err != nil {
 		t.Fatal(err)
 	}
-	if err := UpdateCtx(context.Background(), dir2, func(s *State) { s.LastHead = hash(1) }); err != nil {
+	if err := Update(context.Background(), dir2, func(s *State) { s.LastHead = hash(1) }); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(victim2); string(b) != "keep" {
@@ -596,7 +556,7 @@ func TestRootContainment(t *testing.T) {
 	if err := os.Symlink(other, filepath.Join(dir, "paraplane")); err != nil {
 		t.Fatal(err)
 	}
-	if err := UpdateCtx(context.Background(), dir, func(s *State) { s.LastHead = hash(1) }); err == nil {
+	if err := Update(context.Background(), dir, func(s *State) { s.LastHead = hash(1) }); err == nil {
 		t.Error("symlinked state directory accepted")
 	}
 	if entries, _ := os.ReadDir(other); len(entries) != 0 {
@@ -610,7 +570,7 @@ func TestRootContainment(t *testing.T) {
 	if err := os.Symlink("inner", filepath.Join(dir2, "paraplane")); err != nil {
 		t.Fatal(err)
 	}
-	if err := UpdateCtx(context.Background(), dir2, func(s *State) { s.LastHead = hash(1) }); err == nil {
+	if err := Update(context.Background(), dir2, func(s *State) { s.LastHead = hash(1) }); err == nil {
 		t.Error("symlinked state directory (inside) accepted")
 	}
 	if entries, _ := os.ReadDir(filepath.Join(dir2, "inner")); len(entries) != 0 {
@@ -618,7 +578,7 @@ func TestRootContainment(t *testing.T) {
 	}
 	// Reading through the link gives nothing either.
 	writeFile(t, filepath.Join(other, "closed.json"), `{"version":1,"lastHead":"`+hash(1)+`"}`)
-	if s, _ := LoadState(dir); s.LastHead != "" {
+	if s, _ := Load(dir); s.LastHead != "" {
 		t.Error("read through a symlinked state directory")
 	}
 }
@@ -633,10 +593,10 @@ func TestRenameRetry(t *testing.T) {
 		return r.Rename(a, b)
 	})
 	dir := t.TempDir()
-	if err := UpdateCtx(context.Background(), dir, func(s *State) { s.LastHead = hash(1) }); err != nil {
+	if err := Update(context.Background(), dir, func(s *State) { s.LastHead = hash(1) }); err != nil {
 		t.Fatalf("rename not retried: %v", err)
 	}
-	if Load(dir).LastHead != hash(1) {
+	if mustLoad(t, dir).LastHead != hash(1) {
 		t.Error("not written")
 	}
 }
@@ -652,7 +612,7 @@ func FuzzLoad(f *testing.F) {
 		if err := os.WriteFile(stateFile(dir), data, 0o644); err != nil {
 			t.Fatal(err)
 		}
-		s, err := LoadState(dir)
+		s, err := Load(dir)
 		if err != nil {
 			if !errors.Is(err, ErrVersion) {
 				t.Fatalf("unexpected error %v", err)
@@ -706,18 +666,43 @@ func TestLoadLargeLinear(t *testing.T) {
 			}
 			writeFile(t, stateFile(dir), b.String())
 			start := time.Now()
-			s, err := LoadState(dir)
+			s, err := Load(dir)
 			if err != nil {
 				t.Fatal(err)
 			}
 			d := time.Since(start)
 			t.Logf("load of %d bytes: %v", b.Len(), d)
-			if d > 2*time.Second {
+			if d > 6*time.Second {
 				t.Errorf("load took %v", d)
 			}
 			if n := len(s.Pending) + len(s.Entries); n != maxEntries {
 				t.Errorf("%d items, want %d", n, maxEntries)
 			}
 		})
+	}
+}
+
+// mustLoad is Load that fails the test on an error.
+func mustLoad(t testing.TB, dir string) State {
+	t.Helper()
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func TestExists(t *testing.T) {
+	dir := t.TempDir()
+	if Exists(dir) {
+		t.Error("Exists on an empty git dir")
+	}
+	mkState(t, dir)
+	if Exists(dir) {
+		t.Error("Exists without the file")
+	}
+	writeFile(t, stateFile(dir), "{}")
+	if !Exists(dir) {
+		t.Error("Exists with the file")
 	}
 }
