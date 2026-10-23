@@ -56,7 +56,7 @@ waves:
         verify: "go test ./internal/shellx/ ./internal/hooks/"
       - id: R5
         title: "CI, release, shim, packaging tests, security policy"
-        owns: [".github/**", "bin/**", Makefile, ship.txt, SECURITY.md, docs/releasing.md, docs/releasing.ru.md, "internal/plugintest/**", context/internal/plugintest.md]
+        owns: [".github/**", "bin/**", Makefile, ship.txt, SECURITY.md, SECURITY.ru.md, docs/releasing.md, docs/releasing.ru.md, "internal/plugintest/**", context/internal/plugintest.md]
         verify: "go test ./internal/plugintest/"
   - id: W2
     tasks:
@@ -111,7 +111,7 @@ waves:
         verify: "go test ./internal/plugintest/"
       - id: R13
         title: "modernize: go fix, test idioms, unit indexes"
-        owns: ["cmd/**/*.go", "internal/**/*.go", go.mod, go.sum, "context/internal/**", "context/cmd/**", "internal/*/CLAUDE.md", cmd/paraplane/CLAUDE.md]
+        owns: ["cmd/**/*.go", "internal/**/*.go", go.mod, go.sum, .github/workflows/ci.yml, "context/internal/**", "context/cmd/**", "internal/*/CLAUDE.md", cmd/paraplane/CLAUDE.md]
         depends: [R11, R5]
         verify: "go vet ./... && go test $(go list ./... | grep -v /internal/plugintest)"
 ```
@@ -133,16 +133,16 @@ waves:
 **Files:** Create `internal/ids/ids.go`, `internal/ids/ids_test.go`, `internal/ids/CLAUDE.md`, `context/internal/ids.md`.
 **Produces:** `const Pattern = "[A-Za-z][A-Za-z0-9_.-]{0,31}"`; `func Valid(s string) bool`; `const ListPattern = Pattern + "(," + Pattern + ")*"`; `func ParseList(s string) ([]string, bool)` (comma list, every part valid, no empty parts). (Q-M5, A-L1)
 
-- [ ] **Step 1: Failing tests** `TestValid` (`T1`, `W2.a`, 32 runes ok; `1x`, ``, 33 runes, `a b`, `ä` not ok), `TestParseList` (`T1,T2` → 2; `T1,`, `,T1`, `T1,,T2`, `` → false), `FuzzParseList` (round-trip: ok ⇒ `strings.Join(out, ",") == in`).
-- [ ] **Step 2: Run** `go test ./internal/ids/` — FAIL. **Step 3:** implement. **Step 4:** PASS; write the unit docs.
+- [x] **Step 1: Failing tests** `TestValid` (`T1`, `W2.a`, 32 runes ok; `1x`, ``, 33 runes, `a b`, `ä` not ok), `TestParseList` (`T1,T2` → 2; `T1,`, `,T1`, `T1,,T2`, `` → false), `FuzzParseList` (round-trip: ok ⇒ `strings.Join(out, ",") == in`).
+- [x] **Step 2: Run** `go test ./internal/ids/` — FAIL. **Step 3:** implement. **Step 4:** PASS; write the unit docs.
 
 ### Task R2: testgit
 
 **Files:** Create `internal/testgit/testgit.go`, `internal/testgit/testgit_test.go`, `internal/testgit/CLAUDE.md`, `context/internal/testgit.md`.
 **Produces (test-only helpers, imported by `_test.go` files):** `func Env() []string` (os.Environ without `GIT_*`, plus `GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL=/dev/null` or `NUL`, author/committer); `func Run(t testing.TB, dir string, args ...string) string`; `func Init(t testing.TB) string`; `func Commit(t testing.TB, dir, file, msg string)`; `func Isolate(t testing.TB)` (unsets `GIT_DIR`, `GIT_INDEX_FILE`, `GIT_WORK_TREE`, … via `t.Setenv`) (T-M2, T-L2, C-L7); `func FakeOldGit(t testing.TB) string` — a directory with a `git` wrapper script that strips `GIT_NO_LAZY_FETCH` and reports `git version 2.34.1`, to put first on PATH (T-H1); `func MarkerProgram(t testing.TB) (cmd, marker string)` — re-executes the test binary (`os.Args[0]` with `-test.run=^$` and env `TESTGIT_MARKER=<file>`) so marker tests run on Windows too (T-M4).
 
-- [ ] **Step 1: Failing tests** `TestIsolate` (with `GIT_DIR=/nonexistent` set, `Run(t, Init(t), "status")` succeeds after `Isolate`), `TestFakeOldGit` (`git version` through the wrapper prints `2.34.1`; env seen by a child has no `GIT_NO_LAZY_FETCH`), `TestMarkerProgram` (running the returned cmd creates the marker file).
-- [ ] **Step 2–4:** FAIL → implement → PASS; unit docs.
+- [x] **Step 1: Failing tests** `TestIsolate` (with `GIT_DIR=/nonexistent` set, `Run(t, Init(t), "status")` succeeds after `Isolate`), `TestFakeOldGit` (`git version` through the wrapper prints `2.34.1`; env seen by a child has no `GIT_NO_LAZY_FETCH`), `TestMarkerProgram` (running the returned cmd creates the marker file).
+- [x] **Step 2–4:** FAIL → implement → PASS; unit docs.
 
 ### Task R3: plan, config, textx
 
@@ -152,8 +152,8 @@ waves:
 - L8: `plan.Parse` decodes once; `decodeError` keeps message matching but behind one function with a test per yaml error kind.
 - P-L5: the YAML decode honours the check deadline where it is passed (`plan.LoadWithin(md, deadline)` used by rules; `Load` = no deadline).
 - D-L3: stale doc comments in these packages; `config.go:39` (`Progress` comment: the hook, not the coordinator, shows progress in Claude Code).
-- [ ] **Step 1: Failing tests** `TestHasControl` (moved cases from config), `TestLoadWithinDeadline` (past deadline → `ErrDeadline`), existing plan/config tests green after the swap.
-- [ ] **Step 2–4:** FAIL → implement → `go mod tidy` → PASS.
+- [x] **Step 1: Failing tests** `TestHasControl` (moved cases from config), `TestLoadWithinDeadline` (past deadline → `ErrDeadline`), existing plan/config tests green after the swap.
+- [x] **Step 2–4:** FAIL → implement → `go mod tidy` → PASS.
 
 ### Task R4: shellx
 
@@ -161,8 +161,8 @@ waves:
 **Produces:** `type Kind int` (`Read`, `Edit`, `Write`); `type Word struct{ Text string; Kind Kind; Old string; News []string }`; `func Words(cmd string) []Word` (behavior identical to today's `shellWords`, incl. heredocs, arithmetic, comments, `>&`, sed, cp/mv/install, tee); `func CommandNames(cmd string) []string` (first word of each simple command, for R10's `git` check).
 - Q-H1: the lexer becomes a `lexer` struct with one method per character class (`quote`, `redirect`, `heredoc`, `arith`, `comment`), state in fields; no function above cyclomatic 25 (`gocyclo` if available, else review).
 - T-M3: `FuzzWords` (no panic; every `Text` is a substring-derived value; `Kind` in range).
-- [ ] **Step 1:** move the existing lexer tests to `shellx` unchanged (they are the behavior contract) and add `TestCommandNames` (`cd x && git commit -m m` → `cd`, `git`; `echo git commit` → `echo`).
-- [ ] **Step 2–4:** FAIL (package missing) → implement by moving, then restructure → PASS; `internal/hooks` tests green.
+- [x] **Step 1:** move the existing lexer tests to `shellx` unchanged (they are the behavior contract) and add `TestCommandNames` (`cd x && git commit -m m` → `cd`, `git`; `echo git commit` → `echo`).
+- [x] **Step 2–4:** FAIL (package missing) → implement by moving, then restructure → PASS; `internal/hooks` tests green.
 
 ### Task R5: CI, release, shim, packaging
 
@@ -178,8 +178,8 @@ waves:
 - C-L1: `concurrency: {group: release-${{ github.ref }}, cancel-in-progress: false}`; C-L2: required-check-friendly `paths-ignore` removed in favour of a cheap docs job; C-L4: `actions/setup-node` + pinned npm version; C-L5: tag guard also requires a green `ci` run on the tagged commit (`gh api`); C-L6: Go matrix `1.27.x` and `stable`; C-L7: tests job unsets `GIT_*`.
 - C-L3/P-L2: the shim names the platform in the unsupported-platform message and calls `uname` once without `tr`/`dirname` (POSIX parameter expansion).
 - T-M5: `internal/plugintest/e2e_test.go` builds the binary into `libexec/` of a temp copy of the shipped tree and runs every command of `hooks/hooks.json` and `hooks/codex.json` through `sh bin/paraplane` with a minimal payload (exit 0, valid JSON or empty).
-- [ ] **Step 1: Failing tests** `TestE2EHooksThroughShim`, `TestShimUnsupportedPlatformMessage`, `TestWorkflowsPinned` (every `uses:` pinned to a 40-hex SHA, every job has `timeout-minutes`).
-- [ ] **Step 2–4:** FAIL → implement → PASS (`actionlint`/`shellcheck` locally if installed).
+- [x] **Step 1: Failing tests** `TestE2EHooksThroughShim`, `TestShimUnsupportedPlatformMessage`, `TestWorkflowsPinned` (every `uses:` pinned to a 40-hex SHA, every job has `timeout-minutes`).
+- [x] **Step 2–4:** FAIL → implement → PASS (`actionlint`/`shellcheck` locally if installed).
 
 ### Task R6: gitx
 
@@ -275,6 +275,7 @@ waves:
 
 ### Task R13: modernize
 
+- Make the `go fix -diff` CI job blocking (remove `continue-on-error: true` in `.github/workflows/ci.yml`) once `go fix -diff ./...` is clean.
 - First: delete every compatibility wrapper (Global Constraints) and move its callers to the new API; swap `internal/plugintest/frontmatter_test.go` to `go.yaml.in/yaml/v3` and `go mod tidy` (drops `gopkg.in/yaml.v3`).
 
 **Files:** all `.go` files (mechanical), unit `CLAUDE.md` indexes and `context/internal/**`, `context/cmd/**` (frontmatter refresh).

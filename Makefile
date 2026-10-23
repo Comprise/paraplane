@@ -1,7 +1,7 @@
 VERSION ?= dev
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
-.PHONY: test vet-cross dist tree
+.PHONY: test vet-cross lint dist tree
 
 test: vet-cross
 	go test ./...
@@ -11,6 +11,14 @@ test: vet-cross
 vet-cross:
 	GOOS=windows go vet ./...
 	GOOS=darwin go vet ./...
+
+# lint: the local part of the CI lint job (tools are fetched at the pinned
+# versions; shellcheck must be installed).
+lint:
+	go mod tidy -diff
+	go run honnef.co/go/tools/cmd/staticcheck@2026.2.2 ./...
+	shellcheck -s sh bin/paraplane
+	go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
 
 dist:
 	@for p in $(PLATFORMS); do \

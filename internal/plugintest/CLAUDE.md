@@ -4,6 +4,8 @@
 - `doc.go` — только объявление пакета; весь код в `_test.go`
 - `frontmatter_test.go` — строгий разбор frontmatter `skills/*/SKILL.md` и `agents/*.md`, константа `root`
 - `shim_test.go` — поведение `bin/paraplane` с фейковым бинарником и без него
+- `workflows_test.go` — все `uses:` закреплены SHA, у job есть `timeout-minutes`
+- `e2e_test.go` — команды хуков через шим и настоящий бинарник
 - `packaging_test.go` — `.gitattributes`, `ship.txt`, пары README, workflows и Makefile
 - `codex_test.go` — `.codex-plugin/plugin.json` и marketplace Codex
 - `example_test.go` — примеры планов из скилла `rules` и спецификации проходят `rules.Check` без ошибок

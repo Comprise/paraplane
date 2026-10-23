@@ -1,7 +1,8 @@
 ---
 unit: internal/textx
-source_hash: sha256:0ccb77d1572fbebf05189a8a5f044dc4b5eff19ea3d65c370fd86630f9cb7028
-updated: "2026-10-20"
+source_hash: sha256:b0252ab018b08dd9efda38e38027a34bbe3b3a82aa1ffc8062b5e586f1232223
+commit: d161a953beb07629ae51028a89aae64f5773a7c5
+updated: "2026-10-23"
 ---
 # internal/textx
 Очистка недоверенного текста перед выводом: `Line` — одна строка по рунам, `Block` — многострочный текст по байтам.
@@ -11,6 +12,7 @@ updated: "2026-10-20"
 
 ## Публичный API / точки входа
 - `Line(s, max)` — заменяет `\n` пробелом, лимит `max` в рунах.
+- `HasControl(s)` — есть ли в `s` руна, которую `Line`/`Block` удалили бы или заменили пробелом (управляющие, Zl/Zp, Cf); тот же предикат `unsafe`, что в `sanitize`. Использует `config` для `default_gate`.
 - `Block(s, max)` — сохраняет `\n`, лимит `max` в байтах, режет по границе руны.
 
 ## Инварианты и подводные камни

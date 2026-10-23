@@ -15,6 +15,18 @@ func max0(n int) int {
 	return n
 }
 
+// unsafe reports a rune that sanitize drops or replaces: a control character
+// (including NUL, tab, DEL), the Unicode line and paragraph separators U+2028
+// and U+2029, or a format character (category Cf: bidi overrides, zero-width
+// spaces, BOM).
+func unsafe(r rune) bool {
+	return unicode.IsControl(r) || unicode.In(r, unicode.Zl, unicode.Zp, unicode.Cf)
+}
+
+// HasControl reports whether s contains a rune that Line and Block would drop
+// or turn into a space: it would hide or reorder what is shown to the user.
+func HasControl(s string) bool { return strings.IndexFunc(s, unsafe) >= 0 }
+
 // sanitize turns \r, \t and the Unicode line and paragraph separators
 // U+2028 and U+2029 (and \n unless keepNL) into spaces and drops all other
 // control characters and format characters (ANSI escapes, bidi).

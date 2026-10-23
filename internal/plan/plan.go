@@ -8,8 +8,9 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // Plan is the parsed ```paraplane block.
@@ -78,10 +79,16 @@ func Parse(body []byte) (*Plan, error) {
 	if len(body) > MaxBlock {
 		return nil, &LimitError{Msg: fmt.Sprintf("paraplane block is %d bytes, the limit is %d", len(body), MaxBlock)}
 	}
-	var p Plan
+	// Version is a pointer so that an explicit "version: 0" differs from an
+	// absent key without a second decode.
+	var raw struct {
+		Version *int   `yaml:"version"`
+		Gate    string `yaml:"gate"`
+		Waves   []Wave `yaml:"waves"`
+	}
 	dec := yaml.NewDecoder(bytes.NewReader(body))
 	dec.KnownFields(true)
-	if err := dec.Decode(&p); err != nil && !errors.Is(err, io.EOF) {
+	if err := dec.Decode(&raw); err != nil && !errors.Is(err, io.EOF) {
 		return nil, decodeError(err)
 	}
 	var extra yaml.Node
@@ -90,24 +97,23 @@ func Parse(body []byte) (*Plan, error) {
 	} else if !errors.Is(err, io.EOF) {
 		return nil, decodeError(err)
 	}
+	p := Plan{Gate: raw.Gate, Waves: raw.Waves}
+	if raw.Version != nil {
+		p.Version = *raw.Version
+	}
 	if err := checkLimits(&p); err != nil {
 		return nil, err
 	}
-	if p.Version != 0 && p.Version != 1 {
-		return nil, &SchemaError{Msg: fmt.Sprintf("unsupported version %d (only 1 is supported)", p.Version)}
-	}
-	// An explicit "version: 0" decodes to the same int as an absent key.
-	if p.Version == 0 {
-		var probe struct {
-			Version *int `yaml:"version"`
-		}
-		if err := yaml.Unmarshal(body, &probe); err == nil && probe.Version != nil {
-			return nil, &SchemaError{Msg: "unsupported version 0 (only 1 is supported)"}
-		}
+	if raw.Version != nil && *raw.Version != 1 {
+		return nil, &SchemaError{Msg: fmt.Sprintf("unsupported version %d (only 1 is supported)", *raw.Version)}
 	}
 	return &p, nil
 }
 
+// decodeError classifies an error of the YAML library: a type error (wrong
+// type, unknown key) is a SchemaError, everything else a SyntaxError. The
+// quoteHint is added by matching the library's messages for an unquoted glob;
+// TestDecodeErrorKinds pins those messages for the version in go.mod.
 func decodeError(err error) error {
 	var te *yaml.TypeError
 	if errors.As(err, &te) {
@@ -142,13 +148,35 @@ func checkLimits(p *Plan) error {
 	return nil
 }
 
-// Load extracts the ```paraplane block from md and parses it.
-func Load(md []byte) (*Plan, error) {
+// ErrDeadline reports that the check deadline passed before the plan was
+// parsed.
+var ErrDeadline = errors.New("plan check deadline exceeded")
+
+// Load extracts the ```paraplane block from md and parses it. There is no
+// deadline.
+func Load(md []byte) (*Plan, error) { return LoadWithin(md, time.Time{}) }
+
+// LoadWithin is Load with a deadline. The YAML decoder cannot be interrupted,
+// so the deadline is checked before the work starts and once more before the
+// result is returned (the input is bounded by MaxBlock). A zero deadline means
+// no limit.
+func LoadWithin(md []byte, deadline time.Time) (*Plan, error) {
+	expired := func() bool { return !deadline.IsZero() && !time.Now().Before(deadline) }
+	if expired() {
+		return nil, ErrDeadline
+	}
 	b, err := Extract(md)
 	if err != nil {
 		return nil, err
 	}
-	return Parse(b.Body)
+	p, err := Parse(b.Body)
+	if err != nil {
+		return nil, err
+	}
+	if expired() {
+		return nil, ErrDeadline
+	}
+	return p, nil
 }
 
 // Tasks returns all tasks of the plan in the author's order. The pointers

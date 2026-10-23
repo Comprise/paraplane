@@ -1,8 +1,8 @@
 ---
 unit: internal/config
-source_hash: sha256:a4d7a1f595fbdf8cdc8b6659c162817551455515e9194d672d1578916e4c541a
-commit: 40e679204177844d9f92fc4e5a92139a8a59efe7
-updated: "2026-10-22"
+source_hash: sha256:efa730fa9d7baebe8f2b55d2ff23a0b642480cc6f483e08da2330c2e2ec06e35
+commit: d161a953beb07629ae51028a89aae64f5773a7c5
+updated: "2026-10-23"
 ---
 # internal/config
 Загрузка .paraplane/config.yaml с поключевой валидацией (неверное значение → дефолт + Problems) и FindRoot.
@@ -29,11 +29,11 @@ updated: "2026-10-22"
 - Конфиг приходит из клонированного репозитория, а текст ошибок попадает в контекст Claude:
   - неизвестный ключ показывается, только если это короткое слово из `[a-z_]`, иначе `(name not shown)`;
   - значения элементов списков в ошибках не цитируются, только номер элемента.
-- `default_gate`: одна строка до 256 байт; запрещены управляющие символы (включая таб и NUL), U+2028/U+2029 и категория Cf (bidi-override, zero-width, BOM) — чтобы команда gate не скрывала и не переставляла видимый текст.
-- `max_parallel` — целое 1..32; `mode` — только `block` или `warn`; `progress` — только `wave` (по умолчанию) или `task`; `plans_dir` — без glob-символов.
+- `default_gate`: одна строка до 256 байт; проверка `textx.HasControl`: запрещены управляющие символы (включая таб и NUL), U+2028/U+2029 и категория Cf (bidi-override, zero-width, BOM) — чтобы команда gate не скрывала и не переставляла видимый текст.
+- `max_parallel` — целое 1..32; `mode` — только `block` или `warn`; `progress` — только `wave` (по умолчанию) или `task` (когда хук показывает прогресс); `plans_dir` — без glob-символов.
 - `FindRoot` не поднимается в `$HOME` снизу: случайный `~/.git` не делает домашний каталог проектом. Если `dir` сам равен `$HOME`, маркеры в нём проверяются.
 - `FindRoot` использует `os.Stat` (симлинки на маркеры допустимы); чтение конфига — нет (через `fsx`).
 
 ## Связи (зависит от / используется в)
-- Зависит от: `internal/fsx`, `internal/pathset`, `gopkg.in/yaml.v3`.
+- Зависит от: `internal/fsx`, `internal/pathset`, `internal/textx`, `go.yaml.in/yaml/v3`.
 - Используется в: `cmd/paraplane` (`main.go`, `check.go`, `audit.go`, `progress.go`), `internal/hooks` (`Env.Config`, `Env.ConfigErr`).

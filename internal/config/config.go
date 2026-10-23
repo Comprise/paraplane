@@ -10,12 +10,12 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"unicode"
 
 	"paraplane/internal/fsx"
 	"paraplane/internal/pathset"
+	"paraplane/internal/textx"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // FileName is the config file, relative to the project root.
@@ -36,7 +36,7 @@ type Config struct {
 	MaxParallel int
 	PlansDir    string
 	AuditIgnore []string
-	Progress    string // "wave" | "task": when the coordinator shows progress
+	Progress    string // "wave" | "task": when the progress hook shows progress
 }
 
 // Default returns the defaults of spec section 9.
@@ -156,7 +156,7 @@ func apply(cfg *Config, key string, n *yaml.Node) error {
 		if err := n.Decode(&v); err != nil || len(v) > maxGateLen {
 			return fmt.Errorf("must be a single-line string up to %d bytes", maxGateLen)
 		}
-		if hasControl(v) {
+		if textx.HasControl(v) {
 			return errors.New("must not contain control, line separator or invisible format characters")
 		}
 		cfg.DefaultGate = v
@@ -181,16 +181,6 @@ func apply(cfg *Config, key string, n *yaml.Node) error {
 		return applyList(&cfg.AuditIgnore, n)
 	}
 	return nil
-}
-
-// hasControl reports any control character (including NUL, tab, DEL), the
-// Unicode line/paragraph separators U+2028 and U+2029, or a format character
-// (category Cf: bidi overrides, zero-width spaces, BOM) that would hide or
-// reorder what the gate command shows.
-func hasControl(s string) bool {
-	return strings.IndexFunc(s, func(r rune) bool {
-		return unicode.IsControl(r) || r == '\u2028' || r == '\u2029' || unicode.Is(unicode.Cf, r)
-	}) >= 0
 }
 
 // applyList sets dst to the cleaned patterns, or leaves it untouched when any

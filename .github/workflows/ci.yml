@@ -1,19 +1,11 @@
 name: ci
 
+# No paths-ignore: a docs-only change still runs every job (the docs job is
+# the cheap one), so the checks a ruleset requires always report.
 on:
   push:
     branches: [main]
-    paths-ignore: &docs
-      # Docs only: nothing to build or test. Skills are Markdown too but are
-      # validated by the plugin job, so they are not listed here; docs/ is not
-      # listed either, the tests read the spec and the plan examples.
-      - '**/CLAUDE.md'
-      - 'CLAUDE.md'
-      - 'README.md'
-      - 'README.ru.md'
-      - 'LICENSE'
   pull_request:
-    paths-ignore: *docs
   workflow_call:
 
 permissions:
@@ -25,60 +17,188 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
+
 jobs:
+  docs:
+    # Cheap and always green for a docs-only change: the README pairs and the
+    # shipped list are what a docs edit can break.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: 1.27.3
+      - run: go test -run 'TestReadmePairs|TestShipListExists' ./internal/plugintest/
+
   test:
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        # 1.27.x is the line go.mod asks for, stable the newest release.
+        go: ['1.27.x', 'stable']
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version-file: go.mod
+          go-version: ${{ matrix.go }}
       - run: go mod verify
       - run: go vet ./...
-      - run: go test ./...
+      - name: Test (shuffled, race, coverage)
+        # The tests must not depend on the runner's git environment: GIT_*
+        # variables are unset and the global and system git config are empty.
+        run: |
+          for v in $(compgen -e | grep '^GIT_' || true); do unset "$v"; done
+          export GIT_CONFIG_NOSYSTEM=1
+          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig"
+          : > "$GIT_CONFIG_GLOBAL"
+          go test -shuffle=on -race -covermode=atomic -coverprofile=cover.out ./...
+      - name: Coverage floor
+        if: runner.os == 'Linux' && matrix.go == '1.27.x'
+        run: |
+          total=$(go tool cover -func=cover.out | awk '/^total:/ {sub("%","",$3); print $3}')
+          echo "total coverage: ${total}%"
+          awk -v t="$total" 'BEGIN { exit !(t >= 90) }' || { echo "::error::coverage ${total}% is below the 90% floor"; exit 1; }
+      - name: Benchmarks run once
+        run: go test -run '^$' -bench . -benchtime 1x ./...
       - name: gofmt
         if: runner.os == 'Linux'
         run: test -z "$(gofmt -l .)"
       - name: Shim syntax
-        shell: bash
         run: sh -n bin/paraplane
 
-  race:
+  lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version-file: go.mod
-      - run: go test -race ./...
+          go-version: 1.27.3
+      - run: go mod tidy -diff
+      - run: go run honnef.co/go/tools/cmd/staticcheck@2026.2.2 ./...
+      - name: Shim under POSIX shells
+        run: |
+          shellcheck -s sh bin/paraplane
+          sh -n bin/paraplane
+      - name: Lint the workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+      - name: Audit the workflows
+        run: pipx run zizmor==1.31.1 --persona regular --min-severity medium .github/workflows
+
+  fix:
+    # `go fix -diff` lists code a newer Go would modernize.
+    # TODO: made blocking after R13 (the code is modernized there); until then
+    # the job reports without failing the run.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: 1.27.3
+      - name: go fix -diff
+        run: |
+          diff=$(go fix -diff ./...)
+          if [ -n "$diff" ]; then
+            printf '%s\n' "$diff"
+            echo "::error::go fix would change the code"
+            exit 1
+          fi
+
+  fuzz:
+    # Every fuzz target gets a 30 s smoke run; the targets are discovered, so a
+    # new one is covered without touching this job.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: 1.27.3
+      - name: Fuzz smoke
+        run: |
+          found=0
+          for pkg in $(go list ./...); do
+            for f in $(go test -list '^Fuzz' "$pkg" | grep '^Fuzz' || true); do
+              found=1
+              echo "== $pkg $f"
+              go test "$pkg" -run '^$' -fuzz "^${f}\$" -fuzztime 30s
+            done
+          done
+          [ "$found" -eq 1 ] || echo "::notice::no fuzz targets yet"
+
+  old-git:
+    # The gitx guards depend on the git version; LTS distributions ship old
+    # ones (Ubuntu 22.04: 2.34, Debian 11: 2.30).
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['ubuntu:22.04', 'debian:bullseye']
+    container: ${{ matrix.image }}
+    steps:
+      - name: Install git
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates curl
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: 1.27.3
+      - name: Test on the old git
+        run: |
+          git --version
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          go test -shuffle=on ./internal/gitx/ ./internal/hooks/
 
   vet-cross:
     # Every package, tests included, must compile for windows and darwin;
     # cheaper and earlier than waiting for those runners.
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version-file: go.mod
+          go-version: 1.27.3
       - run: make vet-cross
 
   plugin:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Pin npm
+        run: npm install -g npm@10.9.9
       - name: Validate Codex manifests
         run: jq -e . .codex-plugin/plugin.json .agents/plugins/marketplace.json hooks/codex.json
       - name: Validate plugin and marketplace manifests

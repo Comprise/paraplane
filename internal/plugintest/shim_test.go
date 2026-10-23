@@ -147,3 +147,44 @@ func TestShimOtherHooksPassOutput(t *testing.T) {
 		}
 	}
 }
+
+// On a platform no binary is built for, the message names the platform and
+// does not tell the user to reinstall (that cannot help); uname is the only
+// external program the platform lookup needs.
+func TestShimUnsupportedPlatformMessage(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("shim test needs a POSIX sh")
+	}
+	dir := plugin(t, "")
+	fake := t.TempDir()
+	write(t, fake, "uname", "#!/bin/sh\necho 'FreeBSD amd64'\n")
+	if err := os.Chmod(filepath.Join(fake, "uname"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run := func(args ...string) (int, string, string) {
+		cmd := exec.Command("sh", append([]string{filepath.Join(dir, "bin", "paraplane")}, args...)...)
+		cmd.Env = append(os.Environ(), "PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"), "CLAUDE_PROJECT_DIR="+t.TempDir())
+		cmd.Stdin = strings.NewReader("{}")
+		var out, errb strings.Builder
+		cmd.Stdout, cmd.Stderr = &out, &errb
+		code := 0
+		if err := cmd.Run(); err != nil {
+			ee, ok := err.(*exec.ExitError)
+			if !ok {
+				t.Fatal(err)
+			}
+			code = ee.ExitCode()
+		}
+		return code, out.String(), errb.String()
+	}
+	code, out, _ := run("hook", "session-start")
+	low := strings.ToLower(out)
+	if code != 0 || !strings.Contains(low, "freebsd/amd64") || !strings.Contains(low, "not built for this platform") || strings.Contains(low, "reinstall") {
+		t.Errorf("session-start: code=%d out=%q", code, out)
+	}
+	code, _, errs := run("check", "x.md")
+	low = strings.ToLower(errs)
+	if code != 1 || !strings.Contains(low, "freebsd/amd64") || !strings.Contains(low, "not built for this platform") {
+		t.Errorf("CLI: code=%d stderr=%q", code, errs)
+	}
+}

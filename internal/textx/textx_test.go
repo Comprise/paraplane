@@ -56,3 +56,31 @@ func TestBlock(t *testing.T) {
 		}
 	}
 }
+
+func TestHasControl(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"plain", "go test ./...", false},
+		{"cyrillic", "проверка", false},
+		{"empty", "", false},
+		{"space", "a b", false},
+		{"tab", "a\tb", true},
+		{"newline", "a\nb", true},
+		{"nul", "a\x00b", true},
+		{"del", "a\x7fb", true},
+		{"escape", "\x1b[31m", true},
+		{"line separator", "a\u2028b", true},
+		{"paragraph separator", "a\u2029b", true},
+		{"bidi override", "a\u202eb", true},
+		{"zero width space", "a\u200bb", true},
+		{"bom", "\uFEFFa", true},
+	}
+	for _, c := range cases {
+		if got := HasControl(c.in); got != c.want {
+			t.Errorf("%s: HasControl(%q) = %v, want %v", c.name, c.in, got, c.want)
+		}
+	}
+}

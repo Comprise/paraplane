@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 const specBlock = `version: 1                  # необязательно; поддерживается только 1
@@ -436,5 +437,69 @@ func TestExtractManyWithUnclosed(t *testing.T) {
 	md := "```paraplane\na: 1\n```\n\n```paraplane\nb: 2\n"
 	if _, err := Extract([]byte(md)); !errors.Is(err, ErrManyBlocks) {
 		t.Errorf("err = %v, want ErrManyBlocks", err)
+	}
+}
+
+func TestLoadWithinDeadline(t *testing.T) {
+	md := []byte("# p\n\n```paraplane\n" + specBlock + "```\n")
+	past := time.Now().Add(-time.Second)
+	if _, err := LoadWithin(md, past); !errors.Is(err, ErrDeadline) {
+		t.Fatalf("past deadline: err = %v, want ErrDeadline", err)
+	}
+	if p, err := LoadWithin(md, time.Now().Add(time.Minute)); err != nil || len(p.Waves) != 2 {
+		t.Fatalf("future deadline: %v %v", p, err)
+	}
+	if _, err := LoadWithin(md, time.Time{}); err != nil {
+		t.Fatalf("zero deadline: %v", err)
+	}
+}
+
+// TestDecodeErrorKinds pins the messages of the YAML library that decodeError
+// relies on: one case per error kind.
+func TestDecodeErrorKinds(t *testing.T) {
+	wrap := func(owns string) string {
+		return "waves:\n  - id: W1\n    tasks:\n      - id: T1\n        title: x\n        owns: " + owns + "\n"
+	}
+	cases := []struct {
+		name, body string
+		kind       string // "schema" | "syntax"
+		contains   string
+		hint       bool
+	}{
+		{"unknown field", "waves:\n  - id: W1\n    tasks:\n      - id: T1\n        depnds: [T0]\n", "schema", "depnds", false},
+		{"wrong type", "waves: 5\n", "schema", "cannot unmarshal", false},
+		{"alias star", wrap("[*.go]"), "syntax", "", true},
+		{"alias double star", wrap("[**/x]"), "syntax", "", true},
+		{"brace", wrap("[a/{x}.go]"), "syntax", "", true},
+		{"unclosed flow", "waves:\n  - id: W1\n   bad: [\n", "syntax", "", false},
+		{"two documents", "version: 1\n---\nversion: 1\n", "syntax", "more than one YAML document", false},
+		{"tab indent", "waves:\n\t- id: W1\n", "syntax", "", false},
+	}
+	for _, c := range cases {
+		_, err := Parse([]byte(c.body))
+		var se *SchemaError
+		var sy *SyntaxError
+		switch c.kind {
+		case "schema":
+			if !errors.As(err, &se) {
+				t.Errorf("%s: err = %#v, want *SchemaError", c.name, err)
+				continue
+			}
+		default:
+			if !errors.As(err, &sy) {
+				t.Errorf("%s: err = %#v, want *SyntaxError", c.name, err)
+				continue
+			}
+		}
+		msg := err.Error()
+		if strings.Contains(msg, "\n") {
+			t.Errorf("%s: multi-line message %q", c.name, msg)
+		}
+		if c.contains != "" && !strings.Contains(msg, c.contains) {
+			t.Errorf("%s: message %q lacks %q", c.name, msg, c.contains)
+		}
+		if got := strings.HasSuffix(msg, "quote glob patterns"); got != c.hint {
+			t.Errorf("%s: hint = %v, want %v (%q)", c.name, got, c.hint, msg)
+		}
 	}
 }
