@@ -18,7 +18,8 @@ serves both; `cmd/notes` is the CLI; `cmd/server/main.go` wires the handlers.
   reports when it needs anything else.
 - Subagents do not commit. After each wave: `paraplane audit docs/plans/2026-10-20-notes.md <wave>`,
   then the gate; the coordinator commits once per wave with the `Paraplane-Plan` and `Paraplane-Wave`
-  trailers and shows `paraplane progress docs/plans/2026-10-20-notes.md`.
+  trailers (once per stage, listing every wave, only when the project's rules require it) and shows
+  `paraplane progress docs/plans/2026-10-20-notes.md`.
 
 ## Waves
 

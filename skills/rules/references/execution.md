@@ -71,10 +71,13 @@ The coordinator is the main Claude session. Subagents implement tasks.
    not counted and `paraplane progress` prints `warning: wave <id> commit <hash>: trailers not in the last
    paragraph`. Amend such a commit (`git commit --amend`) so the trailers form the last paragraph.
 
-   When the project's own rules (its `CLAUDE.md`, say) require one commit per stage of several waves,
-   follow them: that commit lists every wave it closes, one `Paraplane-Wave` trailer each
-   (`Paraplane-Wave: W1`, `Paraplane-Wave: W2`), and progress counts all of them. Audit and gate still run
-   after each wave.
+   Only when the project's own rules (its `CLAUDE.md`, say) require one commit per stage of several
+   waves, commit once per stage instead of once per wave. The audit then sees the uncommitted changes of
+   every wave of the stage so far, so after each wave audit them all at once:
+   `paraplane audit <plan> W1,W2` (a file may be owned by a task of any listed wave). The gate still runs
+   after each wave. The stage commit lists every wave it closes, one `Paraplane-Wave` trailer each
+   (`Paraplane-Wave: W1`, `Paraplane-Wave: W2`; `Paraplane-Wave: W1, W2` works too), and progress counts
+   all of them.
 
 5. **Show progress** as the next section says.
 
@@ -83,11 +86,12 @@ The coordinator is the main Claude session. Subagents implement tasks.
 The moments come from the key `progress` in `.paraplane/config.yaml` (default `wave`). The execution
 digest the hooks add names the mode; when no digest named it, read the key yourself.
 
-- **`wave`:** after each closed wave (audit and gate passed) run `paraplane progress <plan>`. While the
-  wave is not committed yet, pass all its tasks: `paraplane progress --done <ids> <plan>`.
+- **`wave`:** after each closed wave (audit and gate passed) run `paraplane progress <plan>`. Pass in
+  `--done` every closed task that is not committed yet, of all uncommitted waves (in a stage, the earlier
+  waves too): `paraplane progress --done <ids> <plan>`.
 - **`task`:** the same, and after each closed task (its subagent returned and its review, if the
-  execution skill makes one, passed) run `paraplane progress --done <closed, uncommitted tasks of the
-  wave> <plan>`, the ids joined by `,` without spaces.
+  execution skill makes one, passed) run `paraplane progress --done <every closed, uncommitted task>
+  <plan>`, the ids joined by `,` without spaces.
 
 Always paste the output into the message to the user in a code block. Committed waves are read from the
 commit trailers of the current branch, so they survive a session restart; closed, uncommitted tasks

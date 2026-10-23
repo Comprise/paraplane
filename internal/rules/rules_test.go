@@ -604,6 +604,19 @@ waves:
 		t.Errorf("task id as wave: no error")
 	}
 
+	// A stage audits several waves at once: a file of any of them is owned.
+	fs, err = AuditWaves(p, []string{"W1", "W2"}, changed, "docs/plan.md", []string{"*.out"})
+	got = nil
+	for _, f := range fs {
+		got = append(got, f.String())
+	}
+	if want := []string{"error A1 W1,W2: internal/x.go changed but no task of W1, W2 owns it"}; err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("AuditWaves = %q, %v; want %q", got, err, want)
+	}
+	if _, err := AuditWaves(p, []string{"W1", "W9"}, changed, "docs/plan.md", nil); err == nil || !strings.Contains(err.Error(), "W9") {
+		t.Errorf("unknown wave in a stage: err = %v", err)
+	}
+
 	// Check cleans the paths Audit matches.
 	r := Check(md("gate: x\nwaves:\n  - id: W1\n    tasks:\n      - {id: T1, title: a, verify: v, owns: [./a//x.go]}\n"), opts())
 	if r.Errors() > 0 {

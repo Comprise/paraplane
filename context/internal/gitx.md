@@ -1,7 +1,7 @@
 ---
 unit: internal/gitx
-source_hash: sha256:b0ec69b085845c5c97bb063f3125892d75e526834079bc7d92072f4968464de5
-commit: 2565567438a54aef99392db8b8df16f453642f32
+source_hash: sha256:e442fc53a865d44f62c8d5c80e685c777af662d0313ad834d899f42ce6e2be64
+commit: d3b7e4c68cdd97065be8d78d922d7b565b23d507
 updated: "2026-10-23"
 ---
 # internal/gitx
@@ -23,7 +23,7 @@ Changed и WaveCommits поверх git, запускаемого так, что
   - добавляются `GIT_NO_LAZY_FETCH=1`, `GIT_OPTIONAL_LOCKS=0` (status не пишет индекс и не дёргает index-хуки), `GIT_CONFIG_NOSYSTEM=1`, `GIT_TERMINAL_PROMPT=0`, `LC_ALL=C`;
   - таймаут 10 с; stdout ограничен 16 MiB (`maxOutput`), при переполнении git останавливается и возвращается ошибка.
 - `Changed`: `rev-parse --show-prefix` → версия git → `repoConfigSets(filterKeys)` → при git без `GIT_NO_LAZY_FETCH` проверки partial clone и `uploadpack` → `git status --porcelain=v1 -z`.
-- `WaveCommits`: `git log --reverse -i --grep=^paraplane-wave:` (только коммиты со строкой `Paraplane-Wave:`, чтобы вывод с `%B` не рос с историей), формат `%h`, `%(trailers:key=…,unfold)`, `%B` через `\x1f`, разделитель записей `\x1e`; коммит может закрывать несколько волн — засчитываются все `Paraplane-Wave` (значения не по `waveID` отбрасываются); при повторе `Paraplane-Plan` побеждает последний.
+- `WaveCommits`: `git log --reverse -i --grep=^paraplane-wave:` (только коммиты со строкой `Paraplane-Wave:`, чтобы вывод с `%B` не рос с историей), формат `%h`, `%(trailers:key=…,unfold)`, `%B` через `\x1f`, разделитель записей `\x1e`; коммит может закрывать несколько волн — засчитываются все `Paraplane-Wave`, значение может быть списком через запятую (`W1, W2`; значение с хоть одной частью не по `waveID` отбрасывается целиком); строки `Paraplane-*` в теле, которых нет в трейлерах (этап, разбитый пустой строкой), попадают в `lost`; при повторе `Paraplane-Plan` побеждает последний.
 
 ## Инварианты и подводные камни
 - `run` сам не нейтрализует filter-драйверы и lazy fetch: любая новая команда, способная их запустить, обязана повторить проверки `Changed`.

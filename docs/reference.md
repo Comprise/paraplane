@@ -107,7 +107,7 @@ The command-line utility (you can run it by hand; Claude uses it by itself):
 
 ```
 paraplane check [--suggest] <file>   # validate a plan; - reads stdin
-paraplane audit <file> <wave>        # audit the changes of a wave
+paraplane audit <file> <wave>[,<wave>…]  # audit the changes of a wave (or of a stage of waves)
 paraplane progress [--done <ids>] <file>  # execution progress; --done: closed, uncommitted tasks
 paraplane hook <session-start|pre-tool-use|post-tool-use> [--agent codex]
 paraplane hook <stop|prompt-submit|permission-request> --agent codex   # Codex events: see hooks/README.md
@@ -206,14 +206,16 @@ W5  ⬜⬜          0/2  · waiting  T16 T17
 wave is closed when it has a commit or all its tasks are in `--done`; closed tasks of the running wave
 count as done and are drawn 🟩, so the bar moves before the wave commit. An id that is no task of the plan
 gives `warning: --done <id> is not a task of the plan`, a task of a waiting wave
-`warning: --done <id> is in waiting wave <W>`; neither is counted.
+`warning: --done <id> is in waiting wave <W>`; neither is counted. An empty list, a bad id or the flag
+twice is a usage error (exit 2). Pass every closed task that is not committed yet, of all uncommitted waves
+(within a stage of several waves the earlier ones too).
 
 Git reads trailers only from the last paragraph of a commit message, so `Paraplane-Plan` and
 `Paraplane-Wave` go there together with `Co-Authored-By` and other trailers, without a blank line between
 them. A commit whose `Paraplane-*` lines git does not read as trailers leaves its wave uncounted and gives
 `warning: wave <id> commit <hash>: trailers not in the last paragraph`; amend it. One commit may close several
-waves (a project that commits once per stage): give it one `Paraplane-Wave` trailer per wave, and each counts. An empty list, a bad id or the flag
-twice is a usage error (exit 2).
+waves (a project that commits once per stage): give it one `Paraplane-Wave` trailer per wave
+(`Paraplane-Wave: W1, W2` works too), and each counts.
 
 When the coordinator shows progress depends on the key `progress`: `wave` (default) — after each closed
 wave (audit and gate passed), `task` — also after each closed task. The output always goes to the user
@@ -232,6 +234,9 @@ contradicting instructions ("do not run implementers in parallel", "the implemen
    before the next wave starts.
 4. Subagents do not commit (parallel commits race for `index.lock` and pick up other tasks' files): the
    coordinator commits once after a green wave gate with the trailers `Paraplane-Plan` and `Paraplane-Wave`.
+   Only when the project's own rules require one commit per stage of several waves, the coordinator commits
+   once per stage instead: after each wave it audits every wave of the stage so far at once
+   (`paraplane audit <plan> W1,W2`), and the stage commit lists every wave, one `Paraplane-Wave` trailer each.
 5. Progress is shown after each closed wave, and with `progress: task` also after each closed task.
 
 ## Hooks
@@ -243,7 +248,7 @@ The hooks catch a plan in any form: from plan mode, from a skill with `plan` in 
 | `SessionStart` | adds to the context a line about the rules and `paraplane:rules`; on config problems — a message |
 | `PreToolUse` `ExitPlanMode` | validates the plan; E errors (including E0) — **forbids leaving plan mode** and lists the violations (up to 20) with an instruction; only W warnings — adds them to the context |
 | `PreToolUse` `Skill` | before an execution skill (the name contains `execut` or `subagent-driven`, does not start with `paraplane:`) reminds of the execution rules and their priority; before a skill with `plan` in its name — the plan-writing rules |
-| `PreToolUse` `Bash` | approves without a prompt `paraplane check <path>`, `paraplane audit <path> <wave>`, `paraplane progress [--done <ids>] <path>`, `paraplane version` |
+| `PreToolUse` `Bash` | approves without a prompt `paraplane check <path>`, `paraplane audit <path> <wave>[,<wave>…]`, `paraplane progress [--done <ids>] <path>`, `paraplane version` |
 | `PostToolUse` `Write\|Edit` | if the file is in `plan_paths` — validates it (≤ 1 MB). E0 — only the hint `add the block before the plan is final`; E1–E7 — **block** with a reason; only W — a hint, and only for `Write` |
 
 - `Edit` is checked only if the edit touches the `paraplane` block or its keys (`waves:`, `tasks:`, `id:`,

@@ -1,7 +1,7 @@
 ---
 unit: internal/hooks
-source_hash: sha256:1cdde8fbac8e2e9f700abea393bdbe8846d4cb60db5c79466d23353d83fe7452
-commit: 2565567438a54aef99392db8b8df16f453642f32
+source_hash: sha256:5710ce0c1dc3087770dc779550a995aa779f6c45f5dcd364a56b43c7cdf65d86
+commit: d3b7e4c68cdd97065be8d78d922d7b565b23d507
 updated: "2026-10-23"
 ---
 # internal/hooks
@@ -42,7 +42,7 @@ updated: "2026-10-23"
 - Тексты для агента пишутся в форме Claude Code; `Agent.text` переписывает `` `paraplane check|audit|progress `` и `skill paraplane:` для Codex. Текст плана и пути не переписываются; в находках адаптируется только W3.
 - В Codex CLI — абсолютный `$CLAUDE_PLUGIN_ROOT/bin/paraplane`: в shell Codex нет `bin/` плагина в PATH. Корень проходит `pluginRootSafe` (текст вставляется в shell), иначе — голое имя.
 - Автоодобрение Bash:
-  - regexp `bashOwnCLI` сверяет сырую команду целиком, без trim; `..` запрещено; `progress` допускает `--done <id>[,<id>…]` перед путём;
+  - regexp `bashOwnCLI` сверяет сырую команду целиком, без trim; `..` запрещено; `progress` допускает `--done <id>[,<id>…]` перед путём, `audit` — список волн `W1,W2`;
   - Claude: голое имя одобряется, только если `paraplane` в PATH — бинарник плагина (`bashShadowed`, сравнение после EvalSymlinks) или его в PATH хука нет вовсе (Bash-инструмент дописывает `bin/` плагинов в конец PATH); без абсолютного `CLAUDE_PLUGIN_ROOT` — отказ;
   - Codex: одобряется только абсолютная форма `Codex.CLI()`, голое имя — никогда.
 - Codex PreToolUse с allow переписывает команду, поэтому для Codex одобрение идёт через PermissionRequest.

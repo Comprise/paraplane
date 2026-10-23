@@ -244,14 +244,16 @@ func WaveCommits(root, planPath string) (waves []string, lost []LostTrailer, err
 	for _, rec := range strings.Split(string(out), "\x1e") {
 		hash, rest, _ := strings.Cut(strings.TrimLeft(rec, "\n"), "\x1f")
 		trailers, body, _ := strings.Cut(rest, "\x1f")
-		if ws := paraplaneLines(trailers, planPath); len(ws) > 0 {
-			for _, w := range ws {
-				if !slices.Contains(waves, w) {
-					waves = append(waves, w)
-				}
+		ws := paraplaneLines(trailers, planPath)
+		for _, w := range ws {
+			if !slices.Contains(waves, w) {
+				waves = append(waves, w)
 			}
-		} else {
-			for _, w := range paraplaneLines(body, planPath) {
+		}
+		// Paraplane-* lines git did not read as trailers, also next to some
+		// it did (a stage commit split by a blank line).
+		for _, w := range paraplaneLines(body, planPath) {
+			if !slices.Contains(ws, w) {
 				lostAll = append(lostAll, LostTrailer{Commit: hash, Wave: w})
 			}
 		}
@@ -266,7 +268,8 @@ func WaveCommits(root, planPath string) (waves []string, lost []LostTrailer, err
 
 // paraplaneLines reads Paraplane-Plan and Paraplane-Wave lines (key case
 // ignored; the last plan wins) and returns the valid wave ids, in order, when
-// the plan is planPath.
+// the plan is planPath. A wave value may list several ids separated by
+// commas (Paraplane-Wave: W1, W2); a value with any invalid part is dropped.
 func paraplaneLines(text, planPath string) []string {
 	var plan string
 	var waves []string
@@ -281,8 +284,12 @@ func paraplaneLines(text, planPath string) []string {
 		case "paraplane-plan":
 			plan, hasPlan = v, true
 		case "paraplane-wave":
-			if waveID.MatchString(v) {
-				waves = append(waves, v)
+			ids := strings.Split(v, ",")
+			for i := range ids {
+				ids[i] = strings.TrimSpace(ids[i])
+			}
+			if !slices.ContainsFunc(ids, func(id string) bool { return !waveID.MatchString(id) }) {
+				waves = append(waves, ids...)
 			}
 		}
 	}

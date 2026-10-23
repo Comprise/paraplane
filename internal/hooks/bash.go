@@ -13,7 +13,7 @@ import (
 
 // bashOwnCLI matches a single plain invocation of the plugin's own CLI: no
 // shell metacharacters, quotes, variables or extra whitespace can appear.
-var bashOwnCLI = regexp.MustCompile(`^paraplane (version|check( --suggest)? [A-Za-z0-9_.][A-Za-z0-9_./-]*|progress( --done [A-Za-z][A-Za-z0-9_.-]*(,[A-Za-z][A-Za-z0-9_.-]*)*)? [A-Za-z0-9_.][A-Za-z0-9_./-]*|audit [A-Za-z0-9_.][A-Za-z0-9_./-]* [A-Za-z][A-Za-z0-9_.-]*)$`)
+var bashOwnCLI = regexp.MustCompile(`^paraplane (version|check( --suggest)? [A-Za-z0-9_.][A-Za-z0-9_./-]*|progress( --done [A-Za-z][A-Za-z0-9_.-]*(,[A-Za-z][A-Za-z0-9_.-]*)*)? [A-Za-z0-9_.][A-Za-z0-9_./-]*|audit [A-Za-z0-9_.][A-Za-z0-9_./-]* [A-Za-z][A-Za-z0-9_.-]*(,[A-Za-z][A-Za-z0-9_.-]*)*)$`)
 
 // bash auto-approves the plugin's own read-only CLI calls; anything else keeps
 // the normal permission flow.

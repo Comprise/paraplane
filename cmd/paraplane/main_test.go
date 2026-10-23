@@ -239,6 +239,15 @@ func TestAuditCLI(t *testing.T) {
 		t.Errorf("outside: code %d, out %q, want %q", code, out, want)
 	}
 
+	// A stage: W1 and W2 together own a.go, b.go and sub/**.
+	code, out, _ = cli(t, dir, "", "audit", "docs/plan.md", "W1,W2")
+	if code != 0 || out != "audit ok: W1,W2, 4 changed file(s)\n" {
+		t.Errorf("stage: code %d, out %q", code, out)
+	}
+	if code, _, _ := cli(t, dir, "", "audit", "docs/plan.md", "W1,"); code != 2 {
+		t.Errorf("W1,: code %d, want 2", code)
+	}
+
 	code, out, _ = cli(t, dir, "", "audit", "docs/plan.md", "W9")
 	if code != 1 || !strings.HasPrefix(out, "error: ") {
 		t.Errorf("unknown wave: code %d, out %q", code, out)

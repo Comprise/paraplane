@@ -9,7 +9,7 @@
 | `SessionStart` | — | `session-start` | 10 с | `additionalContext`: одна строка о правилах и `paraplane:rules` (при `progress: task` — ещё и правило показывать прогресс после каждой закрытой задачи); при проблемах конфига — `systemMessage` |
 | `PreToolUse` | `ExitPlanMode` | `pre-tool-use` | 10 с | проверяет план (`tool_input.plan`, иначе файл `planFilePath`, ≤ 1 МБ); есть ошибки E (включая E0) — `deny` со списком нарушений (≤ 20); только W — `additionalContext` |
 | `PreToolUse` | `Skill` | `pre-tool-use` | 10 с | skill исполнения (имя содержит `execut` или `subagent-driven`, не `paraplane:`) — выжимка правил исполнения с режимом прогресса из `progress`; skill с `plan` в имени — выжимка правил составления плана |
-| `PreToolUse` | `Bash`, `if: Bash(paraplane *)` | `pre-tool-use` | 10 с | авто-одобрение `paraplane check <путь>`, `paraplane audit <путь> <волна>`, `paraplane progress [--done <ids>] <путь>` (id через `,`), `paraplane version` |
+| `PreToolUse` | `Bash`, `if: Bash(paraplane *)` | `pre-tool-use` | 10 с | авто-одобрение `paraplane check <путь>`, `paraplane audit <путь> <волна>[,<волна>…]`, `paraplane progress [--done <ids>] <путь>` (id через `,`), `paraplane version` |
 | `PostToolUse` | `Write\|Edit` | `post-tool-use` | 10 с | если файл входит в `plan_paths` — проверка плана: E0 — контекст, E1–E7 — `decision: block`, только W — контекст (и только для `Write`) |
 
 ## Codex: `hooks/codex.json`

@@ -1,8 +1,8 @@
 ---
 unit: cmd/paraplane
-source_hash: sha256:18d59f90a3fb3ad3f6a3fbe1401311549c21aeebd72a3112d35dbfdd932ba65e
-commit: e83fd1f7ea6d385ea24f37f41230bf99588e4597
-updated: "2026-10-22"
+source_hash: sha256:785484e3736d8c0977e0ce4aa01348da2b58fcff12cad90bfdd1364395cda98a
+commit: d3b7e4c68cdd97065be8d78d922d7b565b23d507
+updated: "2026-10-23"
 ---
 # cmd/paraplane
 Бинарник paraplane: CLI check, audit, progress, version и диспетчер хуков `hook <event> [--agent codex]`.
@@ -12,7 +12,7 @@ updated: "2026-10-22"
 
 ## Публичный API / точки входа
 - `check [--suggest] <file>` — находки, при `--suggest` — более короткая раскладка, затем сводка; `-` читает stdin; код 1 при ошибках.
-- `audit <file> <wave>` — файлы, изменённые в git (`gitx.Changed`), вне `owns` волны (A1); код 1 при находках.
+- `audit <file> <wave>[,<wave>…]` — файлы, изменённые в git (`gitx.Changed`), вне `owns` волны или этапа из нескольких волн (`rules.AuditWaves`, A1); код 1 при находках; список волн с запятой проверяется `waveList`, иначе usage и код 2.
 - `progress [--done <ids>] <file>` — прогресс по коммитам волн (`gitx.WaveCommits`) и закрытым незакоммиченным задачам из `--done` (`progress.RenderClosed`), вывод показывается пользователю как есть. `--done` — только перед файлом, id по правилу плана через `,` без пробелов (`doneIDs`); иначе usage и код 2. После вывода — `warning: wave <id> commit <hash>: trailers not in the last paragraph` для каждой волны из `lost` `gitx.WaveCommits`.
 - `hook <event> [--agent claude|codex]` — события из `hookHandlers`: `session-start`, `pre-tool-use`, `post-tool-use`, `stop`, `prompt-submit`, `permission-request`.
 - `version` — значение `main.version`, задаётся через `-ldflags -X` в `Makefile`.

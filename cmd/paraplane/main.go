@@ -22,7 +22,7 @@ const usage = `usage: paraplane <command>
 
 commands:
   check [--suggest] <file>         check a plan; - reads stdin
-  audit <file> <wave>              audit the files changed by a wave
+  audit <file> <wave>[,<wave>…]    audit the files changed by a wave (or a stage of waves)
   progress [--done <ids>] <file>   show the execution progress of a plan;
                                    --done: closed, uncommitted task ids, comma-separated
   hook <session-start|pre-tool-use|post-tool-use> [--agent codex]

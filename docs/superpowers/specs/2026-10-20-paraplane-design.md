@@ -217,7 +217,7 @@ E6 — главное правило «следующий этап не лома
 
 ```
 paraplane check [--suggest] <file>   # проверить план; - читает stdin
-paraplane audit <file> <wave>        # аудит изменений волны (п. 5.1)
+paraplane audit <file> <wave>[,<wave>…]  # аудит изменений волны или этапа (п. 5.1)
 paraplane progress [--done <ids>] <file>  # прогресс исполнения плана (п. 7.1)
 paraplane hook <session-start|pre-tool-use|post-tool-use>
 paraplane version
@@ -306,7 +306,7 @@ W5  ⬜⬜          0/2  · waiting  T16 T17
 | `SessionStart` | — | `additionalContext`: одна строка о правилах и `paraplane:rules` (при `progress: task` — и правило показывать прогресс после каждой закрытой задачи); при проблемах конфига — `systemMessage` |
 | `PreToolUse` | `ExitPlanMode` | проверяет `tool_input.plan` (пусто — читает `planFilePath`, ≤ 1 МБ; нет обоих — молчит); есть E (включая E0) — `permissionDecision: deny` и список нарушений (≤ 20) с инструкцией; только W — `additionalContext` |
 | `PreToolUse` | `Skill` | имя skill не начинается с `paraplane:` и (без учёта регистра) содержит `execut` или `subagent-driven` — `additionalContext` с выжимкой **правил исполнения**, их приоритета над skill и режима прогресса из `progress` (п. 7.1); иначе содержит `plan` — выжимка правил составления плана |
-| `PreToolUse` | `Bash`, `if: Bash(paraplane *)` | авто-одобрение `paraplane check <путь>`, `paraplane audit <путь> <волна>`, `paraplane progress [--done <ids>] <путь>`, `paraplane version` (как в auto-context) |
+| `PreToolUse` | `Bash`, `if: Bash(paraplane *)` | авто-одобрение `paraplane check <путь>`, `paraplane audit <путь> <волна>[,<волна>…]`, `paraplane progress [--done <ids>] <путь>`, `paraplane version` (как в auto-context) |
 | `PostToolUse` | `Write\|Edit` | `file_path` попадает в `plan_paths` — проверка файла (≤ 1 МБ), см. ниже |
 
 PostToolUse не должен шуметь, пока план пишется и пока исполнитель отмечает чекбоксы:
@@ -362,7 +362,9 @@ PostToolUse не должен шуметь, пока план пишется и 
 вне `owns`; если нужно — остановись и сообщи»; задачи волны запускаются одним сообщением;
 после волны — `paraplane audit <plan> <wave>`, затем gate; при нарушении аудита или красном gate —
 исправление до старта следующей волны; **субагенты не коммитят** (параллельные коммиты гоняются за
-`index.lock` и захватывают чужие файлы) — координатор коммитит один раз после зелёного gate волны
+`index.lock` и захватывают чужие файлы) — координатор коммитит один раз после зелёного gate волны (если правила
+проекта требуют коммит на этап — раз в этап, а аудит после каждой волны идёт по всем волнам этапа сразу:
+`paraplane audit <plan> W1,W2`)
 с трейлерами п. 7.1; прогресс показывается по правилу п. 7.1.
 
 Отчёт `conflict-auditor` — список `{kind: shared-file|hidden-write|api-break|order, tasks, file, evidence, fix}`

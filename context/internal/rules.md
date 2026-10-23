@@ -1,8 +1,8 @@
 ---
 unit: internal/rules
-source_hash: sha256:4ce43cb22befdddb954ffe0e7320425d4b867dd38c80c1e9e34155ab9d72bca7
-commit: 77e76831de4e20982a5f91e0748936da7f1a32d8
-updated: "2026-10-21"
+source_hash: sha256:ac226c4586605a9fc7ba7b36d740f378d7256ce5db3f9bf4789bf926d67f02d5
+commit: d3b7e4c68cdd97065be8d78d922d7b565b23d507
+updated: "2026-10-23"
 ---
 # internal/rules
 Валидирует блок paraplane по правилам E0–E7, W1–W5 и проверяет изменения волны против owns (A1).
@@ -15,6 +15,7 @@ updated: "2026-10-21"
 - `Options`: `HotFiles`, `DefaultGate`, `MaxParallel` (0 → 6), `IsDir` (nil — W5 не проверяется), `Deadline`.
 - `Result.Errors()`, `Warnings()`, `Summary()` — последняя строка `paraplane check`.
 - `Audit(p, waveID, changed, planPath, ignore)` → находки A1; неизвестная волна — ошибка, не находка.
+- `AuditWaves(p, waveIDs, …)` — то же для этапа из нескольких волн: файл может принадлежать задаче любой из них; `Where` — id через `,`, в тексте — через `, `. `Audit` = `AuditWaves` с одной волной.
 - `Finding.String()` — `error E2 W1: …`.
 
 ## Структура и поток данных

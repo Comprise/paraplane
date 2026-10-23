@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"io"
+	"regexp"
+	"strings"
 
 	"paraplane/internal/config"
 	"paraplane/internal/gitx"
@@ -15,8 +17,12 @@ import (
 // maxWave caps the runes of a wave id echoed from the arguments.
 const maxWave = 64
 
+// waveList matches the wave argument of audit: one wave id, or several joined
+// by "," for a stage committed at once.
+var waveList = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.-]{0,31}(,[A-Za-z][A-Za-z0-9_.-]{0,31})*$`)
+
 func runAudit(args []string, stdout, stderr io.Writer, cwd string) int {
-	if len(args) != 2 {
+	if len(args) != 2 || (strings.Contains(args[1], ",") && !waveList.MatchString(args[1])) {
 		fmt.Fprint(stderr, usage)
 		return 2
 	}
@@ -32,7 +38,7 @@ func runAudit(args []string, stdout, stderr io.Writer, cwd string) int {
 		printErr(stdout, err)
 		return 1
 	}
-	findings, err := rules.Audit(p, args[1], changed, rel, env.Config.AuditIgnore)
+	findings, err := rules.AuditWaves(p, strings.Split(args[1], ","), changed, rel, env.Config.AuditIgnore)
 	if err != nil {
 		printErr(stdout, err)
 		return 1
