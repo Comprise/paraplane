@@ -276,17 +276,18 @@ func acquire(ctx context.Context, r *os.Root) error {
 			}
 			return err
 		}
-		if !errors.Is(err, fs.ErrExist) {
-			// A pending delete clears in moments; a refusal that lasts is
-			// a real one.
+		fi, lerr := r.Lstat(lockName)
+		if !errors.Is(err, fs.ErrExist) || deletePending(lerr) {
+			// A pending delete refuses both the create and the Lstat; it
+			// clears in moments, a refusal that lasts is a real one.
 			if denied.IsZero() {
 				denied = time.Now()
 			} else if time.Since(denied) > staleLock {
 				return err
 			}
+			lerr = fs.ErrNotExist
 		}
-		fi, err := r.Lstat(lockName)
-		switch {
+		switch err := lerr; {
 		case errors.Is(err, fs.ErrNotExist):
 			// Released meanwhile: retry after the poll interval.
 		case err != nil:
