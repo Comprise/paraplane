@@ -46,9 +46,9 @@ A release cannot be taken back: the branch only grows and tags are immutable. Sh
 These cannot be set by a workflow; set them once in the repository settings.
 
 - **Rulesets** (Settings -> Rules -> Rulesets):
-  - `main`: pull request required; required checks `docs`, `test`, `lint`, `old-git`, `vet-cross`, `plugin`; no force-push, no deletion.
-  - `release` and `release-next`: no deletion, no non-fast-forward; updates only by the GitHub Actions bypass (or a deploy GitHub App); nobody pushes directly.
-  - tags `v*`: creation only by maintainers (bypass list); no update, no deletion.
+  - `main`: required checks from GitHub Actions under their full matrix names: `docs`, `lint`, `plugin`, `vet-cross`, `old-git (debian:bullseye)`, `old-git (ubuntu:22.04)` and `test (<os>, <go>)` for `ubuntu-latest`, `macos-latest`, `windows-latest` × `1.27.x`, `stable` (a bare `test` never reports, so it would block forever); no force-push, no deletion; the repository admin role bypasses.
+  - `release` and `release-next`: no deletion, no non-fast-forward. A repository owned by a user cannot name GitHub Actions as a bypass actor, so updates are not restricted beyond that; in an organization, also restrict updates and let GitHub Actions bypass.
+  - tags `v*`: creation only by the admin role (bypass list); no update, no deletion.
 - **Releases**: enable *Immutable releases*, so the assets of a published release cannot be replaced.
 - **Security**: enable Private vulnerability reporting (referenced by `SECURITY.md`), Dependabot alerts and security updates, secret scanning with push protection.
 - **Actions**: the workflow token defaults to read-only; `GITHUB_TOKEN` write scopes are requested per job.

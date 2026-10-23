@@ -46,9 +46,9 @@
 Workflow их выставить не может; задайте один раз в настройках репозитория.
 
 - **Rulesets** (Settings -> Rules -> Rulesets):
-  - `main`: обязателен pull request; обязательные проверки `docs`, `test`, `lint`, `old-git`, `vet-cross`, `plugin`; без force-push и удаления.
-  - `release` и `release-next`: запрет удаления и non-fast-forward; обновление только через bypass для GitHub Actions (или GitHub App деплоя); прямой push запрещён всем.
-  - теги `v*`: создание только мейнтейнерам (bypass list); запрет update и удаления.
+  - `main`: обязательные проверки от GitHub Actions с полными именами матрицы: `docs`, `lint`, `plugin`, `vet-cross`, `old-git (debian:bullseye)`, `old-git (ubuntu:22.04)` и `test (<ОС>, <Go>)` для `ubuntu-latest`, `macos-latest`, `windows-latest` × `1.27.x`, `stable` (просто `test` никогда не придёт и заблокирует навсегда); без force-push и удаления; роль администратора в исключениях.
+  - `release` и `release-next`: запрет удаления и non-fast-forward. В репозитории пользователя GitHub Actions нельзя добавить в исключения, поэтому обновления сверх этого не ограничены; в организации ограничьте и обновления, а GitHub Actions добавьте в исключения.
+  - теги `v*`: создание только роли администратора (bypass list); запрет update и удаления.
 - **Releases**: включите *Immutable releases*, чтобы ассеты опубликованного Release нельзя было подменить.
 - **Security**: включите Private vulnerability reporting (на него ссылается `SECURITY.ru.md`), Dependabot alerts и security updates, secret scanning с push protection.
 - **Actions**: токен workflow по умолчанию только для чтения; права записи `GITHUB_TOKEN` запрашиваются в конкретных job'ах.
