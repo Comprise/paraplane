@@ -173,7 +173,7 @@ func TestWorkflowsUseShipListAndTagVersion(t *testing.T) {
 		t.Error("ci.yml does not build the shipped tree with make tree (which reads ship.txt)")
 	}
 	rel := read(".github/workflows/release.yml")
-	if n := strings.Count(rel, "$(cat ship.txt)"); n < 2 {
+	if n := strings.Count(rel, "mapfile -t ship < ship.txt"); n < 2 {
 		t.Errorf("release.yml reads ship.txt %d time(s), want the archive and the release branch both from it", n)
 	}
 	for _, want := range []string{
