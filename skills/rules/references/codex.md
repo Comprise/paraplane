@@ -25,6 +25,12 @@ hook text gives, `<plugin dir>/bin/paraplane` (the plugin directory in the Codex
 - **Skills.** `UserPromptSubmit` sees `$…` mentions in the prompt: an execution skill (`execut`,
   `subagent-driven`) brings the execution rules (with the progress mode), a skill with `plan` in its name
   brings the planning rules. Without such a mention, read `progress` in `.paraplane/config.yaml` yourself.
+- **Progress.** In Codex you show the progress; no hook shows it to the user. Codex has no subagent
+  tool, so returned subagents are not seen and nothing is recorded for them. After a commit that names
+  the plan (`git commit`, `merge`, …) the `PostToolUse` hook passes the progress to you as context; show
+  it to the user in a code block. Otherwise run `paraplane progress <plan>` yourself at the moments of
+  `progress` (`references/execution.md`, "Codex: you show it") and pass closed, uncommitted tasks in
+  `--done`.
 
 ## The conflict-auditor without agents
 
@@ -38,6 +44,11 @@ plan afterwards as usual; `error` is never `clean`: fix the input and audit agai
 
 ## Subagents
 
-Execution rules do not change: dispatch the tasks of a wave in one step where Codex can run workers in
-parallel, restrict each to its `owns`, no commits by workers, `paraplane audit` and the gate after the wave,
-one coordinator commit per wave.
+Codex has no subagent tool of the plugin's kind. Where Codex can run workers in parallel, dispatch the
+tasks of a wave in one step; otherwise execute them one after another, which is safe too. The rules stay
+the same: each task changes only its `owns`, workers never commit, `paraplane audit` and the gate run
+after the wave. The coordinator commits by the same three schemes as in Claude Code: once per wave
+(default, `Paraplane-Wave`), once per stage when the project's rules say so (one `Paraplane-Wave` trailer
+per wave, audit with `W1,W2`), or once per task when the project's rules say so (`Paraplane-Task: <id>`,
+no wave commit). The gate is repository code: in a repository you did not write, show it to the user
+before running it.

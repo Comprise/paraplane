@@ -1,19 +1,33 @@
 #!/bin/sh
 # Shim: picks the prebuilt binary in ../libexec for the current OS/arch.
-os=$(uname -s | tr 'A-Z' 'a-z')
+# One uname call and POSIX parameter expansion only (no tr, no dirname): the
+# shim runs on every hook, so every process it starts counts.
+un=$(uname -sm 2>/dev/null)
+os=${un% *}
+arch=${un#* }
 ext=
 case "$os" in
-  mingw*|msys*|cygwin*) os=windows; ext=.exe ;;
-  linux*) os=linux ;;
-  darwin*) os=darwin ;;
+  Linux*) os=linux ;;
+  Darwin*) os=darwin ;;
+  MINGW*|MSYS*|CYGWIN*) os=windows; ext=.exe ;;
 esac
-case "$(uname -m)" in
+case "$arch" in
   x86_64|amd64) arch=amd64 ;;
   aarch64|arm64) arch=arm64 ;;
-  *) arch=unknown ;;
 esac
-bin="$(dirname "$0")/../libexec/paraplane-$os-$arch$ext"
-if [ -e "$bin" ]; then problem="is not executable"; else problem="was not found"; fi
+case "$0" in
+  */*) here=${0%/*} ;;
+  *) here=. ;;
+esac
+bin="$here/../libexec/paraplane-$os-$arch$ext"
+case "$os/$arch" in
+  linux/amd64|linux/arm64|darwin/amd64|darwin/arm64|windows/amd64|windows/arm64)
+    supported=1
+    if [ -e "$bin" ]; then problem="is not executable"; else problem="was not found"; fi ;;
+  *)
+    supported=
+    problem="is not built for this platform (supported: linux, darwin, windows on amd64/arm64)" ;;
+esac
 # project_root: like the binary, the nearest dir up from the project dir with
 # .git or .paraplane/config.yaml (never climbing into $HOME from below it);
 # without a marker, the project dir itself.
@@ -26,7 +40,9 @@ project_root() {
       printf '%s\n' "$cur"
       return
     fi
-    parent=$(dirname "$cur")
+    [ "$cur" = / ] && break
+    parent=${cur%/*}
+    [ -n "$parent" ] || parent=/
     [ "$parent" = "$cur" ] && break
     cur=$parent
   done
@@ -37,12 +53,21 @@ if [ ! -x "$bin" ]; then
   if [ "$1" = hook ]; then
     # Say why nothing happens, once per session, unless the project disabled the plugin.
     if [ "$2" = session-start ] && ! grep -q '^enabled:[[:space:]]*false' "$(project_root)/.paraplane/config.yaml" 2>/dev/null; then
-      msg=$(printf '%s' "paraplane: the binary for $os/$arch $problem ($bin), plan checks are off. Reinstall the plugin (it installs from the release branch)." | sed 's/\\/\\\\/g; s/"/\\"/g')
+      if [ -n "$supported" ]; then
+        text="paraplane: the binary for $os/$arch $problem ($bin), plan checks are off. Reinstall the plugin (it installs from the release branch)."
+      else
+        text="paraplane: $os/$arch $problem, plan checks are off."
+      fi
+      msg=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g')
       printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart"}}\n' "$msg"
     fi
     exit 0
   fi
-  echo "paraplane: binary for $os/$arch $problem: $bin" >&2
+  if [ -n "$supported" ]; then
+    echo "paraplane: binary for $os/$arch $problem: $bin" >&2
+  else
+    echo "paraplane: $os/$arch $problem" >&2
+  fi
   exit 1
 fi
 if [ "$1" = hook ]; then
