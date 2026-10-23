@@ -3,6 +3,7 @@
 
 - `state.go` — `State`, `Entry`, `Shown`, `ScanCache`, `Load`, `Update`, методы `Add`/`Prune`/`Forget`/`TakePending`/`Closed`, `ErrBusy`, `ErrVersion`
 - `nonblock_unix.go`, `nonblock_other.go` — флаг неблокирующего открытия (FIFO)
+- `lock_windows.go`, `lock_other.go` — `deletePending`: на Windows создание блокировки, чьё удаление ещё не завершилось, даёт «доступ запрещён»
 - `state_test.go`, `fifo_unix_test.go` — валидация, дедуп, версия, симлинки, `os.Root`, блокировка (каталог, брошенная, гонка перехвата, `synctest`), `FuzzLoad`
 - `proc_test.go` — `TestMain` с дочерним режимом: два процесса перехватывают одну брошенную блокировку
 

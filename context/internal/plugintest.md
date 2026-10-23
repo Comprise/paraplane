@@ -1,7 +1,7 @@
 ---
 unit: internal/plugintest
-source_hash: sha256:318f49fe0198973db00a1076346bab0592318f55e739a71c3ca624fcb7857f02
-commit: ee26fb1c0e795a3aaa095fbd0556059d4c9450de
+source_hash: sha256:ad968a27c8ef0af8ea64f663ede9e8e6da3336f3f869e43161868788959882ac
+commit: 7eb0946e7d1b5a6bf8f0334325cff92135ed34ea
 updated: "2026-10-23"
 ---
 # internal/plugintest

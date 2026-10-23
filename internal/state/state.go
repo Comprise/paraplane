@@ -258,6 +258,7 @@ func decode(data []byte) (State, error) {
 // acquire takes the lock file of r. A non-regular lock path is ErrBusy at
 // once; a stale lock is taken over; every wait ends with ctx.
 func acquire(ctx context.Context, r *os.Root) error {
+	var denied time.Time // first create refused as a pending delete
 	for {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("%w: %w", ErrBusy, err)
@@ -267,8 +268,22 @@ func acquire(ctx context.Context, r *os.Root) error {
 			l.Close()
 			return nil
 		}
-		if !errors.Is(err, fs.ErrExist) {
+		if !errors.Is(err, fs.ErrExist) && !deletePending(err) {
+			// Windows reports a directory at the lock path as an open
+			// error, not as ErrExist.
+			if fi, lerr := r.Lstat(lockName); lerr == nil && !fi.Mode().IsRegular() {
+				return ErrBusy
+			}
 			return err
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			// A pending delete clears in moments; a refusal that lasts is
+			// a real one.
+			if denied.IsZero() {
+				denied = time.Now()
+			} else if time.Since(denied) > staleLock {
+				return err
+			}
 		}
 		fi, err := r.Lstat(lockName)
 		switch {
