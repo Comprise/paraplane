@@ -237,6 +237,7 @@ func TestWaveCommitsLostTrailers(t *testing.T) {
 		"w3 ok\n\nParaplane-Plan: plan.md\nParaplane-Wave: W3\nCo-Authored-By: A <a@b>\n",
 		"w3 lost too\n\nParaplane-Plan: plan.md\nParaplane-Wave: W3\n\nCo-Authored-By: A <a@b>\n",
 		"other plan\n\nParaplane-Plan: other.md\nParaplane-Wave: W4\n\nCo-Authored-By: A <a@b>\n",
+		"stage lost\n\nParaplane-Plan: plan.md\nParaplane-Wave: W5\nParaplane-Wave: W6\n\nCo-Authored-By: A <a@b>\n",
 		"prose mentions Paraplane-Wave: W5 inline\n",
 	}
 	for i, m := range msgs {
@@ -257,8 +258,8 @@ func TestWaveCommitsLostTrailers(t *testing.T) {
 		}
 		ids = append(ids, l.Wave)
 	}
-	if !reflect.DeepEqual(ids, []string{"W1", "W2"}) {
-		t.Errorf("lost %v, want W1 W2", lost)
+	if !reflect.DeepEqual(ids, []string{"W1", "W2", "W5", "W6"}) {
+		t.Errorf("lost %v, want W1 W2 W5 W6", lost)
 	}
 }
 
@@ -381,8 +382,9 @@ func TestChangedIgnoresGitConfigEnv(t *testing.T) {
 }
 
 // TestWaveCommitsTrailers: a plan trailer without a wave trailer is ignored;
-// keys match case-insensitively; when a commit repeats a trailer, its last
-// occurrence wins.
+// keys match case-insensitively; a commit may close several waves (one
+// Paraplane-Wave trailer each, an invalid one skipped); when a commit repeats
+// the plan trailer, its last occurrence wins.
 func TestWaveCommitsTrailers(t *testing.T) {
 	needGit(t, 2, 22, "%(trailers:key=)")
 	dir := initRepo(t)
@@ -390,7 +392,7 @@ func TestWaveCommitsTrailers(t *testing.T) {
 		"no wave\n\nParaplane-Plan: plan.md\n",
 		"wave only\n\nParaplane-Wave: W7\n",
 		"lower case\n\nparaplane-plan: plan.md\nPARAPLANE-WAVE: W1\n",
-		"dup wave\n\nParaplane-Plan: plan.md\nParaplane-Wave: W8\nParaplane-Wave: W2\n",
+		"two waves\n\nParaplane-Plan: plan.md\nParaplane-Wave: W8\nParaplane-Wave: 1bad\nParaplane-Wave: W2\n",
 		"dup plan, last other\n\nParaplane-Plan: plan.md\nParaplane-Plan: other.md\nParaplane-Wave: W9\n",
 		"dup plan, last ours\n\nParaplane-Plan: other.md\nParaplane-Plan: plan.md\nParaplane-Wave: W3\n",
 	}
@@ -402,7 +404,7 @@ func TestWaveCommitsTrailers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"W1", "W2", "W3"}
+	want := []string{"W1", "W8", "W2", "W3"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v want %v", got, want)
 	}

@@ -213,7 +213,9 @@ type LostTrailer struct {
 
 // WaveCommits returns the ids of waves committed with the Paraplane-Plan
 // trailer equal to planPath, in order of first appearance, without duplicates.
-// When a commit repeats a trailer, its last occurrence wins. lost lists, once
+// A commit may close several waves, one Paraplane-Wave trailer each (a project
+// that commits once per stage); when it repeats the plan trailer, the last
+// occurrence wins. lost lists, once
 // per wave and only for waves missing from waves, the commits whose
 // Paraplane-* lines for planPath git does not read as trailers. Only commits
 // with a line starting with Paraplane-Wave: are read. It needs git 2.22 or
@@ -242,12 +244,16 @@ func WaveCommits(root, planPath string) (waves []string, lost []LostTrailer, err
 	for _, rec := range strings.Split(string(out), "\x1e") {
 		hash, rest, _ := strings.Cut(strings.TrimLeft(rec, "\n"), "\x1f")
 		trailers, body, _ := strings.Cut(rest, "\x1f")
-		if wave, ok := paraplaneLines(trailers, planPath); ok {
-			if !slices.Contains(waves, wave) {
-				waves = append(waves, wave)
+		if ws := paraplaneLines(trailers, planPath); len(ws) > 0 {
+			for _, w := range ws {
+				if !slices.Contains(waves, w) {
+					waves = append(waves, w)
+				}
 			}
-		} else if wave, ok := paraplaneLines(body, planPath); ok {
-			lostAll = append(lostAll, LostTrailer{Commit: hash, Wave: wave})
+		} else {
+			for _, w := range paraplaneLines(body, planPath) {
+				lostAll = append(lostAll, LostTrailer{Commit: hash, Wave: w})
+			}
 		}
 	}
 	for _, l := range lostAll {
@@ -259,10 +265,11 @@ func WaveCommits(root, planPath string) (waves []string, lost []LostTrailer, err
 }
 
 // paraplaneLines reads Paraplane-Plan and Paraplane-Wave lines (key case
-// ignored, the last of each wins) and reports the wave when the plan is
-// planPath and the wave is a valid id.
-func paraplaneLines(text, planPath string) (string, bool) {
-	var plan, wave string
+// ignored; the last plan wins) and returns the valid wave ids, in order, when
+// the plan is planPath.
+func paraplaneLines(text, planPath string) []string {
+	var plan string
+	var waves []string
 	var hasPlan bool
 	for _, line := range strings.Split(text, "\n") {
 		k, v, ok := strings.Cut(line, ":")
@@ -274,10 +281,15 @@ func paraplaneLines(text, planPath string) (string, bool) {
 		case "paraplane-plan":
 			plan, hasPlan = v, true
 		case "paraplane-wave":
-			wave = v
+			if waveID.MatchString(v) {
+				waves = append(waves, v)
+			}
 		}
 	}
-	return wave, hasPlan && plan == planPath && waveID.MatchString(wave)
+	if !hasPlan || plan != planPath {
+		return nil
+	}
+	return waves
 }
 
 // Changed returns the files changed in the working tree relative to root

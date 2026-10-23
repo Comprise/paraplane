@@ -71,6 +71,11 @@ The coordinator is the main Claude session. Subagents implement tasks.
    not counted and `paraplane progress` prints `warning: wave <id> commit <hash>: trailers not in the last
    paragraph`. Amend such a commit (`git commit --amend`) so the trailers form the last paragraph.
 
+   When the project's own rules (its `CLAUDE.md`, say) require one commit per stage of several waves,
+   follow them: that commit lists every wave it closes, one `Paraplane-Wave` trailer each
+   (`Paraplane-Wave: W1`, `Paraplane-Wave: W2`), and progress counts all of them. Audit and gate still run
+   after each wave.
+
 5. **Show progress** as the next section says.
 
 ## When to show progress

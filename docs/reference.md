@@ -211,7 +211,8 @@ gives `warning: --done <id> is not a task of the plan`, a task of a waiting wave
 Git reads trailers only from the last paragraph of a commit message, so `Paraplane-Plan` and
 `Paraplane-Wave` go there together with `Co-Authored-By` and other trailers, without a blank line between
 them. A commit whose `Paraplane-*` lines git does not read as trailers leaves its wave uncounted and gives
-`warning: wave <id> commit <hash>: trailers not in the last paragraph`; amend it. An empty list, a bad id or the flag
+`warning: wave <id> commit <hash>: trailers not in the last paragraph`; amend it. One commit may close several
+waves (a project that commits once per stage): give it one `Paraplane-Wave` trailer per wave, and each counts. An empty list, a bad id or the flag
 twice is a usage error (exit 2).
 
 When the coordinator shows progress depends on the key `progress`: `wave` (default) — after each closed
