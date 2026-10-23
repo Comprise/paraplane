@@ -1,15 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
-	"regexp"
-	"slices"
 	"strings"
 
 	"paraplane/internal/config"
 	"paraplane/internal/gitx"
 	"paraplane/internal/hooks"
+	"paraplane/internal/ids"
 	"paraplane/internal/plan"
 	"paraplane/internal/rules"
 	"paraplane/internal/textx"
@@ -18,30 +18,35 @@ import (
 // maxWave caps the runes of a wave id echoed from the arguments.
 const maxWave = 64
 
-// waveList matches the wave argument of audit: one wave id, or several joined
-// by "," for a stage committed at once.
-var waveList = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.-]{0,31}(,[A-Za-z][A-Za-z0-9_.-]{0,31})*$`)
+// maxAuditLines caps the A1 lines audit prints; the rest is counted.
+const maxAuditLines = 100
 
 func runAudit(args []string, stdout, stderr io.Writer, cwd string) int {
-	if len(args) != 2 || (strings.Contains(args[1], ",") && !waveList.MatchString(args[1])) {
+	if len(args) != 2 {
+		fmt.Fprint(stderr, usage)
+		return 2
+	}
+	if _, ok := ids.ParseList(args[1]); !ok {
 		fmt.Fprint(stderr, usage)
 		return 2
 	}
 	root := config.FindRoot(cwd)
 	env := loadEnv(stdout, root)
-	p, rel, err := loadValidPlan(args[0], cwd, env)
+	p, rel, _, err := loadValidPlan(args[0], cwd, env)
 	if err != nil {
 		printErr(stdout, err)
 		return 1
 	}
-	changed, err := gitx.Changed(root)
+	// The CLI has no deadline of its own; gitx bounds every git call.
+	ctx := context.Background()
+	changed, err := gitx.ChangedContext(ctx, root)
 	if err != nil {
-		printErr(stdout, err)
+		printErr(stdout, auditGitError(err))
 		return 1
 	}
-	commits, err := gitx.PlanCommitFiles(root, rel)
+	commits, err := gitx.PlanCommitFilesContext(ctx, root, rel)
 	if err != nil {
-		printErr(stdout, err)
+		printErr(stdout, auditGitError(err))
 		return 1
 	}
 	var cf []rules.CommitFiles
@@ -55,14 +60,18 @@ func runAudit(args []string, stdout, stderr io.Writer, cwd string) int {
 		return 1
 	}
 	wave := textx.Line(args[1], maxWave)
-	for _, f := range findings {
+	for i, f := range findings {
+		if i == maxAuditLines {
+			fmt.Fprintf(stdout, "… and %d more\n", len(findings)-maxAuditLines)
+			break
+		}
 		fmt.Fprintln(stdout, textx.Line(f.String(), maxLine))
 	}
 	if len(findings) > 0 {
 		fmt.Fprintf(stdout, "audit failed: %d file(s) outside %s\n", len(findings), wave)
 		return 1
 	}
-	if n := waveCommits(cf, p, waves); n > 0 {
+	if n := rules.CommitsOfWaves(p, waves, cf); n > 0 {
 		fmt.Fprintf(stdout, "audit ok: %s, %d changed file(s), %d commit(s)\n", wave, len(changed), n)
 		return 0
 	}
@@ -71,11 +80,11 @@ func runAudit(args []string, stdout, stderr io.Writer, cwd string) int {
 }
 
 // loadValidPlan reads the plan file name and checks it; a plan with errors
-// (E0–E7) is an error. rel is the plan path from the root with "/".
-func loadValidPlan(name, cwd string, env hooks.Env) (*plan.Plan, string, error) {
+// (E0–E7) is an error. md is the file content; rel is the plan path from the root with "/".
+func loadValidPlan(name, cwd string, env hooks.Env) (*plan.Plan, string, []byte, error) {
 	md, rel, err := readPlanFile(name, cwd, env.Root)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	r := rules.Check(md, cliOptions(env))
 	if n := r.Errors(); n > 0 || r.Plan == nil {
@@ -86,28 +95,17 @@ func loadValidPlan(name, cwd string, env hooks.Env) (*plan.Plan, string, error) 
 				break
 			}
 		}
-		return nil, "", fmt.Errorf("%s is not a valid plan (%d error(s), first: %s); run paraplane check %s",
+		return nil, "", nil, fmt.Errorf("%s is not a valid plan (%d error(s), first: %s); run paraplane check %s",
 			textx.Line(name, maxName), n, first, textx.Line(name, maxName))
 	}
-	return r.Plan, rel, nil
+	return r.Plan, rel, md, nil
 }
 
-// waveCommits counts the commits that name one of waves or a task of them.
-func waveCommits(cs []rules.CommitFiles, p *plan.Plan, waves []string) int {
-	in := map[string]bool{}
-	for _, w := range p.Waves {
-		if slices.Contains(waves, w.ID) {
-			in[w.ID] = true
-			for _, t := range w.Tasks {
-				in[t.ID] = true
-			}
-		}
+// auditGitError adds the way out to the error of a git output over the
+// limit: the changed files of a huge untracked tree.
+func auditGitError(err error) error {
+	if strings.Contains(err.Error(), "git output too large") {
+		return fmt.Errorf("%w; add generated or vendored files to .gitignore", err)
 	}
-	n := 0
-	for _, c := range cs {
-		if slices.ContainsFunc(c.Waves, func(id string) bool { return in[id] }) || slices.ContainsFunc(c.Tasks, func(id string) bool { return in[id] }) {
-			n++
-		}
-	}
-	return n
+	return err
 }

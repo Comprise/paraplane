@@ -12,17 +12,20 @@ updated: "2026-10-23"
 
 ## Публичный API / точки входа
 - `check [--suggest] <file>` — находки, при `--suggest` — более короткая раскладка, затем сводка; `-` читает stdin; код 1 при ошибках.
-- `audit <file> <wave>[,<wave>…]` — файлы рабочего дерева (`gitx.Changed`) и коммитов волн (`gitx.PlanCommitFiles`) против `owns` (`rules.AuditCommits`, A1); итог `audit ok: W, n changed file(s)[, m commit(s)]`; код 1 при находках; список волн с запятой проверяется `waveList`, иначе usage и код 2.
-- `progress [--done <ids>] <file>` — прогресс через `track.PlanStatus`: коммиты волн, этапов и задач, задачи вернувшихся субагентов из `<git-dir>/paraplane/closed.json` и `--done`; вывод (с предупреждениями о потерянных трейлерах) показывается пользователю как есть. `--done` — только перед файлом, id по правилу плана через `,` без пробелов (`doneIDs`); иначе usage и код 2. После вывода — `warning: wave <id> commit <hash>: trailers not in the last paragraph` для каждой волны из `lost` `gitx.WaveCommits`.
+- `audit <file> <wave>[,<wave>…]` — файлы рабочего дерева (`gitx.ChangedContext`) и коммитов волн (`gitx.PlanCommitFilesContext`) против `owns` (`rules.AuditCommits`, A1); число коммитов волн — `rules.CommitsOfWaves`; итог `audit ok: W, n changed file(s)[, m commit(s)]`; код 1 при находках; каждый id волны (и в списке, и одиночный) проверяется `ids.ParseList`, иначе usage и код 2. Печатается не больше 100 строк A1, остальное — `… and <n> more`; ошибка «git output too large» (16 МиБ) дополняется подсказкой добавить файлы в `.gitignore` (`auditGitError`).
+- `progress [--done <ids>] <file>` — прогресс через `track.PlanStatusContext` с хэшем блока плана (`track.PlanHash`): коммиты волн, этапов и задач, задачи вернувшихся субагентов из `<git-dir>/paraplane/closed.json` (только записи с тем же хэшем) и `--done`; вывод (с предупреждениями о потерянных трейлерах) показывается пользователю как есть. `--done` — только перед файлом, id через `,` без пробелов (`ids.ParseList`); иначе usage и код 2. После вывода — `warning: wave <id> commit <hash>: trailers not in the last paragraph` для каждой волны из `lost` `gitx.WaveCommits`.
+- `progress --forget <ids> <file>` — убирает записи этих задач плана (`State.Forget`) и ключ плана в `State.Shown` одним `state.UpdateCtx` (иначе хук прогресса молчал бы: `Shown` только растёт). Нет записей — ничего не пишет и говорит `nothing recorded for …`; id не из плана — `error: task … is not in …`, код 2.
 - `hook <event> [--agent claude|codex]` — события из `hookHandlers`: `session-start`, `pre-tool-use`, `post-tool-use`, `subagent-stop` (только Claude), `stop` (Codex — проверка плана, Claude — показ ожидающего прогресса), `prompt-submit`, `permission-request`.
-- `version` — значение `main.version`, задаётся через `-ldflags -X` в `Makefile`.
+- `version [-v]` — `main.version` из `-ldflags -X` (пусто — версия модуля из `debug.ReadBuildInfo`, иначе `dev`); `-v` печатает `paraplane <версия>`, `go <версия Go>`, `revision <vcs.revision>[ (modified)]` (`unknown` без VCS-штампа).
 - Коды выхода: 0 — успех, 1 — ошибка или находки, 2 — неверные аргументы (usage в stderr).
 
 ## Структура и поток данных
 - `start` → `run` → `runCheck` / `runAudit` / `runProgress` / `runHook`.
 - Корень проекта для CLI: `config.FindRoot(cwd)`.
 - Корень для хука (`hookRoot`): `CLAUDE_PROJECT_DIR`, иначе `cwd` из payload, иначе cwd процесса, затем `config.FindRoot`.
-- Проверка плана в CLI — `hooks.Options` без дедлайна (`cliOptions`).
+- Проверка плана в CLI — `rules.OptionsFor` без дедлайна (`cliOptions`). CLI вызывает git с `context.Background()`: лимит на вызов задаёт `gitx`.
+- `runHook` создаёт один `context` на 7 с (`hookBudget`, хост убивает хук на 10 с) и кладёт его в `hooks.Env.Ctx`; ответ с `hookSpecificOutput.hookEventName`, не равным событию (`hookEventNames`), отбрасывается с сообщением в stderr.
+- `PARAPLANE_DEBUG=1` — одна строка `paraplane: debug: hook <event> <n>ms[ error: …]` в stderr на хук; stdout не меняется.
 - `audit` и `progress` требуют план без ошибок (`loadValidPlan`), иначе ошибка с первой находкой и подсказкой запустить `check`.
 
 ## Инварианты и подводные камни
@@ -38,5 +41,5 @@ updated: "2026-10-23"
 - Тесты фиксируют контракт манифестов: `hooks/hooks.json` должен совпадать с эталоном байт в байт, обработчики `prompt-submit`, `permission-request` — только в `hooks/codex.json`; `stop` — в обоих манифестах, `subagent-stop` — только в `hooks/hooks.json`. Новый обработчик требует правки `hookHandlers`, манифеста и `codexOnly` в тестах.
 
 ## Связи (зависит от / используется в)
-- Зависит от: `internal/hooks`, `internal/config`, `internal/rules`, `internal/layout`, `internal/plan`, `internal/gitx`, `internal/progress`, `internal/fsx`, `internal/textx`.
+- Зависит от: `internal/hooks`, `internal/config`, `internal/rules`, `internal/layout`, `internal/plan`, `internal/gitx`, `internal/progress`, `internal/fsx`, `internal/textx`, `internal/ids`, `internal/state`, `internal/track`.
 - Используется в: `bin/paraplane` (шим), `hooks/hooks.json`, `hooks/codex.json`, скиллы плагина (`paraplane check|audit|progress`), `Makefile` (сборка в `libexec/`).

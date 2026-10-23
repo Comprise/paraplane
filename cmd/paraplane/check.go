@@ -92,11 +92,9 @@ func loadEnv(w io.Writer, root string) hooks.Env {
 	return hooks.Env{Root: root, Config: cfg, ConfigErr: err}
 }
 
-// cliOptions are the hook options without a deadline: the CLI may take its time.
+// cliOptions are the check options without a deadline: the CLI may take its time.
 func cliOptions(env hooks.Env) rules.Options {
-	o := hooks.Options(env)
-	o.Deadline = time.Time{}
-	return o
+	return rules.OptionsFor(env.Config, env.Root, time.Time{})
 }
 
 // printErr prints err as one clean "error: …" line.

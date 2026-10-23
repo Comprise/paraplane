@@ -260,8 +260,8 @@ waves:
 - A-H2: `progress --forget <ids> <file>` (ids via `ids.ParseList`; the approval regex in R10 covers it).
 - C-M4: `PARAPLANE_DEBUG=1` → hook timings and errors to stderr; `version -v` prints version, Go version, VCS revision (`debug.ReadBuildInfo`, BP-L7 fallback when `-X` is missing).
 - `hooks/hooks.json`/`codex.json`: `timeout` stays 10; no other change (exec form declined).
-- [ ] **Step 1: Failing tests** `TestRunHookBudget`, `TestRunHookEventMismatchDropped`, `TestAuditOutputCap`, `TestProgressForget`, `TestVersionVerbose`, `TestDebugEnv`.
-- [ ] **Step 2–4:** FAIL → implement → PASS.
+- [x] **Step 1: Failing tests** `TestRunHookBudget`, `TestRunHookEventMismatchDropped`, `TestAuditOutputCap`, `TestProgressForget`, `TestVersionVerbose`, `TestDebugEnv`.
+- [x] **Step 2–4:** FAIL → implement → PASS.
 
 ### Task R12: docs
 

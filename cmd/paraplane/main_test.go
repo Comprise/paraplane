@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"paraplane/internal/gitx"
 	"paraplane/internal/hooks"
 	"paraplane/internal/state"
+	"paraplane/internal/track"
 )
 
 // planMD wraps a ```paraplane block body into a Markdown plan.
@@ -368,7 +370,7 @@ func TestProgressState(t *testing.T) {
 	}
 	head, _ := gitx.Head(dir)
 	if err := state.Update(g, func(s *state.State) {
-		s.Entries = append(s.Entries, state.Entry{Plan: "docs/plan.md", Task: "T1", Head: head})
+		s.Entries = append(s.Entries, state.Entry{Plan: "docs/plan.md", Task: "T1", Head: head, PlanHash: track.PlanHash([]byte(validPlan))})
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -541,7 +543,7 @@ func TestHooksJSONContract(t *testing.T) {
 
 func TestVersion(t *testing.T) {
 	code, out, _ := cli(t, t.TempDir(), "", "version")
-	if code != 0 || out != version+"\n" {
+	if code != 0 || out != buildVersion()+"\n" {
 		t.Errorf("code %d, out %q", code, out)
 	}
 	if code, _, _ := cli(t, t.TempDir(), "", "version", "x"); code != 2 {
@@ -872,3 +874,213 @@ func TestHookIOErrors(t *testing.T) {
 }
 
 var _ io.Reader = errReader{}
+
+// stubHandler replaces the handler of event for the test.
+func stubHandler(t *testing.T, event string, h func(hooks.Env, hooks.Input) ([]byte, error)) {
+	t.Helper()
+	old := hookHandlers[event]
+	hookHandlers[event] = h
+	t.Cleanup(func() { hookHandlers[event] = old })
+}
+
+func TestRunHookBudget(t *testing.T) {
+	dir := project(t)
+	t.Setenv("CLAUDE_PROJECT_DIR", dir)
+	var left time.Duration
+	stubHandler(t, "session-start", func(env hooks.Env, _ hooks.Input) ([]byte, error) {
+		if env.Ctx == nil {
+			return nil, errors.New("no ctx")
+		}
+		d, ok := env.Ctx.Deadline()
+		if !ok {
+			return nil, errors.New("no deadline")
+		}
+		left = time.Until(d)
+		return nil, nil
+	})
+	var o, e bytes.Buffer
+	if code := run([]string{"hook", "session-start"}, strings.NewReader(`{}`), &o, &e, dir); code != 0 || e.Len() != 0 {
+		t.Fatalf("code %d, stderr %q", code, e.String())
+	}
+	if left < 6*time.Second || left > 7*time.Second {
+		t.Errorf("budget left %v, want about 7s", left)
+	}
+}
+
+func TestRunHookEventMismatchDropped(t *testing.T) {
+	dir := project(t)
+	t.Setenv("CLAUDE_PROJECT_DIR", dir)
+	answer := `{"hookSpecificOutput":{"hookEventName":"Stop"}}`
+	stubHandler(t, "session-start", func(hooks.Env, hooks.Input) ([]byte, error) { return []byte(answer), nil })
+	var o, e bytes.Buffer
+	if code := run([]string{"hook", "session-start"}, strings.NewReader(`{}`), &o, &e, dir); code != 0 || o.Len() != 0 ||
+		!strings.Contains(e.String(), "SessionStart") || !strings.Contains(e.String(), "Stop") {
+		t.Errorf("mismatch: code %d, stdout %q, stderr %q", code, o.String(), e.String())
+	}
+	answer = `{"hookSpecificOutput":{"hookEventName":"SessionStart"}}`
+	o.Reset()
+	e.Reset()
+	if code := run([]string{"hook", "session-start"}, strings.NewReader(`{}`), &o, &e, dir); code != 0 ||
+		o.String() != answer+"\n" || e.Len() != 0 {
+		t.Errorf("match: code %d, stdout %q, stderr %q", code, o.String(), e.String())
+	}
+	answer = `{"systemMessage":"x"}`
+	o.Reset()
+	if code := run([]string{"hook", "session-start"}, strings.NewReader(`{}`), &o, &e, dir); code != 0 || o.String() != answer+"\n" {
+		t.Errorf("no event name: code %d, stdout %q", code, o.String())
+	}
+}
+
+func TestAuditOutputCap(t *testing.T) {
+	dir := repo(t, validPlan)
+	for i := range 105 {
+		write(t, dir, fmt.Sprintf("stray/f%03d.txt", i), "x\n")
+	}
+	code, out, _ := cli(t, dir, "", "audit", "docs/plan.md", "W1")
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	if code != 1 || len(lines) != 102 {
+		t.Fatalf("code %d, %d lines:\n%s", code, len(lines), out)
+	}
+	if !strings.HasPrefix(lines[99], "error A1 W1: stray/f099.txt") || lines[100] != "… and 5 more" ||
+		lines[101] != "audit failed: 105 file(s) outside W1" {
+		t.Errorf("tail: %q", lines[99:])
+	}
+
+	if got := auditGitError(errors.New("git status: git output too large")); !strings.Contains(got.Error(), ".gitignore") {
+		t.Errorf("too large: %v", got)
+	}
+	for _, w := range []string{"1x", "W1,", ",W1", "W1 W2", "W1;ls", ""} {
+		if code, _, errOut := cli(t, dir, "", "audit", "docs/plan.md", w); code != 2 || !strings.Contains(errOut, "usage") {
+			t.Errorf("wave %q: code %d, stderr %q", w, code, errOut)
+		}
+	}
+	plain := errors.New("boom")
+	if got := auditGitError(plain); got != plain {
+		t.Errorf("other error changed: %v", got)
+	}
+}
+
+func TestProgressForget(t *testing.T) {
+	dir := repo(t, validPlan)
+	g, err := gitx.GitDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Nothing recorded: no state is created.
+	code, out, _ := cli(t, dir, "", "progress", "--forget", "T1", "docs/plan.md")
+	if code != 0 || !strings.Contains(out, "nothing recorded") {
+		t.Errorf("empty: code %d, out %q", code, out)
+	}
+	if _, err := os.Stat(filepath.Join(g, "paraplane")); !os.IsNotExist(err) {
+		t.Errorf("state dir created: %v", err)
+	}
+
+	head, _ := gitx.Head(dir)
+	hash := track.PlanHash([]byte(validPlan))
+	if err := state.Update(g, func(s *state.State) {
+		s.Entries = append(s.Entries,
+			state.Entry{Plan: "docs/plan.md", Task: "T1", Head: head, PlanHash: hash},
+			state.Entry{Plan: "other.md", Task: "T1", Head: head, PlanHash: hash})
+		s.Shown = map[string]state.Shown{"docs/plan.md": {Waves: 1, Tasks: 1}, "other.md": {Tasks: 1}}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, _ := cli(t, dir, "", "progress", "docs/plan.md"); code != 0 || !strings.Contains(out, "✓ done") {
+		t.Fatalf("before: code %d, out %q", code, out)
+	}
+	code, out, _ = cli(t, dir, "", "progress", "--forget", "T1", "docs/plan.md")
+	if code != 0 || strings.Contains(out, "error") {
+		t.Fatalf("forget: code %d, out %q", code, out)
+	}
+	st, _ := state.LoadState(g)
+	if len(st.Entries) != 1 || st.Entries[0].Plan != "other.md" {
+		t.Errorf("entries: %+v", st.Entries)
+	}
+	if _, ok := st.Shown["docs/plan.md"]; ok || st.Shown["other.md"].Tasks != 1 {
+		t.Errorf("shown: %+v", st.Shown)
+	}
+	if code, out, _ := cli(t, dir, "", "progress", "docs/plan.md"); code != 0 || strings.Contains(out, "✓ done") {
+		t.Errorf("after: code %d, out %q", code, out)
+	}
+
+	if code, out, _ := cli(t, dir, "", "progress", "--forget", "T9", "docs/plan.md"); code != 2 || !strings.Contains(out, "T9") {
+		t.Errorf("unknown id: code %d, out %q", code, out)
+	}
+	for _, args := range [][]string{
+		{"progress", "--forget", "", "docs/plan.md"},
+		{"progress", "--forget", "T1,", "docs/plan.md"},
+		{"progress", "--forget", "T1"},
+		{"progress", "--forget", "T1", "--done", "T1", "docs/plan.md"},
+		{"progress", "docs/plan.md", "--forget", "T1"},
+	} {
+		if code, _, errOut := cli(t, dir, "", args...); code != 2 || !strings.Contains(errOut, "usage") {
+			t.Errorf("%q: code %d, stderr %q", args, code, errOut)
+		}
+	}
+}
+
+func TestVersionVerbose(t *testing.T) {
+	code, out, _ := cli(t, t.TempDir(), "", "version", "-v")
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	if code != 0 || len(lines) != 3 || lines[0] != "paraplane "+buildVersion() ||
+		lines[1] != "go "+runtime.Version() || !strings.HasPrefix(lines[2], "revision ") {
+		t.Errorf("code %d, out %q", code, out)
+	}
+	if code, _, _ := cli(t, t.TempDir(), "", "version", "-v", "x"); code != 2 {
+		t.Errorf("extra arg: code %d", code)
+	}
+
+	bi := &debug.BuildInfo{Main: debug.Module{Version: "v1.2.3"}}
+	if got := versionFrom("1.0.0", bi); got != "1.0.0" {
+		t.Errorf("ldflags: %q", got)
+	}
+	if got := versionFrom("", bi); got != "v1.2.3" {
+		t.Errorf("module: %q", got)
+	}
+	bi.Main.Version = "(devel)"
+	if got := versionFrom("", bi); got != "dev" {
+		t.Errorf("devel: %q", got)
+	}
+	if got := versionFrom("", nil); got != "dev" {
+		t.Errorf("no build info: %q", got)
+	}
+	bi.Settings = []debug.BuildSetting{{Key: "vcs.revision", Value: "abc"}, {Key: "vcs.modified", Value: "true"}}
+	if got := revisionFrom(bi); got != "abc (modified)" {
+		t.Errorf("revision: %q", got)
+	}
+	if got := revisionFrom(nil); got != "unknown" {
+		t.Errorf("no revision: %q", got)
+	}
+}
+
+func TestDebugEnv(t *testing.T) {
+	dir := project(t)
+	t.Setenv("CLAUDE_PROJECT_DIR", dir)
+	run1 := func() (string, string) {
+		var o, e bytes.Buffer
+		if code := run([]string{"hook", "session-start"}, strings.NewReader(`{"hook_event_name":"SessionStart"}`), &o, &e, dir); code != 0 {
+			t.Fatalf("code %d", code)
+		}
+		return o.String(), e.String()
+	}
+	_, quiet := run1()
+	if quiet != "" {
+		t.Errorf("without PARAPLANE_DEBUG: stderr %q", quiet)
+	}
+	t.Setenv("PARAPLANE_DEBUG", "1")
+	o1, e := run1()
+	if !regexp.MustCompile(`^paraplane: debug: hook session-start \d+ms\n$`).MatchString(e) {
+		t.Errorf("debug line: %q", e)
+	}
+	t.Setenv("PARAPLANE_DEBUG", "")
+	if o2, _ := run1(); o1 != o2 {
+		t.Errorf("debug changed stdout: %q vs %q", o1, o2)
+	}
+
+	t.Setenv("PARAPLANE_DEBUG", "1")
+	stubHandler(t, "session-start", func(hooks.Env, hooks.Input) ([]byte, error) { return nil, errors.New("boom") })
+	_, e = run1()
+	if !strings.Contains(e, "debug: hook session-start") || !strings.Contains(e, "error: boom") {
+		t.Errorf("debug with error: %q", e)
+	}
+}

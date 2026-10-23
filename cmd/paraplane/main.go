@@ -3,20 +3,70 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
+	"time"
 
 	"paraplane/internal/config"
 	"paraplane/internal/hooks"
 	"paraplane/internal/textx"
 )
 
-var version = "dev"
+// version is set by -ldflags -X; empty means a build without it (go install).
+var version string
+
+// buildVersion is the version this binary reports.
+func buildVersion() string {
+	bi, _ := debug.ReadBuildInfo()
+	return versionFrom(version, bi)
+}
+
+// versionFrom prefers the ldflags version, then the module version of the
+// build info, else "dev".
+func versionFrom(ldflags string, bi *debug.BuildInfo) string {
+	switch {
+	case ldflags != "":
+		return ldflags
+	case bi != nil && bi.Main.Version != "" && bi.Main.Version != "(devel)":
+		return bi.Main.Version
+	}
+	return "dev"
+}
+
+// revisionFrom is the VCS revision the binary was built from, marked when the
+// tree was modified; "unknown" without VCS stamping.
+func revisionFrom(bi *debug.BuildInfo) string {
+	if bi == nil {
+		return "unknown"
+	}
+	rev, modified := "", false
+	for _, s := range bi.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.modified":
+			modified = s.Value == "true"
+		}
+	}
+	switch {
+	case rev == "":
+		return "unknown"
+	case modified:
+		return rev + " (modified)"
+	}
+	return rev
+}
+
+// hookBudget is the time one hook process has for everything; the host
+// kills it at 10 s (hooks/hooks.json).
+const hookBudget = 7 * time.Second
 
 const usage = `usage: paraplane <command>
 
@@ -25,9 +75,10 @@ commands:
   audit <file> <wave>[,<wave>…]    audit the files changed by a wave (or a stage of waves)
   progress [--done <ids>] <file>   show the execution progress of a plan;
                                    --done: closed, uncommitted task ids, comma-separated
+  progress --forget <ids> <file>   forget the recorded returns of those tasks
   hook <session-start|pre-tool-use|post-tool-use|subagent-stop|stop> [--agent codex]
   hook <stop|prompt-submit|permission-request> --agent codex
-  version
+  version [-v]
 `
 
 func main() {
@@ -78,8 +129,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, cwd string) i
 	case "progress":
 		return runProgress(rest, stdout, stderr, cwd)
 	case "version":
-		if len(rest) == 0 {
-			fmt.Fprintln(stdout, version)
+		switch {
+		case len(rest) == 0:
+			fmt.Fprintln(stdout, buildVersion())
+			return 0
+		case len(rest) == 1 && rest[0] == "-v":
+			bi, _ := debug.ReadBuildInfo()
+			fmt.Fprintf(stdout, "paraplane %s\ngo %s\nrevision %s\n", versionFrom(version, bi), runtime.Version(), revisionFrom(bi))
 			return 0
 		}
 	}
@@ -120,9 +176,40 @@ func hookRoot(in hooks.Input, cwd string) string {
 	return config.FindRoot(dir)
 }
 
+// hookEventNames maps `paraplane hook <event>` to the event name the host
+// expects in hookSpecificOutput.hookEventName.
+var hookEventNames = map[string]string{
+	"session-start":      "SessionStart",
+	"pre-tool-use":       "PreToolUse",
+	"post-tool-use":      "PostToolUse",
+	"stop":               "Stop",
+	"subagent-stop":      "SubagentStop",
+	"prompt-submit":      "UserPromptSubmit",
+	"permission-request": "PermissionRequest",
+}
+
+// answerEvent returns the hookEventName of an answer, empty when it has none.
+func answerEvent(out []byte) string {
+	var a struct {
+		Hook *struct {
+			Name string `json:"hookEventName"`
+		} `json:"hookSpecificOutput"`
+	}
+	if json.Unmarshal(out, &a) != nil || a.Hook == nil {
+		return ""
+	}
+	return a.Hook.Name
+}
+
 // runHook never fails: errors and panics go to stderr, the answer stays
-// empty and the exit code is 0.
+// empty and the exit code is 0. The whole process has hookBudget; an answer
+// that names another event than the one asked is dropped. With
+// PARAPLANE_DEBUG=1 one line with the elapsed time (and the error) goes to
+// stderr.
 func runHook(event string, agent hooks.Agent, stdin io.Reader, stdout, stderr io.Writer, cwd string) int {
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), hookBudget)
+	defer cancel()
 	var out []byte
 	err := func() (err error) {
 		defer func() {
@@ -147,9 +234,23 @@ func runHook(event string, agent hooks.Agent, stdin io.Reader, stdout, stderr io
 		}
 		root := hookRoot(in, cwd)
 		cfg, cfgErr := config.Load(root)
-		out, err = h(hooks.Env{Root: root, Config: cfg, ConfigErr: cfgErr, Agent: agent}, in)
-		return err
+		out, err = h(hooks.Env{Root: root, Config: cfg, ConfigErr: cfgErr, Agent: agent, Ctx: ctx}, in)
+		if err != nil {
+			return err
+		}
+		if got, want := answerEvent(out), hookEventNames[event]; got != "" && got != want {
+			out = nil
+			return fmt.Errorf("answer names event %s, not %s: dropped", textx.Line(got, 64), want)
+		}
+		return nil
 	}()
+	if os.Getenv("PARAPLANE_DEBUG") == "1" {
+		line := fmt.Sprintf("paraplane: debug: hook %s %dms", textx.Line(event, 64), time.Since(start).Milliseconds())
+		if err != nil {
+			line += " error: " + textx.Line(err.Error(), 200)
+		}
+		fmt.Fprintln(stderr, line)
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "paraplane: hook %s: %s\n", textx.Line(event, 64), textx.Block(err.Error(), 64<<10))
 		return 0
