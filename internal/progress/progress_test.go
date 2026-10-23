@@ -22,11 +22,24 @@ func mk(sizes ...int) *plan.Plan {
 	return p
 }
 
+func render(p *plan.Plan, name string, done []string) string {
+	return RenderFrom(p, name, Input{CommittedWaves: done})
+}
+
+func renderClosed(p *plan.Plan, name string, done, closed []string) string {
+	return RenderFrom(p, name, Input{CommittedWaves: done, Closed: closed})
+}
+
+// cols counts terminal columns independently of width: the squares, CJK,
+// Hangul, fullwidth forms and emoji take two.
 func cols(s string) int {
 	n := 0
 	for _, r := range s {
-		switch r {
-		case '🟩', '🟨', '⬜':
+		switch {
+		case r == '🟩', r == '🟨', r == '⬜',
+			0x1100 <= r && r <= 0x115F, 0x2E80 <= r && r <= 0xA4CF, 0xAC00 <= r && r <= 0xD7A3,
+			0xF900 <= r && r <= 0xFAFF, 0xFF00 <= r && r <= 0xFF60, 0xFFE0 <= r && r <= 0xFFE6,
+			0x1F300 <= r && r <= 0x1FAFF, 0x20000 <= r && r <= 0x3FFFD:
 			n += 2
 		default:
 			n++
@@ -45,14 +58,14 @@ const specExample = "paraplane · example.md                                    
 	"W5  ⬜⬜          0/2  · waiting  T16 T17\n"
 
 func TestRenderSpecExample(t *testing.T) {
-	got := Render(mk(6, 5, 2, 2, 2), "example.md", []string{"W1", "W2"})
+	got := render(mk(6, 5, 2, 2, 2), "example.md", []string{"W1", "W2"})
 	if got != specExample {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, specExample)
 	}
 }
 
 func TestRenderNothingDone(t *testing.T) {
-	got := Render(mk(2, 2), "p.md", nil)
+	got := render(mk(2, 2), "p.md", nil)
 	if !strings.Contains(got, "wave 1/2 · 0%") || !strings.Contains(got, strings.Repeat("░", 40)+"  0/4 tasks") {
 		t.Fatalf("bad header:\n%s", got)
 	}
@@ -62,7 +75,7 @@ func TestRenderNothingDone(t *testing.T) {
 }
 
 func TestRenderAllDone(t *testing.T) {
-	got := Render(mk(2, 2), "p.md", []string{"W1", "W2"})
+	got := render(mk(2, 2), "p.md", []string{"W1", "W2"})
 	if !strings.Contains(got, "wave 2/2 · 100%") || strings.Count(got, "✓ done") != 2 ||
 		strings.Contains(got, "░") || !strings.Contains(got, strings.Repeat("█", 40)+"  4/4 tasks") {
 		t.Fatalf("bad:\n%s", got)
@@ -70,21 +83,21 @@ func TestRenderAllDone(t *testing.T) {
 }
 
 func TestRenderManyTasks(t *testing.T) {
-	got := Render(mk(15), "p.md", nil)
+	got := render(mk(15), "p.md", nil)
 	if !strings.Contains(got, strings.Repeat("🟨", 12)+" +3") || strings.Contains(got, strings.Repeat("🟨", 13)) {
 		t.Fatalf("bad:\n%s", got)
 	}
 }
 
 func TestRenderUnknownWave(t *testing.T) {
-	got := Render(mk(2), "p.md", []string{"W9"})
+	got := render(mk(2), "p.md", []string{"W9"})
 	if !strings.Contains(got, "warning: commit for unknown wave W9\n") {
 		t.Fatalf("no warning:\n%s", got)
 	}
 }
 
 func TestRenderCommittedOutOfOrder(t *testing.T) {
-	got := Render(mk(1, 1, 1), "p.md", []string{"W1", "W3"})
+	got := render(mk(1, 1, 1), "p.md", []string{"W1", "W3"})
 	lines := strings.Split(got, "\n")
 	if !strings.HasPrefix(lines[0], "paraplane · p.md") || !strings.HasSuffix(lines[0], "wave 2/3 · 33%") {
 		t.Fatalf("bad header %q", lines[0])
@@ -103,7 +116,7 @@ func TestRenderWidth(t *testing.T) {
 	p := mk(15, 3)
 	p.Waves[0].ID = strings.Repeat("LongWaveID", 10)
 	p.Waves[1].Tasks[0].ID = strings.Repeat("task", 40)
-	got := Render(p, strings.Repeat("name", 40)+".md", []string{p.Waves[0].ID})
+	got := render(p, strings.Repeat("name", 40)+".md", []string{p.Waves[0].ID})
 	if !strings.Contains(got, "…") {
 		t.Fatalf("no ellipsis:\n%s", got)
 	}
@@ -121,7 +134,7 @@ func TestRenderLongWaveIDs(t *testing.T) {
 	p := mk(2, 2)
 	p.Waves[0].ID = "backend-api-01"
 	p.Waves[1].ID = "backend-api-02"
-	got := Render(p, "plan.md", []string{"backend-api-01"})
+	got := render(p, "plan.md", []string{"backend-api-01"})
 	for _, id := range []string{"backend-api-01", "backend-api-02"} {
 		if !strings.Contains(got, id+"  ") {
 			t.Fatalf("missing full id %q:\n%s", id, got)
@@ -139,7 +152,7 @@ func TestRenderShrunkIDsStayDistinct(t *testing.T) {
 		p := mk(n, n)
 		p.Waves[0].ID = strings.Repeat("x", 24) + "-wave-01"
 		p.Waves[1].ID = strings.Repeat("x", 24) + "-wave-02"
-		got := Render(p, "plan.md", nil)
+		got := render(p, "plan.md", nil)
 		lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
 		a, b := strings.Fields(lines[3])[0], strings.Fields(lines[4])[0]
 		if a == b {
@@ -154,7 +167,7 @@ func TestRenderShrunkIDsStayDistinct(t *testing.T) {
 }
 
 func TestRenderUnknownWaveDedup(t *testing.T) {
-	got := Render(mk(2), "p.md", []string{"W9", "W9", "W9"})
+	got := render(mk(2), "p.md", []string{"W9", "W9", "W9"})
 	if n := strings.Count(got, "commit for unknown wave W9"); n != 1 {
 		t.Fatalf("want 1 warning, got %d:\n%s", n, got)
 	}
@@ -164,7 +177,7 @@ func TestRenderSanitisesControls(t *testing.T) {
 	p := mk(1, 1)
 	p.Waves[0].ID = "W\x1b[31m1\n"
 	p.Waves[0].Tasks[0].ID = "T\x07\u202e1"
-	got := Render(p, "n\x1bame.md", []string{"bad\x1b[0m\nid"})
+	got := render(p, "n\x1bame.md", []string{"bad\x1b[0m\nid"})
 	for _, r := range got {
 		if r != '\n' && (r < ' ' || r == 0x7f || (r >= 0x80 && r < 0xa0) || r == 0x202e) {
 			t.Fatalf("control %U in output:\n%q", r, got)
@@ -181,7 +194,7 @@ func TestRenderWarningsCapped(t *testing.T) {
 	p := mk(1, 1, 1)
 	p.Waves[1].ID = strings.Repeat("b", 50)
 	p.Waves[2].ID = strings.Repeat("c", 50)
-	got := Render(p, "p.md", []string{p.Waves[2].ID, strings.Repeat("u", 80)})
+	got := render(p, "p.md", []string{p.Waves[2].ID, strings.Repeat("u", 80)})
 	n := 0
 	for _, l := range strings.Split(got, "\n") {
 		if strings.HasPrefix(l, "warning:") {
@@ -206,7 +219,7 @@ func rowOf(out, id string) string {
 }
 
 func TestRenderClosedRunning(t *testing.T) {
-	got := RenderClosed(mk(3, 3, 2), "p.md", []string{"W1"}, []string{"T4", "T6"})
+	got := renderClosed(mk(3, 3, 2), "p.md", []string{"W1"}, []string{"T4", "T6"})
 	lines := strings.Split(got, "\n")
 	if !strings.HasSuffix(lines[0], "wave 2/3 · 62%") {
 		t.Errorf("header %q", lines[0])
@@ -220,19 +233,19 @@ func TestRenderClosedRunning(t *testing.T) {
 }
 
 func TestRenderClosedWholeWave(t *testing.T) {
-	got := RenderClosed(mk(3, 3, 2), "p.md", []string{"W1"}, []string{"T4", "T5", "T6"})
+	got := renderClosed(mk(3, 3, 2), "p.md", []string{"W1"}, []string{"T4", "T5", "T6"})
 	if !strings.Contains(rowOf(got, "W2"), "✓ done") || !strings.Contains(rowOf(got, "W3"), "▶ running") || !strings.Contains(got, "  6/8 tasks") {
 		t.Errorf("got:\n%s", got)
 	}
 	// Without any commit: W1 closed by --done alone.
-	got = RenderClosed(mk(3, 3, 2), "p.md", nil, []string{"T1", "T2", "T3"})
+	got = renderClosed(mk(3, 3, 2), "p.md", nil, []string{"T1", "T2", "T3"})
 	if !strings.Contains(rowOf(got, "W1"), "✓ done") || !strings.Contains(rowOf(got, "W2"), "▶ running") {
 		t.Errorf("no commits:\n%s", got)
 	}
 }
 
 func TestRenderClosedWarnings(t *testing.T) {
-	got := RenderClosed(mk(3, 3, 2), "p.md", []string{"W1"}, []string{"X9", "T7", "X9"})
+	got := renderClosed(mk(3, 3, 2), "p.md", []string{"W1"}, []string{"X9", "T7", "X9"})
 	if want := "warning: --done X9 is not a task of the plan\nwarning: --done T7 is in waiting wave W3\n"; !strings.HasSuffix(got, want) {
 		t.Errorf("got:\n%s", got)
 	}
@@ -242,17 +255,23 @@ func TestRenderClosedWarnings(t *testing.T) {
 }
 
 func TestRenderClosedDedup(t *testing.T) {
-	got := RenderClosed(mk(3, 3, 2), "p.md", []string{"W1"}, []string{"T1", "T4", "T4"})
+	got := renderClosed(mk(3, 3, 2), "p.md", []string{"W1"}, []string{"T1", "T4", "T4"})
 	if !strings.Contains(got, "  4/8 tasks") || strings.Contains(got, "warning") {
 		t.Errorf("got:\n%s", got)
 	}
 }
 
-func TestRenderClosedNil(t *testing.T) {
+// TestRenderWrappers: the compatibility wrappers (removed in R13) render
+// like RenderFrom.
+func TestRenderWrappers(t *testing.T) {
 	for _, done := range [][]string{nil, {"W1"}, {"W1", "W2"}, {"W2"}, {"W9"}} {
 		p := mk(6, 5, 2, 2, 2)
-		if a, b := RenderClosed(p, "x.md", done, nil), Render(p, "x.md", done); a != b {
-			t.Errorf("done %v:\n%s\n!=\n%s", done, a, b)
+		want := RenderFrom(p, "x.md", Input{CommittedWaves: done, Closed: []string{"T7"}})
+		if a := RenderClosed(p, "x.md", done, []string{"T7"}); a != want {
+			t.Errorf("RenderClosed, done %v:\n%s\n!=\n%s", done, a, want)
+		}
+		if a, b := Render(p, "x.md", done), RenderFrom(p, "x.md", Input{CommittedWaves: done}); a != b {
+			t.Errorf("Render, done %v:\n%s\n!=\n%s", done, a, b)
 		}
 	}
 }

@@ -69,27 +69,39 @@ func (c *clock) tick() bool {
 	return c.expired
 }
 
+// patternSet is the set of the strings of ps.
+func patternSet(ps []pattern) map[string]bool {
+	set := make(map[string]bool, len(ps))
+	for _, p := range ps {
+		set[p.s] = true
+	}
+	return set
+}
+
 // firstOverlap returns a pair of patterns (as × bs) that may overlap,
-// preferring a literally equal pair, else the first in order of as, then bs.
+// preferring a literally equal pair (the first in the order of as; bset is
+// patternSet(bs)), else the first overlapping pair in order of as, then bs.
+// An equal pair always overlaps, so it is looked up without matching.
 // expired is true when the clock ran out; the pair is then meaningless.
-func firstOverlap(as, bs []pattern, c *clock) (x, y string, ok, expired bool) {
-	for i := range as {
-		for j := range bs {
+func firstOverlap(as, bs []pattern, bset map[string]bool, c *clock) (x, y string, ok, expired bool) {
+	if len(as) == 0 || len(bs) == 0 {
+		return "", "", false, false
+	}
+	if c.tick() {
+		return "", "", false, true
+	}
+	for _, a := range as {
+		if bset[a.s] {
+			return a.s, a.s, true, false
+		}
+	}
+	for _, a := range as {
+		for _, b := range bs {
 			if c.tick() {
 				return "", "", false, true
 			}
-			if as[i].c.Overlaps(bs[j].c) {
-				if as[i].s != bs[j].s {
-					for _, x := range as[i:] {
-						for _, y := range bs {
-							if x.s == y.s {
-								return x.s, y.s, true, false
-							}
-						}
-					}
-					// Equal pairs before as[i] would have overlapped.
-				}
-				return as[i].s, bs[j].s, true, false
+			if a.c.Overlaps(b.c) {
+				return a.s, b.s, true, false
 			}
 		}
 	}
@@ -100,6 +112,7 @@ func firstOverlap(as, bs []pattern, c *clock) (x, y string, ok, expired bool) {
 type prepared struct {
 	t     *plan.Task
 	owns  []pattern
+	own   map[string]bool // patternSet(owns)
 	reads []pattern
 	hot   []int // indices into the hot list the task touches
 }
@@ -115,6 +128,7 @@ func prepare(p *plan.Plan, hot []string, c *clock) ([]prepared, bool) {
 		for _, s := range t.Reads {
 			pt.reads = append(pt.reads, compile(s))
 		}
+		pt.own = patternSet(pt.owns)
 		for h, hs := range hot {
 			// Touches(owns, H) holds when it holds for some single pattern;
 			// one call per pattern keeps every Match under the clock.
@@ -154,21 +168,21 @@ func ConflictsWithin(p *plan.Plan, hot []string, deadline time.Time) ([]Conflict
 		a := &ts[i]
 		for j := i + 1; j < len(ts); j++ {
 			b := &ts[j]
-			x, y, ok, exp := firstOverlap(a.owns, b.owns, c)
+			x, y, ok, exp := firstOverlap(a.owns, b.owns, b.own, c)
 			if exp {
 				return nil, ErrDeadline
 			}
 			if ok {
 				out = append(out, Conflict{A: a.t.ID, B: b.t.ID, Kind: OwnsOverlap, Path: x, With: y})
 			}
-			x, y, ok, exp = firstOverlap(a.reads, b.owns, c)
+			x, y, ok, exp = firstOverlap(a.reads, b.owns, b.own, c)
 			if exp {
 				return nil, ErrDeadline
 			}
 			if ok {
 				out = append(out, Conflict{A: a.t.ID, B: b.t.ID, Kind: ReadsOwns, Path: x, With: y})
 			}
-			x, y, ok, exp = firstOverlap(b.reads, a.owns, c)
+			x, y, ok, exp = firstOverlap(b.reads, a.owns, a.own, c)
 			if exp {
 				return nil, ErrDeadline
 			}

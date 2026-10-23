@@ -62,8 +62,8 @@ waves:
     tasks:
       - id: R6
         title: "gitx: budget, lazy-fetch protection everywhere, one history scan"
-        owns: ["internal/gitx/**", context/internal/gitx.md]
-        reads: [internal/ids/ids.go, internal/testgit/testgit.go]
+        owns: ["internal/gitx/**", "internal/testgit/**", context/internal/gitx.md, context/internal/testgit.md]
+        reads: [internal/ids/ids.go]
         depends: [R1, R2]
         verify: "go test ./internal/gitx/"
       - id: R7
@@ -195,8 +195,8 @@ waves:
 - BP-M2/S-L6: `exec.CommandContext(ctx, …)` + `WaitDelay = time.Second`; per-call timeout = `min(10 s, ctx remaining)`.
 - Q-M4/P-L1/L9: one `requireGit(ctx, root, major, minor, patch)` with a process-wide cached version; one list of fixed git versions.
 - P-L6: parse output with `bytes` without whole-string copies.
-- [ ] **Step 1: Failing tests** `TestLazyFetchAllFunctions` (table over Changed, PlanCommits, PlanCommitFiles, PlansSince, Scan, Unreachable, IsAncestor; treeless clone with `remote.origin.uploadpack` = `testgit.MarkerProgram`, PATH = `testgit.FakeOldGit`; marker must not exist), `TestBudgetKillsSlowGit` (`include.path` FIFO; ctx 300 ms → error within 1.5 s), `TestScanIncremental` (scan from a head returns only newer commits; non-ancestor `from` → full scan), `TestUnreachable` (amended commit unreachable, ancestor reachable, `"-x"`/`""`/`"zz"` unreachable without git error), `TestErrOldGit` (`errors.Is`), `BenchmarkScan` (`b.Loop`, 10k commits).
-- [ ] **Step 2–4:** FAIL → implement → PASS.
+- [x] **Step 1: Failing tests** `TestLazyFetchAllFunctions` (table over Changed, PlanCommits, PlanCommitFiles, PlansSince, Scan, Unreachable, IsAncestor; treeless clone with `remote.origin.uploadpack` = `testgit.MarkerProgram`, PATH = `testgit.FakeOldGit`; marker must not exist), `TestBudgetKillsSlowGit` (`include.path` FIFO; ctx 300 ms → error within 1.5 s), `TestScanIncremental` (scan from a head returns only newer commits; non-ancestor `from` → full scan), `TestUnreachable` (amended commit unreachable, ancestor reachable, `"-x"`/`""`/`"zz"` unreachable without git error), `TestErrOldGit` (`errors.Is`), `BenchmarkScan` (`b.Loop`, 10k commits).
+- [x] **Step 2–4:** FAIL → implement → PASS.
 
 ### Task R7: state
 
@@ -205,8 +205,8 @@ waves:
 **Produces:** `Entry{Plan, Task, Head, PlanHash string}`; `State{LastHead string; Entries []Entry; Shown map[string]Shown; Pending []string; Scan *ScanCache}` with `ScanCache{Head string; Commits []json.RawMessage}` (opaque to state; `track` fills it); `func Load(gitDir string) (State, error)` (error `ErrVersion` for another version — callers then neither read nor write; A-L4); `func Update(ctx context.Context, gitDir string, f func(*State)) error`; `func (s *State) Add(e Entry)` (dedup on Plan+Task+Head+PlanHash, P-M1); `func (s *State) Prune(keep func(Entry) bool)`; `func (s *State) Forget(plan string, tasks []string)`; `func (s *State) TakePending(plans []string)` (removes only those).
 - S-M1, L6, P-M2: lock per the Rulings (non-regular → `ErrBusy`, stale 11 s → rename-claim, waits bounded by ctx); BP-M3: all file operations through `os.OpenRoot(gitDir)` (`paraplane/`, lock, temp, rename) so symlinks never escape; BP-L3: `Sync` before rename.
 - S-L2: `Load` drops entries with an invalid task id, a head that is not 40/64 hex, an empty plan or a plan with `..`; caps entries at 4096; read limit 4 MiB (A-L10).
-- [ ] **Step 1: Failing tests** `TestLockPathIsDirectory` (returns `ErrBusy` within 50 ms), `TestStaleLockOneWinner` (two processes via `testgit`-style re-exec both see a 12 s old lock; exactly one writes first, the state has both entries), `TestKilledHolder` (lock file 12 s old → `Update` succeeds), `TestLoadDropsInvalid`, `TestAddDedup`, `TestTakePendingKeepsOthers`, `TestForget`, `TestOtherVersionUntouched` (version 2 file → `ErrVersion`, file unchanged after `Update`), `TestRootContainment` (symlinked `paraplane` dir → error; nothing written outside), `FuzzLoad`; rewrite `TestUpdateRefusesSymlinks` so it can fail (T-H3: plant the symlink at the path the implementation would use, asserted by an injectable temp-name hook).
-- [ ] **Step 2–4:** FAIL → implement → PASS (`-race`, `synctest` for the waits).
+- [x] **Step 1: Failing tests** `TestLockPathIsDirectory` (returns `ErrBusy` within 50 ms), `TestStaleLockOneWinner` (two processes via `testgit`-style re-exec both see a 12 s old lock; exactly one writes first, the state has both entries), `TestKilledHolder` (lock file 12 s old → `Update` succeeds), `TestLoadDropsInvalid`, `TestAddDedup`, `TestTakePendingKeepsOthers`, `TestForget`, `TestOtherVersionUntouched` (version 2 file → `ErrVersion`, file unchanged after `Update`), `TestRootContainment` (symlinked `paraplane` dir → error; nothing written outside), `FuzzLoad`; rewrite `TestUpdateRefusesSymlinks` so it can fail (T-H3: plant the symlink at the path the implementation would use, asserted by an injectable temp-name hook).
+- [x] **Step 2–4:** FAIL → implement → PASS (`-race`, `synctest` for the waits).
 
 ### Task R8: rules, progress, layout, pathset
 
@@ -219,8 +219,8 @@ waves:
 - `progress.Input` gains `Recorded []string` (tasks of returned subagents) next to `Closed` (`--done`) — warning for a recorded task of a waiting wave: `warning: task <id> finished before <running id>` (A-M6, Q-M7);
 - `progress.Count(p *plan.Plan, in Input) Counts` with `Counts{Waves, Tasks int; State []WaveState}` — the one done rule; `RenderFrom` renders from it (A-M3, Q-M3; `RenderFrom` cyclomatic below 20); `Render`/`RenderClosed` removed (L1).
 - L12 `progress.width` counts East Asian wide runes as 2; L10 one class parser in `pathset`; L14 `firstOverlap` without the repeated search; L3/L5 shared limits and stdlib helpers in these packages (limits in `fsx` are R13's, without renaming `fsx.ReadRegular`/`fsx.MaxFile`); P-L5 W5 `os.Stat` calls stop at the deadline; BP-L2 `slices.SortStableFunc`.
-- [ ] **Step 1: Failing tests** `TestResultTimedOut`, `TestOptionsFor`, `TestCommitsOfWaves`, `TestCountMatchesRender` (property over random plans/inputs: `Count` equals the numbers `RenderFrom` prints), `TestRecordedWaitingWarning`, `TestWidthWide` (`план-漢字.md` header stays 72 columns), `TestFirstOverlapSame`, `BenchmarkConflicts` (`b.Loop`).
-- [ ] **Step 2–4:** FAIL → implement → PASS.
+- [x] **Step 1: Failing tests** `TestResultTimedOut`, `TestOptionsFor`, `TestCommitsOfWaves`, `TestCountMatchesRender` (property over random plans/inputs: `Count` equals the numbers `RenderFrom` prints), `TestRecordedWaitingWarning`, `TestWidthWide` (`план-漢字.md` header stays 72 columns), `TestFirstOverlapSame`, `BenchmarkConflicts` (`b.Loop`).
+- [x] **Step 2–4:** FAIL → implement → PASS.
 
 ### Task R9: track
 

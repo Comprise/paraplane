@@ -10,19 +10,16 @@ import (
 	"paraplane/internal/plan"
 )
 
-// Audit checks the files changed by wave waveID (spec section 5.1): each must
-// match the owns of some task of the wave, unless it is the plan file
-// planPath or matches an audit_ignore pattern. changed and planPath are
-// relative to the project root with "/" separators. p must be the Plan of a
-// Check result, whose paths Check has cleaned. The A1 findings follow the
-// order of changed; an unknown wave is an error.
+// Audit is AuditCommits of one wave without commits.
+//
+// Deprecated: a compatibility wrapper until R13; use AuditCommits.
 func Audit(p *plan.Plan, waveID string, changed []string, planPath string, ignore []string) ([]Finding, error) {
-	return AuditWaves(p, []string{waveID}, changed, planPath, ignore)
+	return AuditCommits(p, []string{waveID}, changed, nil, planPath, ignore)
 }
 
-// AuditWaves is Audit for several waves at once, as for a stage of waves
-// committed together: a file may be owned by a task of any of them. The
-// findings name the waves joined by "," (Where) and ", " (message).
+// AuditWaves is AuditCommits without commits.
+//
+// Deprecated: a compatibility wrapper until R13; use AuditCommits.
 func AuditWaves(p *plan.Plan, waveIDs []string, changed []string, planPath string, ignore []string) ([]Finding, error) {
 	return AuditCommits(p, waveIDs, changed, nil, planPath, ignore)
 }
@@ -34,79 +31,145 @@ type CommitFiles struct {
 	Waves, Tasks, Files []string
 }
 
-// AuditCommits is AuditWaves that also checks the commits of the waves
-// (spec 2026-10-23 §9): a commit naming a task of a listed wave, or a listed
-// wave. A file of a task commit must be owned by one of the tasks it names;
-// a file of a wave or stage commit by a task of one of the waves it names.
-// Commit findings come first, in commit order, each file once per commit.
+// waveIndex knows which wave each task of a plan is in.
+type waveIndex struct {
+	p      *plan.Plan
+	waveOf map[string]string   // task id → wave id
+	owns   map[string][]string // task id → owns
+}
+
+func indexWaves(p *plan.Plan) waveIndex {
+	x := waveIndex{p: p, waveOf: map[string]string{}, owns: map[string][]string{}}
+	for _, w := range p.Waves {
+		for _, t := range w.Tasks {
+			x.waveOf[t.ID], x.owns[t.ID] = w.ID, t.Owns
+		}
+	}
+	return x
+}
+
+// relevant reports whether commit c belongs to one of the listed waves: it
+// names a listed wave, or a task of one.
+func (x waveIndex) relevant(c CommitFiles, listed map[string]bool) bool {
+	return slices.ContainsFunc(c.Waves, func(w string) bool { return listed[w] }) ||
+		slices.ContainsFunc(c.Tasks, func(t string) bool { w, ok := x.waveOf[t]; return ok && listed[w] })
+}
+
+// CommitsOfWaves returns how many of commits belong to one of waves, by
+// the rule AuditCommits checks them with; waves p does not have count for
+// nothing.
+func CommitsOfWaves(p *plan.Plan, waves []string, commits []CommitFiles) int {
+	if p == nil {
+		return 0
+	}
+	x, listed := indexWaves(p), setOf(slices.DeleteFunc(slices.Clone(waves), func(id string) bool { return findWave(p, id) == nil }))
+	n := 0
+	for _, c := range commits {
+		if x.relevant(c, listed) {
+			n++
+		}
+	}
+	return n
+}
+
+// auditor collects the A1 findings of one AuditCommits call.
+type auditor struct {
+	waveIndex
+	where    string
+	planPath string
+	ignore   []string
+	out      []Finding
+}
+
+func (a *auditor) skip(f string) bool { return f == a.planPath || pathset.MatchAny(a.ignore, f) }
+
+func (a *auditor) add(format string, args ...any) {
+	a.out = append(a.out, Finding{Code: "A1", Severity: Error, Where: a.where, Msg: fmt.Sprintf(format, args...)})
+}
+
+// waveOwns returns the owns of every task of the waves ids that p has.
+func (a *auditor) waveOwns(ids []string) []string {
+	var owns []string
+	for _, id := range ids {
+		if w := findWave(a.p, id); w != nil {
+			for _, t := range w.Tasks {
+				owns = append(owns, t.Owns...)
+			}
+		}
+	}
+	return owns
+}
+
+// commit checks the files of c: a file of a task commit must be owned by
+// one of the tasks it names, a file of a wave or stage commit by a task of
+// one of the waves it names; each file is reported once.
+func (a *auditor) commit(c CommitFiles) {
+	allowed := a.waveOwns(c.Waves)
+	for _, id := range c.Tasks {
+		allowed = append(allowed, a.owns[id]...)
+	}
+	seen := map[string]bool{}
+	for _, f := range c.Files {
+		if seen[f] || a.skip(f) || pathset.MatchAny(allowed, f) {
+			continue
+		}
+		seen[f] = true
+		switch {
+		case len(c.Waves) > 0:
+			a.add("%s changed in commit %s but no task of %s owns it", f, c.Hash, strings.Join(c.Waves, ", "))
+		case len(c.Tasks) == 1:
+			a.add("%s changed by %s (commit %s) but %s does not own it", f, c.Tasks[0], c.Hash, c.Tasks[0])
+		default:
+			a.add("%s changed by %s (commit %s) but none of them owns it", f, strings.Join(c.Tasks, ", "), c.Hash)
+		}
+	}
+}
+
+// AuditCommits checks the files changed by the waves waveIDs (spec section
+// 5.1, spec 2026-10-23 §9). changed (the working tree) and planPath are
+// relative to the project root with "/" separators; p must be the Plan of a
+// Check result, whose paths Check has cleaned. A file is skipped when it is
+// planPath or matches an audit_ignore pattern.
+//
+// The commits of the waves (CommitsOfWaves: a commit naming a listed wave
+// or a task of one) are checked first, in commit order: a file of a task
+// commit must be owned by one of the tasks it names, a file of a wave or
+// stage commit by a task of one of the waves it names; each file once per
+// commit. Then each file of changed must be owned by a task of one of the
+// waves. The findings name the waves joined by "," (Where) and ", "
+// (message). An unknown wave is an error.
 func AuditCommits(p *plan.Plan, waveIDs []string, changed []string, commits []CommitFiles, planPath string, ignore []string) ([]Finding, error) {
 	if p == nil {
 		return nil, errors.New("no plan to audit")
 	}
-	listed := map[string]bool{}
-	var owns []string
 	for _, id := range waveIDs {
-		w := findWave(p, id)
-		if w == nil {
+		if findWave(p, id) == nil {
 			return nil, fmt.Errorf("unknown wave %s", id)
 		}
-		listed[id] = true
-		for _, t := range w.Tasks {
-			owns = append(owns, t.Owns...)
-		}
 	}
-	waveOf, taskOwns := map[string]string{}, map[string][]string{}
-	for _, w := range p.Waves {
-		for _, t := range w.Tasks {
-			waveOf[t.ID], taskOwns[t.ID] = w.ID, t.Owns
-		}
-	}
-	where, names := strings.Join(waveIDs, ","), strings.Join(waveIDs, ", ")
-	skip := func(f string) bool { return f == planPath || matchAny(ignore, f) }
-	var out []Finding
-	add := func(msg string) {
-		out = append(out, Finding{Code: "A1", Severity: Error, Where: where, Msg: msg})
-	}
+	a := &auditor{waveIndex: indexWaves(p), where: strings.Join(waveIDs, ","), planPath: planPath, ignore: ignore}
+	listed := setOf(waveIDs)
 	for _, c := range commits {
-		relevant := slices.ContainsFunc(c.Waves, func(w string) bool { return listed[w] }) ||
-			slices.ContainsFunc(c.Tasks, func(t string) bool { return listed[waveOf[t]] })
-		if !relevant {
-			continue
-		}
-		var allowed []string
-		for _, t := range c.Tasks {
-			allowed = append(allowed, taskOwns[t]...)
-		}
-		for _, w := range c.Waves {
-			if wv := findWave(p, w); wv != nil {
-				for _, t := range wv.Tasks {
-					allowed = append(allowed, t.Owns...)
-				}
-			}
-		}
-		seen := map[string]bool{}
-		for _, f := range c.Files {
-			if seen[f] || skip(f) || matchAny(allowed, f) {
-				continue
-			}
-			seen[f] = true
-			switch {
-			case len(c.Waves) > 0:
-				add(fmt.Sprintf("%s changed in commit %s but no task of %s owns it", f, c.Hash, strings.Join(c.Waves, ", ")))
-			case len(c.Tasks) == 1:
-				add(fmt.Sprintf("%s changed by %s (commit %s) but %s does not own it", f, c.Tasks[0], c.Hash, c.Tasks[0]))
-			default:
-				add(fmt.Sprintf("%s changed by %s (commit %s) but none of them owns it", f, strings.Join(c.Tasks, ", "), c.Hash))
-			}
+		if a.relevant(c, listed) {
+			a.commit(c)
 		}
 	}
+	owns, names := a.waveOwns(waveIDs), strings.Join(waveIDs, ", ")
 	for _, f := range changed {
-		if skip(f) || matchAny(owns, f) {
-			continue
+		if !a.skip(f) && !pathset.MatchAny(owns, f) {
+			a.add("%s changed but no task of %s owns it", f, names)
 		}
-		add(fmt.Sprintf("%s changed but no task of %s owns it", f, names))
 	}
-	return out, nil
+	return a.out, nil
+}
+
+// setOf returns the set of ids.
+func setOf(ids []string) map[string]bool {
+	set := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		set[id] = true
+	}
+	return set
 }
 
 // findWave returns the wave id of p, or nil.
@@ -117,13 +180,4 @@ func findWave(p *plan.Plan, id string) *plan.Wave {
 		}
 	}
 	return nil
-}
-
-func matchAny(patterns []string, name string) bool {
-	for _, p := range patterns {
-		if pathset.Match(p, name) {
-			return true
-		}
-	}
-	return false
 }

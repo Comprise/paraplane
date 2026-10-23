@@ -1,6 +1,7 @@
 package gitx
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -401,20 +402,20 @@ func TestRunOutputCap(t *testing.T) {
 	old := maxOutput
 	maxOutput = 1024
 	t.Cleanup(func() { maxOutput = old })
-	_, err := run(dir, "show", "HEAD:a.txt")
+	_, err := run(context.Background(), dir, "show", "HEAD:a.txt")
 	if err == nil || !strings.Contains(err.Error(), "git output too large") {
 		t.Fatalf("err = %v, want git output too large", err)
 	}
-	out, err := run(dir, "rev-parse", "HEAD")
+	out, err := run(context.Background(), dir, "rev-parse", "HEAD")
 	if err != nil || len(out) == 0 {
 		t.Fatalf("small output: %q, %v", out, err)
 	}
 	maxOutput = 4096
-	if out, err := run(dir, "show", "HEAD:a.txt"); err != nil || len(out) != 4096 {
+	if out, err := run(context.Background(), dir, "show", "HEAD:a.txt"); err != nil || len(out) != 4096 {
 		t.Fatalf("output at the cap: %d bytes, %v", len(out), err)
 	}
 	maxOutput = 4095 // one byte short
-	if _, err := run(dir, "show", "HEAD:a.txt"); err == nil || !strings.Contains(err.Error(), "git output too large") {
+	if _, err := run(context.Background(), dir, "show", "HEAD:a.txt"); err == nil || !strings.Contains(err.Error(), "git output too large") {
 		t.Fatalf("output one byte over the cap: err = %v, want git output too large", err)
 	}
 }
@@ -717,13 +718,14 @@ func TestChangedPartialCloneQueryFailureRefuses(t *testing.T) {
 	}
 }
 
-func TestWaveCommitsNeedsGit222(t *testing.T) {
+func TestPlanCommitsNeedsGit224(t *testing.T) {
 	for _, tc := range []struct {
 		ver string
 		ok  bool
 	}{
 		{"git version 2.21.4", false}, {"git version 2.18.0", false}, {"git version weird", false},
-		{"git version 2.22.0", true}, {"git version 2.39.5 (Apple Git-154)", true},
+		{"git version 2.22.0", false}, {"git version 2.23.4", false},
+		{"git version 2.24.0", true}, {"git version 2.39.5 (Apple Git-154)", true},
 	} {
 		t.Run(tc.ver, func(t *testing.T) {
 			if !tc.ok {
@@ -734,13 +736,13 @@ func TestWaveCommitsNeedsGit222(t *testing.T) {
 			git(t, dir, "add", "-A")
 			git(t, dir, "commit", "-q", "-m", "w\n\nParaplane-Plan: plan.md\nParaplane-Wave: W1\n")
 			if tc.ok {
-				needGit(t, 2, 22, "%(trailers:key=)")
+				needGit(t, 2, 24, "--end-of-options")
 				versionGit(t, tc.ver)
 			}
-			got, _, err := WaveCommits(dir, "plan.md")
+			got, _, err := waveCommits(dir, "plan.md")
 			if !tc.ok {
-				if err == nil || !strings.Contains(err.Error(), "git 2.22 or later is required for progress") {
-					t.Fatalf("got %v, %v; want the git 2.22 error", got, err)
+				if !errors.Is(err, ErrOldGit) || !strings.Contains(err.Error(), "git 2.24 or later is required for progress") {
+					t.Fatalf("got %v, %v; want the git 2.24 error", got, err)
 				}
 				return
 			}

@@ -11,27 +11,27 @@ var (
 )
 
 func BenchmarkOverlapAdversarial(b *testing.B) {
-	for range b.N {
+	for b.Loop() {
 		Overlap(benchAdv, benchAdvLit)
 	}
 }
 
 func BenchmarkTouchesAdversarial(b *testing.B) {
 	owns := []string{benchAdvLit}
-	for range b.N {
+	for b.Loop() {
 		Touches(owns, benchAdv)
 	}
 }
 
 func BenchmarkOverlapTypical(b *testing.B) {
-	for range b.N {
+	for b.Loop() {
 		Overlap("internal/[a-z]*/*.go", "internal/plan/plan.go")
 	}
 }
 
 func BenchmarkTouchesTypical(b *testing.B) {
 	owns := []string{"web/package.json"}
-	for range b.N {
+	for b.Loop() {
 		Touches(owns, "**/package.json")
 	}
 }

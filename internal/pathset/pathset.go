@@ -152,32 +152,58 @@ func expansion(p string) int {
 	return stack[0].cur
 }
 
-// checkClass checks the class starting at p[start] == '[' and returns the
-// index of its closing ']'. Ranges are parsed the way doublestar parses them.
-func checkClass(p string, start int) (int, error) {
+// span is one member of a class as written: a rune (lo == hi), a range
+// lo-hi, or an inverted range (lo > hi), which holds only lo.
+type span struct{ lo, hi rune }
+
+// classSpans parses the class starting at p[start] == '[' the way
+// doublestar.Match does and returns its spans and the index of its closing
+// ']'; ok is false when there is none. Every rune is a member; a rune
+// followed by `-` and a rune other than `]` makes a range up to that rune
+// (the end is not a member by itself), and `-` before `]` is a member. p has
+// no `\` (Clean), so there are no escapes. Negation is the caller's matter.
+func classSpans(p string, start int) (spans []span, end int, ok bool) {
 	i := start + 1
-	if p[i] == '!' || p[i] == '^' {
-		return 0, errors.New("negated class '[!…]' or '[^…]' can match '/'")
-	}
-	last := utf8.MaxRune
-	for p[i] != ']' {
+	ranged := true // the last span cannot start a range
+	for i < len(p) && p[i] != ']' {
 		r, n := utf8.DecodeRuneInString(p[i:])
 		i += n
-		if r == '/' {
-			return 0, errors.New("'/' inside '[…]'")
-		}
-		if last < utf8.MaxRune && r == '-' && p[i] != ']' {
+		if !ranged && r == '-' && i < len(p) && p[i] != ']' {
 			hi, n := utf8.DecodeRuneInString(p[i:])
 			i += n
-			if hi == '/' || last <= '/' && '/' <= hi {
-				return 0, fmt.Errorf("class range '%c-%c' can match '/'", last, hi)
-			}
-			last = utf8.MaxRune
+			spans[len(spans)-1].hi = hi
+			ranged = true
 			continue
 		}
-		last = r
+		spans = append(spans, span{r, r})
+		ranged = false
 	}
-	return i, nil
+	if i >= len(p) {
+		return nil, 0, false
+	}
+	return spans, i, true
+}
+
+// checkClass checks the class starting at p[start] == '[' and returns the
+// index of its closing ']'. p passed doublestar.ValidatePattern, so the
+// class is closed.
+func checkClass(p string, start int) (int, error) {
+	if p[start+1] == '!' || p[start+1] == '^' {
+		return 0, errors.New("negated class '[!…]' or '[^…]' can match '/'")
+	}
+	spans, end, ok := classSpans(p, start)
+	if !ok {
+		return 0, errors.New("unclosed '['")
+	}
+	for _, s := range spans {
+		switch {
+		case s.lo == '/':
+			return 0, errors.New("'/' inside '[…]'")
+		case s.hi == '/' || s.lo <= '/' && '/' <= s.hi:
+			return 0, fmt.Errorf("class range '%c-%c' can match '/'", s.lo, s.hi)
+		}
+	}
+	return end, nil
 }
 
 // HasMeta reports whether p contains a glob metacharacter (`*?[{`).
@@ -190,6 +216,11 @@ func HasMeta(p string) bool {
 func Match(pattern, name string) bool {
 	ok, err := doublestar.Match(pattern, name)
 	return err == nil && ok
+}
+
+// MatchAny reports whether name matches one of patterns (Match).
+func MatchAny(patterns []string, name string) bool {
+	return slices.ContainsFunc(patterns, func(p string) bool { return Match(p, name) })
 }
 
 // foldRune returns the smallest rune of the simple case-folding orbit of r,
@@ -272,39 +303,23 @@ func foldPatternUncached(p string) string {
 // index of its closing ']' and its folded form: `[…]` of the folded runes,
 // escaped and merged into ranges, or `?` for a class of more than
 // maxClassRunes runes. p passed Clean: no negation, no escapes, no empty
-// class. The parse follows doublestar.Match: every rune is a member; a rune
-// followed by `-` and a rune other than `]` also adds the range up to that
-// rune (nothing when inverted: `[z-a]` is {z}, `[ac-a]` is {a, c}); the end
-// of a range is not a member by itself, and `-` before `]` is a member. A
+// class. The class is parsed by classSpans, like checkClass parses it; an
+// inverted range adds nothing (`[z-a]` is {z}, `[ac-a]` is {a, c}). A
 // malformed class (no closing ']') is copied as is.
 func foldClass(p string, start int) (int, string) {
-	type span struct{ lo, hi rune }
-	var spans []span
-	size := 0
-	i := start + 1
-	last := utf8.MaxRune
-	for i < len(p) && p[i] != ']' {
-		r, n := utf8.DecodeRuneInString(p[i:])
-		i += n
-		if last < utf8.MaxRune && r == '-' && i < len(p) && p[i] != ']' {
-			hi, n := utf8.DecodeRuneInString(p[i:])
-			i += n
-			if last < hi { // spans ends in {last, last}
-				spans[len(spans)-1].hi = hi
-				size += int(hi - last)
-			}
-			last = utf8.MaxRune
-			continue
-		}
-		spans = append(spans, span{r, r})
-		size++
-		last = r
-	}
-	if i >= len(p) {
+	spans, end, ok := classSpans(p, start)
+	if !ok {
 		return len(p) - 1, p[start:]
 	}
-	if size > maxClassRunes {
-		return i, "?"
+	size := 0
+	for i, s := range spans {
+		if s.hi < s.lo { // an inverted range holds its start only
+			spans[i].hi = s.lo
+		}
+		size += int(spans[i].hi-s.lo) + 1
+		if size > maxClassRunes {
+			return end, "?"
+		}
 	}
 	runes := make([]rune, 0, size)
 	for _, s := range spans {
@@ -331,7 +346,7 @@ func foldClass(p string, start int) (int, string) {
 		}
 	}
 	b.WriteByte(']')
-	return i, b.String()
+	return end, b.String()
 }
 
 // writeClassRune writes r as a class member or range end, escaped when

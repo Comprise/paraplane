@@ -50,6 +50,22 @@ func TestFakeOldGit(t *testing.T) {
 		t.Fatalf("git version = %q, %v", out, err)
 	}
 	repo := Init(t)
+	// The version is reported after global options too, as gitx calls it.
+	for _, args := range [][]string{
+		{"-C", repo, "-c", "x.y=z", "version"},
+		{"-C", repo, "-c", "x.y=z", "--no-pager", "--git-dir=" + repo + "/.git", "version"},
+		{"--version"},
+		{"-c", "a.b=c", "--version"},
+	} {
+		out, err := exec.Command("git", args...).Output()
+		if err != nil || strings.TrimSpace(string(out)) != "git version 2.34.1" {
+			t.Fatalf("git %q = %q, %v", args, out, err)
+		}
+	}
+	// A subcommand argument named version is not the version command.
+	if out, err := exec.Command("git", "-C", repo, "config", "--get", "core.bare").Output(); err != nil || strings.Contains(string(out), "2.34.1") {
+		t.Fatalf("config through the wrapper: %q, %v", out, err)
+	}
 	cmd := exec.Command("git", "-C", repo, "-c", "alias.e=!env", "e")
 	cmd.Env = append(Env(), "GIT_NO_LAZY_FETCH=1")
 	out, err = cmd.Output()

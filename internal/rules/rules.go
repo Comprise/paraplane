@@ -3,13 +3,17 @@
 package rules
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
-	"regexp"
-	"sort"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
+	"paraplane/internal/config"
+	"paraplane/internal/ids"
 	"paraplane/internal/layout"
 	"paraplane/internal/pathset"
 	"paraplane/internal/plan"
@@ -47,9 +51,27 @@ type Options struct {
 	DefaultGate string
 	MaxParallel int                   // 0 → 6
 	IsDir       func(rel string) bool // nil → W5 is not checked
-	// Deadline bounds the conflict search; zero means no limit. Once it has
-	// passed, Check reports a single E0 with the text of layout.ErrDeadline.
+	// Deadline bounds the parse, W5 and the conflict search; zero means no
+	// limit. Once it has passed, Check reports a single E0 with the text of
+	// layout.ErrDeadline and sets Result.TimedOut; W5 is skipped (no more
+	// IsDir calls).
 	Deadline time.Time
+}
+
+// OptionsFor builds the options of the project at root from its config:
+// W5 looks at the file system under root, and deadline (zero: none)
+// bounds the check.
+func OptionsFor(cfg config.Config, root string, deadline time.Time) Options {
+	return Options{
+		HotFiles:    cfg.HotFiles,
+		DefaultGate: cfg.DefaultGate,
+		MaxParallel: cfg.MaxParallel,
+		IsDir: func(rel string) bool {
+			fi, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel)))
+			return err == nil && fi.IsDir()
+		},
+		Deadline: deadline,
+	}
 }
 
 // Result is the outcome of Check.
@@ -57,22 +79,24 @@ type Result struct {
 	Plan      *plan.Plan // the plan with cleaned paths (bad ones dropped); nil at E0 or a schema error
 	Findings  []Finding  // by code, then in the author's order of waves and tasks
 	Suggested [][]string // the shorter layout; non-nil only with W3
+	// TimedOut is set when the deadline passed before the plan was
+	// checked (plan.ErrDeadline or layout.ErrDeadline): the single E0 then
+	// says nothing about the plan itself.
+	TimedOut bool
 }
 
 const defaultMaxParallel = 6
 
-var idRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.-]{0,31}$`)
-
 // Check validates the ```paraplane block of md in the order of spec
 // section 5.
 func Check(md []byte, o Options) Result {
-	p, err := plan.Load(md)
+	p, err := plan.LoadWithin(md, o.Deadline)
 	if err != nil {
 		var se *plan.SchemaError
 		if errors.As(err, &se) {
 			return Result{Findings: []Finding{{Code: "E1", Severity: Error, Msg: se.Error()}}}
 		}
-		return Result{Findings: []Finding{{Code: "E0", Severity: Error, Msg: err.Error()}}}
+		return e0(err)
 	}
 	c := &checker{p: clone(p), o: o, wave: map[string]int{}, pos: map[string]int{}, ids: map[string]bool{}}
 	return c.run()
@@ -108,6 +132,22 @@ func (c *checker) add(code, where string, k key, format string, args ...any) {
 	c.keys = append(c.keys, k)
 }
 
+// e0 is the result of a plan that could not be checked: a single E0. A
+// deadline, in the parse (plan.ErrDeadline) or in the conflict search
+// (layout.ErrDeadline), sets TimedOut and always has the text of
+// layout.ErrDeadline, which callers matched before TimedOut existed.
+func e0(err error) Result {
+	if errors.Is(err, plan.ErrDeadline) || errors.Is(err, layout.ErrDeadline) {
+		return Result{Findings: []Finding{{Code: "E0", Severity: Error, Msg: layout.ErrDeadline.Error()}}, TimedOut: true}
+	}
+	return Result{Findings: []Finding{{Code: "E0", Severity: Error, Msg: err.Error()}}}
+}
+
+// expired reports whether the deadline of the options has passed.
+func (o Options) expired() bool {
+	return !o.Deadline.IsZero() && !time.Now().Before(o.Deadline)
+}
+
 // sorted returns the findings by code, then by key; equal ones keep the
 // order they were found in.
 func (c *checker) sorted() []Finding {
@@ -115,16 +155,9 @@ func (c *checker) sorted() []Finding {
 	for i := range idx {
 		idx[i] = i
 	}
-	sort.SliceStable(idx, func(a, b int) bool {
-		x, y := idx[a], idx[b]
-		if c.fs[x].Code != c.fs[y].Code {
-			return c.fs[x].Code < c.fs[y].Code
-		}
+	slices.SortStableFunc(idx, func(x, y int) int {
 		kx, ky := c.keys[x], c.keys[y]
-		if kx.wave != ky.wave {
-			return kx.wave < ky.wave
-		}
-		return kx.task < ky.task
+		return cmp.Or(cmp.Compare(c.fs[x].Code, c.fs[y].Code), cmp.Compare(kx.wave, ky.wave), cmp.Compare(kx.task, ky.task))
 	})
 	out := make([]Finding, len(idx))
 	for i, j := range idx {
@@ -136,17 +169,17 @@ func (c *checker) sorted() []Finding {
 func (c *checker) run() Result {
 	c.structure()
 	c.depends()
-	structural := c.count(Error) > 0 // only E1 and E3 so far
+	structural := countOf(c.fs, Error) > 0 // only E1 and E3 so far
 	c.gates()
 	c.tasks()
 	var suggested [][]string
 	if !structural {
 		cs, err := layout.ConflictsWithin(c.p, c.o.HotFiles, c.o.Deadline)
 		if err != nil {
-			return Result{Findings: []Finding{{Code: "E0", Severity: Error, Msg: err.Error()}}}
+			return e0(err)
 		}
 		c.conflicts(cs)
-		if c.count(Error) == 0 {
+		if countOf(c.fs, Error) == 0 {
 			if l := layout.SuggestWith(c.p, cs); len(l) < len(c.p.Waves) {
 				c.add("W3", "", planKey, "the layout can be shorter: %s instead of %d (`paraplane check --suggest` prints it)", waveCount(len(l)), len(c.p.Waves))
 				suggested = l
@@ -154,16 +187,6 @@ func (c *checker) run() Result {
 		}
 	}
 	return Result{Plan: c.p, Findings: c.sorted(), Suggested: suggested}
-}
-
-func (c *checker) count(s Severity) int {
-	n := 0
-	for _, f := range c.fs {
-		if f.Severity == s {
-			n++
-		}
-	}
-	return n
 }
 
 // clone returns a deep copy of the waves, tasks and lists of p, so that
@@ -202,7 +225,7 @@ func cleanList(ps []string, bad func(p string, err error)) []string {
 // checkID registers id and reports a bad or repeated one; it reports whether
 // id may be used to refer to the wave or task.
 func (c *checker) checkID(kind, id string, k key) bool {
-	if !idRe.MatchString(id) {
+	if !ids.Valid(id) {
 		c.add("E1", id, k, "invalid %s id %q; an id starts with a letter and has at most 32 letters, digits, '_', '.' or '-'", kind, id)
 		return false
 	}
@@ -310,8 +333,10 @@ func (c *checker) gates() {
 	}
 }
 
-// tasks reports W1, W4 and W5.
+// tasks reports W1, W4 and W5; W5 stops at the deadline (no more IsDir
+// calls, which may be slow on a network file system).
 func (c *checker) tasks() {
+	isDir := c.o.IsDir
 	for i, w := range c.p.Waves {
 		for j, t := range w.Tasks {
 			name, where, tk := c.taskName[i][j], c.taskWhere[i][j], key{i, j}
@@ -321,11 +346,15 @@ func (c *checker) tasks() {
 			if len(t.Owns) == 0 {
 				c.add("W4", where, tk, "task %s has empty owns", name)
 			}
-			if c.o.IsDir == nil {
-				continue
-			}
 			for _, p := range t.Owns {
-				if !pathset.HasMeta(p) && c.o.IsDir(p) {
+				if isDir == nil || pathset.HasMeta(p) {
+					continue
+				}
+				if c.o.expired() {
+					isDir = nil // W5 is a warning: skip the rest
+					continue
+				}
+				if isDir(p) {
 					c.add("W5", where, tk, "owns of %s lists %s, an existing directory; write %s/** for the whole directory", name, p, p)
 				}
 			}
@@ -389,14 +418,15 @@ func (c *checker) conflicts(cs []layout.Conflict) {
 }
 
 // Errors returns the number of error findings.
-func (r Result) Errors() int { return r.count(Error) }
+func (r Result) Errors() int { return countOf(r.Findings, Error) }
 
 // Warnings returns the number of warning findings.
-func (r Result) Warnings() int { return r.count(Warning) }
+func (r Result) Warnings() int { return countOf(r.Findings, Warning) }
 
-func (r Result) count(s Severity) int {
+// countOf returns the number of findings of severity s.
+func countOf(fs []Finding, s Severity) int {
 	n := 0
-	for _, f := range r.Findings {
+	for _, f := range fs {
 		if f.Severity == s {
 			n++
 		}

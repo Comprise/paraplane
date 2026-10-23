@@ -1,4 +1,6 @@
-// Package gitx reads the working tree state and wave commits from git.
+// Package gitx runs git so that a repository's own config cannot make it run
+// programs, and reads from it the changed files of the working tree and the
+// paraplane trailers of commits.
 package gitx
 
 import (
@@ -6,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,10 +16,17 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
+// timeout is the limit of one git call; a caller's context with less time
+// left shortens it.
 const timeout = 10 * time.Second
+
+// waitDelay bounds the wait for git's stdout and stderr after git exits or is
+// killed, when a child of git still holds them open.
+const waitDelay = time.Second
 
 // maxOutput caps the stdout run captures; a variable for the tests.
 var maxOutput = 16 << 20
@@ -43,8 +53,6 @@ const uploadPackKeys = `^remote\..*\.uploadpack$`
 // The system config is never read; every other scope, known or not, refuses.
 var trustedScopes = []string{"global", "command"}
 
-var waveID = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.-]{0,31}$`)
-
 // repoVars point git at another repository than the one around dir.
 var repoVars = []string{"GIT_DIR=", "GIT_WORK_TREE=", "GIT_INDEX_FILE=", "GIT_OBJECT_DIRECTORY=",
 	"GIT_ALTERNATE_OBJECT_DIRECTORIES=", "GIT_COMMON_DIR=", "GIT_NAMESPACE=", "GIT_PREFIX=",
@@ -53,19 +61,67 @@ var repoVars = []string{"GIT_DIR=", "GIT_WORK_TREE=", "GIT_INDEX_FILE=", "GIT_OB
 // statusArgs is the git status command of Changed.
 var statusArgs = []string{"status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=all", "--no-renames"}
 
+// fullHash is a full SHA-1 or SHA-256 object name, as git prints it.
+var fullHash = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
+
+// validHash reports whether s is a full object name. Hashes read from files
+// (the state file) must pass it before they reach git's argv or stdin.
+func validHash(s string) bool { return fullHash.MatchString(s) }
+
+// checkHashes returns an error for the first argument that is not a full
+// object name.
+func checkHashes(hs ...string) error {
+	for _, h := range hs {
+		if !validHash(h) {
+			return fmt.Errorf("invalid commit hash %q", h)
+		}
+	}
+	return nil
+}
+
 // ErrFilterDrivers is returned by Changed when the repository's local config
 // defines filter drivers, which git status would execute.
 var ErrFilterDrivers = errors.New("the repository config defines filter drivers; paraplane audit does not run git status here")
 
-// ErrPartialClone is returned by Changed when git does not honor
-// GIT_NO_LAZY_FETCH and any config (of any scope) makes the repository a
-// partial clone, or the repository's own config sets a remote's uploadpack
-// program, so git status could fetch missing objects through
-// repo-configured transports that run programs.
-var ErrPartialClone = errors.New("the repository is a partial clone (extensions.partialClone or remote.<name>.promisor in any config) or its config sets remote.<name>.uploadpack, and this git does not support GIT_NO_LAZY_FETCH; upgrade git to 2.46 or later (or 2.39.4, 2.40.2, 2.41.1, 2.42.2, 2.43.4, 2.44.1, 2.45.1); paraplane audit does not run git status here")
+// ErrOldGit is wrapped by every function that reads commits: they need git
+// 2.24 or later, for --end-of-options before revisions (and 2.22 for
+// %(trailers:key=…); older git prints no trailers at all). Changed keeps no
+// such floor.
+var ErrOldGit = errors.New("git 2.24 or later is required")
+
+// minGit is the git version ErrOldGit names.
+var minGit = gitVersion{2, 24, 0}
 
 // gitVersion is a parsed "git version" triple.
 type gitVersion [3]int
+
+func (v gitVersion) String() string { return fmt.Sprintf("%d.%d.%d", v[0], v[1], v[2]) }
+
+// lazyFetchFirst is the first release line that honors GIT_NO_LAZY_FETCH;
+// lazyFetchFixed are the first fixed patch releases of the older maintenance
+// lines (May 2024). 2.45.0 itself is not trusted, to stay conservative. This
+// list is the only source: lazyFetchSafe and ErrPartialClone both use it.
+var (
+	lazyFetchFirst = gitVersion{2, 46, 0}
+	lazyFetchFixed = []gitVersion{{2, 39, 4}, {2, 40, 2}, {2, 41, 1}, {2, 42, 2}, {2, 43, 4}, {2, 44, 1}, {2, 45, 1}}
+)
+
+// ErrPartialClone is returned when git does not honor GIT_NO_LAZY_FETCH and
+// any config (of any scope) makes the repository a partial clone, or the
+// repository's own config sets a remote's uploadpack program: a git command
+// that needs a missing object could then fetch it through repo-configured
+// transports that run programs. Every function that may read objects
+// refuses so.
+var ErrPartialClone = errors.New("the repository is a partial clone (extensions.partialClone or remote.<name>.promisor in any config) or its config sets remote.<name>.uploadpack, and this git does not support GIT_NO_LAZY_FETCH; upgrade git to " +
+	strings.TrimSuffix(lazyFetchFirst.String(), ".0") + " or later (or " + fixedList() + "); paraplane does not run git here")
+
+func fixedList() string {
+	s := make([]string, len(lazyFetchFixed))
+	for i, v := range lazyFetchFixed {
+		s[i] = v.String()
+	}
+	return strings.Join(s, ", ")
+}
 
 var versionRe = regexp.MustCompile(`^git version (\d+)\.(\d+)(?:\.(\d+))?`)
 
@@ -96,40 +152,107 @@ func (v gitVersion) atLeast(major, minor, patch int) bool {
 	return slices.Compare(v[:], []int{major, minor, patch}) >= 0
 }
 
+// versions caches the parsed git version per git executable for the life of
+// the process: the version depends on the binary, not on the repository.
+// The key is the path exec resolves "git" to, so a test that puts another
+// git first on PATH gets its own entry.
+var versions struct {
+	sync.Mutex
+	m map[string]versionResult
+}
+
+type versionResult struct {
+	v  gitVersion
+	ok bool
+}
+
 // version returns the version of the git that run uses; ok is false when its
-// output cannot be parsed.
-func version(root string) (v gitVersion, ok bool, err error) {
-	out, err := run(root, "version")
+// output cannot be parsed. A failed git version is not cached.
+func version(ctx context.Context, root string) (v gitVersion, ok bool, err error) {
+	key, lerr := exec.LookPath("git")
+	versions.Lock()
+	defer versions.Unlock()
+	if r, found := versions.m[key]; found && lerr == nil {
+		return r.v, r.ok, nil
+	}
+	out, err := run(ctx, root, "version")
 	if err != nil {
 		return gitVersion{}, false, err
 	}
 	v, ok = parseVersion(string(out))
+	if lerr == nil {
+		if versions.m == nil {
+			versions.m = map[string]versionResult{}
+		}
+		versions.m[key] = versionResult{v, ok}
+	}
 	return v, ok, nil
 }
 
-// lazyFetchSafe reports whether git v honors GIT_NO_LAZY_FETCH=1. The
-// variable came with 2.45.0 and was backported to the maintenance releases of
-// May 2024; to stay conservative 2.45.0 itself is not trusted.
+// requireGit returns ErrOldGit when git is older than major.minor.patch or
+// its version cannot be parsed; callers pass minGit.
+func requireGit(ctx context.Context, root string, major, minor, patch int) error {
+	v, ok, err := version(ctx, root)
+	if err != nil {
+		return err
+	}
+	if !ok || !v.atLeast(major, minor, patch) {
+		return ErrOldGit
+	}
+	return nil
+}
+
+// lazyFetchSafe reports whether git v honors GIT_NO_LAZY_FETCH=1.
 func lazyFetchSafe(v gitVersion, ok bool) bool {
 	if !ok {
 		return false
 	}
-	if v.atLeast(2, 46, 0) {
+	if v.atLeast(lazyFetchFirst[0], lazyFetchFirst[1], lazyFetchFirst[2]) {
 		return true
 	}
-	// The first fixed patch release of each maintenance line.
-	fixed := map[int]int{45: 1, 44: 1, 43: 4, 42: 2, 41: 1, 40: 2, 39: 4}
-	p, found := fixed[v[1]]
-	return v[0] == 2 && found && v[2] >= p
+	return slices.ContainsFunc(lazyFetchFixed, func(f gitVersion) bool {
+		return v[0] == f[0] && v[1] == f[1] && v[2] >= f[2]
+	})
 }
 
-// run runs git in root with fsmonitor, the pager, hooks and every signature
-// verification program disabled and returns stdout; on failure the error
-// carries stderr. It does not neutralize filter drivers or lazy fetches on
-// git without GIT_NO_LAZY_FETCH: callers that run commands which can execute
-// them must guard against that themselves, see Changed.
-func run(root string, args ...string) ([]byte, error) {
-	out, _, err := runCode(root, args...)
+// guardLazyFetch returns ErrPartialClone when git may ignore
+// GIT_NO_LAZY_FETCH (see lazyFetchSafe) and any config makes the repository
+// a partial clone, or the repository's config sets remote.<name>.uploadpack.
+// Every function whose git command may need objects calls it first.
+// GIT_ALLOW_PROTOCOL=none (see runIO) blocks the transports as well; this is
+// the second layer.
+func guardLazyFetch(ctx context.Context, root string) error {
+	v, ok, err := version(ctx, root)
+	if err != nil {
+		return err
+	}
+	if lazyFetchSafe(v, ok) {
+		return nil
+	}
+	// Partial clone markers count from every scope, so no --show-scope.
+	out, code, err := runCode(ctx, root, "config", "--includes", "--get-regexp", partialCloneKeys)
+	switch {
+	case err == nil:
+		return ErrPartialClone
+	case !noMatches(out, code, err):
+		return err
+	}
+	if set, err := repoConfigSets(ctx, root, uploadPackKeys); err != nil {
+		return err
+	} else if set {
+		return ErrPartialClone
+	}
+	return nil
+}
+
+// run runs git in root with fsmonitor, the pager, hooks, every signature
+// verification program and every transport disabled and returns stdout; on
+// failure the error carries stderr. It does not neutralize filter drivers or
+// lazy fetches on git without GIT_NO_LAZY_FETCH: callers that run commands
+// which can execute them must guard against that themselves (Changed,
+// guardLazyFetch).
+func run(ctx context.Context, root string, args ...string) ([]byte, error) {
+	out, _, err := runCode(ctx, root, args...)
 	return out, err
 }
 
@@ -154,8 +277,15 @@ func (w *capWriter) Write(p []byte) (int, error) {
 // runCode is run that also returns the exit code of git (-1 when git did not
 // exit normally or did not start) and, when git exits with an error code, its
 // stdout.
-func runCode(root string, args ...string) ([]byte, int, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+func runCode(ctx context.Context, root string, args ...string) ([]byte, int, error) {
+	return runIO(ctx, root, nil, nil, args...)
+}
+
+// runIO is runCode with stdin and, when sink is not nil, stdout streamed to
+// sink instead of captured (no output cap; the returned stdout is nil).
+// The call ends at min(timeout, the time left in ctx).
+func runIO(ctx context.Context, root string, stdin io.Reader, sink io.Writer, args ...string) ([]byte, int, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	// Repo-local config can name programs that git runs on its own: signature
 	// verifiers (log.showSignature makes git log run gpg.program) and hooks.
@@ -170,6 +300,7 @@ func runCode(root string, args ...string) ([]byte, int, error) {
 		"-c", "core.hooksPath=" + os.DevNull,
 		"--no-pager"}, args...)
 	cmd := exec.CommandContext(ctx, "git", full...)
+	cmd.WaitDelay = waitDelay
 	for _, kv := range os.Environ() {
 		if !slices.ContainsFunc(repoVars, func(p string) bool { return strings.HasPrefix(kv, p) }) {
 			cmd.Env = append(cmd.Env, kv)
@@ -179,332 +310,84 @@ func runCode(root string, args ...string) ([]byte, int, error) {
 	// so from running index hooks such as post-index-change; GIT_NO_LAZY_FETCH=1
 	// stops a partial clone from fetching missing objects through repo-configured
 	// transports (uploadpack, sshCommand, credential helpers) that run programs;
-	// GIT_CONFIG_NOSYSTEM=1 means the system config is never read, so the only
-	// config files trusted with filter drivers are the user's global ones.
-	cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=0", "GIT_NO_LAZY_FETCH=1", "GIT_OPTIONAL_LOCKS=0", "GIT_CONFIG_NOSYSTEM=1", "LC_ALL=C", "LANGUAGE=C")
+	// GIT_ALLOW_PROTOCOL=none forbids every transport, so even a git that
+	// ignores GIT_NO_LAZY_FETCH cannot start one; GIT_CONFIG_NOSYSTEM=1 means
+	// the system config is never read, so the only config files trusted with
+	// filter drivers are the user's global ones. Later entries win over the
+	// inherited environment.
+	cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=0", "GIT_NO_LAZY_FETCH=1", "GIT_ALLOW_PROTOCOL=none",
+		"GIT_OPTIONAL_LOCKS=0", "GIT_CONFIG_NOSYSTEM=1", "LC_ALL=C", "LANGUAGE=C")
 	out := &capWriter{limit: maxOutput, stop: cancel}
 	var errb bytes.Buffer
-	cmd.Stdout, cmd.Stderr = out, &errb
+	cmd.Stdout, cmd.Stderr, cmd.Stdin = out, &errb, stdin
+	if sink != nil {
+		cmd.Stdout = sink
+	}
 	err := cmd.Run()
 	if out.overflow {
 		return nil, -1, fmt.Errorf("git %s: git output too large", args[0])
 	}
 	if err != nil {
-		if ctx.Err() != nil {
-			return nil, -1, fmt.Errorf("git %s: timed out", args[0])
+		if e := ctx.Err(); e != nil {
+			if errors.Is(e, context.DeadlineExceeded) {
+				return nil, -1, fmt.Errorf("git %s: timed out: %w", args[0], e)
+			}
+			return nil, -1, fmt.Errorf("git %s: %w", args[0], e)
 		}
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
 			// ExitCode is -1 when git was killed by a signal.
-			return out.buf.Bytes(), ee.ExitCode(), fmt.Errorf("git %s: %s", args[0], strings.TrimSpace(errb.String()))
+			var o []byte
+			if sink == nil {
+				o = out.buf.Bytes()
+			}
+			return o, ee.ExitCode(), fmt.Errorf("git %s: %s", args[0], strings.TrimSpace(errb.String()))
 		}
 		return nil, -1, fmt.Errorf("git %s: %w", args[0], err)
+	}
+	if sink != nil {
+		return nil, 0, nil
 	}
 	return out.buf.Bytes(), 0, nil
 }
 
-// LostTrailer is a commit whose message has Paraplane-Plan and
-// Paraplane-Wave or Paraplane-Task lines that git does not read as trailers:
-// they are not in the last paragraph (a blank line before Co-Authored-By,
-// say).
-type LostTrailer struct {
-	Commit string // abbreviated hash
-	Kind   string // "wave" or "task"
-	ID     string // the wave or task id
-	Wave   string // ID for kind "wave", for WaveCommits callers
-}
-
-// Commits is what the commits of a plan record: waves and tasks named by
-// trailers, and the lines git did not read as trailers.
-type Commits struct {
-	Waves, Tasks []string
-	Lost         []LostTrailer
-}
-
-// planTrailers is the git log format of a plan commit's trailers.
-const planTrailers = "%(trailers:key=Paraplane-Plan,key=Paraplane-Wave,key=Paraplane-Task,unfold)"
-
-// planGreps limits git log to commits with a Paraplane-Wave or
-// Paraplane-Task line, so the output does not grow with the history.
-var planGreps = []string{"-i", "--grep=^paraplane-wave:", "--grep=^paraplane-task:"}
-
-// PlanCommits returns the waves and tasks committed with the Paraplane-Plan
-// trailer equal to planPath, each in order of first appearance, without
-// duplicates. A commit may name several waves (a stage) or tasks, one
-// trailer each or a comma list; when it repeats the plan trailer, the last
-// occurrence wins. Lost lists, once per id and only for ids not counted, the
-// commits whose Paraplane-* lines for planPath git does not read as trailers.
-// It needs git 2.22 or later: older git has no %(trailers:key=…) and would
-// print no trailers at all, so it is an error.
-func PlanCommits(root, planPath string) (Commits, error) {
-	c := Commits{Waves: []string{}, Tasks: []string{}}
-	v, ok, err := version(root)
-	if err != nil {
-		return c, err
-	}
-	if !ok || !v.atLeast(2, 22, 0) {
-		return c, errors.New("git 2.22 or later is required for progress")
-	}
-	args := append([]string{"log", "--no-show-signature", "--reverse"}, planGreps...)
-	out, err := run(root, append(args, "--format=%h%x1f"+planTrailers+"%x1f%B%x1e")...)
-	if err != nil {
-		if _, e := run(root, "rev-parse", "--git-dir"); e == nil {
-			if _, e := run(root, "rev-parse", "--verify", "-q", "HEAD"); e != nil {
-				return c, nil // no commits yet
-			}
-		}
-		return c, err
-	}
-	var lostAll []LostTrailer
-	for _, rec := range strings.Split(string(out), "\x1e") {
-		hash, rest, _ := strings.Cut(strings.TrimLeft(rec, "\n"), "\x1f")
-		trailers, body, _ := strings.Cut(rest, "\x1f")
-		tw, tt := paraplaneLines(trailers, planPath)
-		c.Waves = appendNew(c.Waves, tw...)
-		c.Tasks = appendNew(c.Tasks, tt...)
-		// Paraplane-* lines git did not read as trailers, also next to some
-		// it did (a stage commit split by a blank line).
-		bw, bt := paraplaneLines(body, planPath)
-		for _, w := range bw {
-			if !slices.Contains(tw, w) {
-				lostAll = append(lostAll, LostTrailer{Commit: hash, Kind: "wave", ID: w, Wave: w})
-			}
-		}
-		for _, id := range bt {
-			if !slices.Contains(tt, id) {
-				lostAll = append(lostAll, LostTrailer{Commit: hash, Kind: "task", ID: id})
-			}
-		}
-	}
-	for _, l := range lostAll {
-		counted := c.Waves
-		if l.Kind == "task" {
-			counted = c.Tasks
-		}
-		if !slices.Contains(counted, l.ID) && !slices.ContainsFunc(c.Lost, func(x LostTrailer) bool { return x.Kind == l.Kind && x.ID == l.ID }) {
-			c.Lost = append(c.Lost, l)
-		}
-	}
-	return c, nil
-}
-
-// WaveCommits is PlanCommits reduced to waves: the committed waves and the
-// lost wave lines.
-func WaveCommits(root, planPath string) (waves []string, lost []LostTrailer, err error) {
-	c, err := PlanCommits(root, planPath)
-	if err != nil {
-		return nil, nil, err
-	}
-	for _, l := range c.Lost {
-		if l.Kind == "wave" {
-			lost = append(lost, l)
-		}
-	}
-	return c.Waves, lost, nil
-}
-
-// CommitFiles is a commit of a plan with the waves and tasks its trailers
-// name and the files it changed.
-type CommitFiles struct {
-	Hash                string // abbreviated
-	Waves, Tasks, Files []string
-}
-
-// PlanCommitFiles returns the commits of the current branch whose trailers
-// name planPath and at least one wave or task, oldest first, with their
-// changed files (sorted; --no-renames, so a rename gives both paths; a merge
-// gives none).
-func PlanCommitFiles(root, planPath string) ([]CommitFiles, error) {
-	v, ok, err := version(root)
-	if err != nil {
-		return nil, err
-	}
-	if !ok || !v.atLeast(2, 22, 0) {
-		return nil, errors.New("git 2.22 or later is required for audit of commits")
-	}
-	if _, e := run(root, "rev-parse", "--verify", "-q", "HEAD"); e != nil {
-		if _, e := run(root, "rev-parse", "--git-dir"); e == nil {
-			return nil, nil // no commits yet
-		}
-	}
-	pre, err := run(root, "rev-parse", "--show-prefix")
-	if err != nil {
-		return nil, err
-	}
-	prefix := strings.TrimSpace(string(pre))
-	args := append([]string{"log", "--no-show-signature", "--reverse", "--no-renames", "--name-only", "-z"}, planGreps...)
-	out, err := run(root, append(args, "--format=%x1e%h%x1f"+planTrailers+"%x1f")...)
-	if err != nil {
-		return nil, err
-	}
-	var res []CommitFiles
-	for _, rec := range strings.Split(string(out), "\x1e")[1:] {
-		parts := strings.SplitN(rec, "\x1f", 3)
-		if len(parts) != 3 {
-			continue
-		}
-		waves, tasks := paraplaneLines(parts[1], planPath)
-		if len(waves) == 0 && len(tasks) == 0 {
-			continue
-		}
-		// -z: names are NUL-separated and unquoted, relative to the top of
-		// the repository; those under root are kept, made relative to it.
-		var files []string
-		for _, f := range strings.Split(parts[2], "\x00") {
-			f = strings.TrimLeft(f, "\n")
-			if rel, ok := strings.CutPrefix(f, prefix); f != "" && ok {
-				files = appendNew(files, rel)
-			}
-		}
-		slices.Sort(files)
-		res = append(res, CommitFiles{Hash: parts[0], Waves: waves, Tasks: tasks, Files: files})
-	}
-	return res, nil
-}
-
-// Head returns the full hash of HEAD, or "" in a repository without commits.
-func Head(root string) (string, error) {
-	out, code, err := runCode(root, "rev-parse", "--verify", "-q", "HEAD")
-	if err != nil {
-		if code == 1 && len(bytes.TrimSpace(out)) == 0 {
-			if _, e := run(root, "rev-parse", "--git-dir"); e == nil {
-				return "", nil
-			}
-		}
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
-// IsAncestor reports whether commit a is an ancestor of b or equal to it.
-func IsAncestor(root, a, b string) (bool, error) {
-	_, code, err := runCode(root, "merge-base", "--is-ancestor", a, b)
-	switch {
-	case err == nil:
-		return true, nil
-	case code == 1:
-		return false, nil
-	}
-	return false, err
-}
-
-// GitDir returns the absolute git directory of the repository at root (a
-// worktree has its own).
-func GitDir(root string) (string, error) {
-	out, err := run(root, "rev-parse", "--absolute-git-dir")
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
-// appendNew appends the ids not yet in list.
-func appendNew(list []string, ids ...string) []string {
-	for _, id := range ids {
-		if !slices.Contains(list, id) {
-			list = append(list, id)
-		}
-	}
-	return list
-}
-
-// paraplaneLines reads Paraplane-Plan, Paraplane-Wave and Paraplane-Task
-// lines (key case ignored; the last plan wins) and returns the valid wave
-// and task ids, in order, when the plan is planPath. A value may list several
-// ids separated by commas (Paraplane-Wave: W1, W2); a value with any invalid
-// part is dropped.
-func paraplaneLines(text, planPath string) (waves, tasks []string) {
-	var plan string
-	var hasPlan bool
-	for _, line := range strings.Split(text, "\n") {
-		k, v, ok := strings.Cut(line, ":")
-		if !ok {
-			continue
-		}
-		v = strings.TrimSpace(v)
-		switch strings.ToLower(strings.TrimSpace(k)) {
-		case "paraplane-plan":
-			plan, hasPlan = v, true
-		case "paraplane-wave":
-			waves = append(waves, idList(v)...)
-		case "paraplane-task":
-			tasks = append(tasks, idList(v)...)
-		}
-	}
-	if !hasPlan || plan != planPath {
-		return nil, nil
-	}
-	return waves, tasks
-}
-
-// idList splits a trailer value on commas; any invalid part drops it all.
-func idList(v string) []string {
-	ids := strings.Split(v, ",")
-	for i := range ids {
-		ids[i] = strings.TrimSpace(ids[i])
-	}
-	if slices.ContainsFunc(ids, func(id string) bool { return !waveID.MatchString(id) }) {
-		return nil
-	}
-	return ids
-}
-
-// Changed returns the files changed in the working tree relative to root
-// (slash-separated, sorted, without duplicates); paths outside root are
+// ChangedContext returns the files changed in the working tree relative to
+// root (slash-separated, sorted, without duplicates); paths outside root are
 // dropped. Status runs with --no-renames, so a rename is reported as a
 // deletion and an addition and both paths are included.
 //
-// Changed refuses (ErrFilterDrivers) when the repository's config defines
-// filter drivers, and (ErrPartialClone) when git does not honor
-// GIT_NO_LAZY_FETCH (see lazyFetchSafe) and any config makes the repository
-// a partial clone or the repository's config sets remote.<name>.uploadpack. The
-// git status output is capped at 16 MiB like every git output here, so a
-// huge untracked tree makes Changed fail with "git output too large".
-func Changed(root string) ([]string, error) {
-	pre, err := run(root, "rev-parse", "--show-prefix")
+// It refuses (ErrFilterDrivers) when the repository's config defines filter
+// drivers, and (ErrPartialClone, see guardLazyFetch) when git may ignore
+// GIT_NO_LAZY_FETCH in a partial clone. The git status output is capped at
+// 16 MiB like every git output here, so a huge untracked tree makes it fail
+// with "git output too large".
+func ChangedContext(ctx context.Context, root string) ([]string, error) {
+	pre, err := run(ctx, root, "rev-parse", "--show-prefix")
 	if err != nil {
 		return nil, err
 	}
-	prefix := strings.TrimSpace(string(pre))
-	v, ok, err := version(root)
-	if err != nil {
-		return nil, err
-	}
-	if set, err := repoConfigSets(root, filterKeys); err != nil {
+	prefix := string(bytes.TrimSpace(pre))
+	if set, err := repoConfigSets(ctx, root, filterKeys); err != nil {
 		return nil, err
 	} else if set {
 		return nil, ErrFilterDrivers
 	}
-	if !lazyFetchSafe(v, ok) {
-		// Partial clone markers count from every scope, so no --show-scope.
-		out, code, err := runCode(root, "config", "--includes", "--get-regexp", partialCloneKeys)
-		switch {
-		case err == nil:
-			return nil, ErrPartialClone
-		case !noMatches(out, code, err):
-			return nil, err
-		}
-		if set, err := repoConfigSets(root, uploadPackKeys); err != nil {
-			return nil, err
-		} else if set {
-			return nil, ErrPartialClone
-		}
+	if err := guardLazyFetch(ctx, root); err != nil {
+		return nil, err
 	}
-	out, err := run(root, statusArgs...)
+	out, err := run(ctx, root, statusArgs...)
 	if err != nil {
 		return nil, err
 	}
 	seen := map[string]bool{}
-	add := func(p string) {
-		p = filepath.ToSlash(p)
+	// With --no-renames every record is "XY path"; no record carries a second path.
+	for f := range bytes.SplitSeq(out, []byte{0}) {
+		if len(f) < 4 {
+			continue
+		}
+		p := filepath.ToSlash(string(f[3:]))
 		if rest, ok := strings.CutPrefix(p, prefix); ok && rest != "" {
 			seen[rest] = true
-		}
-	}
-	// With --no-renames every record is "XY path"; no record carries a second path.
-	for _, f := range strings.Split(string(out), "\x00") {
-		if len(f) >= 4 {
-			add(f[3:])
 		}
 	}
 	res := make([]string, 0, len(seen))
@@ -527,13 +410,13 @@ func noMatches(out []byte, code int, err error) bool {
 // including file's scope). Keys from the user's global config and from the
 // command line are trusted. Any unexpected failure is an error, so the
 // caller refuses.
-func repoConfigSets(root, keys string) (bool, error) {
+func repoConfigSets(ctx context.Context, root, keys string) (bool, error) {
 	// One query over all scopes, following includes (git status does too).
-	out, code, err := runCode(root, "config", "--show-scope", "--includes", "--get-regexp", keys)
+	out, code, err := runCode(ctx, root, "config", "--show-scope", "--includes", "--get-regexp", keys)
 	switch {
 	case err == nil:
-		for _, line := range strings.Split(string(out), "\n") {
-			if f := strings.Fields(line); len(f) > 0 && !slices.Contains(trustedScopes, f[0]) {
+		for line := range bytes.SplitSeq(out, []byte("\n")) {
+			if f := bytes.Fields(line); len(f) > 0 && !slices.Contains(trustedScopes, string(f[0])) {
 				return true, nil
 			}
 		}
@@ -546,7 +429,7 @@ func repoConfigSets(root, keys string) (bool, error) {
 	// Exit code 129 is a usage error: git older than 2.26 has no
 	// --show-scope. Query the untrusted scopes one by one instead, following
 	// includes the same way; any match counts.
-	out, code, err = runCode(root, "config", "--local", "--includes", "--get-regexp", keys)
+	out, code, err = runCode(ctx, root, "config", "--local", "--includes", "--get-regexp", keys)
 	if err == nil {
 		return true, nil
 	}
@@ -557,12 +440,12 @@ func repoConfigSets(root, keys string) (bool, error) {
 	// without it --worktree reads the local config again or, in a repository
 	// with linked worktrees, fails (exit 128). So --worktree runs only when
 	// the extension may be on, see worktreeConfigMaybeOn.
-	if on, err := worktreeConfigMaybeOn(root); err != nil || !on {
+	if on, err := worktreeConfigMaybeOn(ctx, root); err != nil || !on {
 		return false, err
 	}
 	// Git older than 2.20 does not know --worktree, nor the extension, so
 	// there is no worktree config to read: only that usage error is ignored.
-	out, code, err = runCode(root, "config", "--worktree", "--includes", "--get-regexp", keys)
+	out, code, err = runCode(ctx, root, "config", "--worktree", "--includes", "--get-regexp", keys)
 	switch {
 	case err == nil:
 		return true, nil
@@ -581,18 +464,18 @@ func repoConfigSets(root, keys string) (bool, error) {
 // read, both without and with includes, and any true one counts: only when
 // all are unset or false is the extension off. A value that is not a bool
 // makes git config fail, which is an error, so the caller refuses.
-func worktreeConfigMaybeOn(root string) (bool, error) {
+func worktreeConfigMaybeOn(ctx context.Context, root string) (bool, error) {
 	for _, inc := range [][]string{{"--no-includes"}, {"--includes"}} {
 		args := append(append([]string{"config", "--local"}, inc...), "--bool", "--get-all", "extensions.worktreeConfig")
-		out, code, err := runCode(root, args...)
+		out, code, err := runCode(ctx, root, args...)
 		switch {
 		case noMatches(out, code, err):
 			continue
 		case err != nil:
 			return false, err
 		}
-		for _, v := range strings.Fields(string(out)) {
-			if v != "false" {
+		for _, v := range bytes.Fields(out) {
+			if string(v) != "false" {
 				return true, nil
 			}
 		}

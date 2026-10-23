@@ -97,9 +97,10 @@ func Commit(t testing.TB, dir, file, msg string) {
 }
 
 // FakeOldGit returns a directory with a git wrapper to put first on PATH: it
-// reports version 2.34.1 and drops GIT_NO_LAZY_FETCH, as a git that does not
-// know the variable would. The wrapper is a POSIX shell script; on Windows
-// the test is skipped.
+// reports version 2.34.1 (for the version subcommand or --version, also
+// after global options such as -C dir and -c k=v) and drops
+// GIT_NO_LAZY_FETCH, as a git that does not know the variable would. The
+// wrapper is a POSIX shell script; on Windows the test is skipped.
 func FakeOldGit(t testing.TB) string {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -112,7 +113,19 @@ func FakeOldGit(t testing.TB) string {
 	dir := t.TempDir()
 	script := "#!/bin/sh\n" +
 		"unset GIT_NO_LAZY_FETCH\n" +
-		"case \"$1\" in version|--version) echo 'git version 2.34.1'; exit 0;; esac\n" +
+		// Skip git's global options to find the subcommand, as gitx calls
+		// "git -C <dir> -c k=v … version".
+		"cmd=\nskip=\n" +
+		"for a in \"$@\"; do\n" +
+		"  if [ -n \"$skip\" ]; then skip=; continue; fi\n" +
+		"  case \"$a\" in\n" +
+		"    -C|-c|--git-dir|--work-tree|--namespace|--config-env|--super-prefix|--list-cmds) skip=1;;\n" +
+		"    --version|-v) cmd=version; break;;\n" +
+		"    -*) ;;\n" +
+		"    *) cmd=$a; break;;\n" +
+		"  esac\n" +
+		"done\n" +
+		"if [ \"$cmd\" = version ]; then echo 'git version 2.34.1'; exit 0; fi\n" +
 		"exec '" + strings.ReplaceAll(real, "'", `'\''`) + "' \"$@\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)

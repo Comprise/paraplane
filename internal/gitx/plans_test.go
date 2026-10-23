@@ -8,7 +8,7 @@ import (
 )
 
 func TestPlansSince(t *testing.T) {
-	needGit(t, 2, 22, "%(trailers:key=)")
+	needGit(t, 2, 24, "--end-of-options")
 	dir := initRepo(t)
 	write(t, filepath.Join(dir, "f"), "0")
 	commitAll(t, dir, "base")

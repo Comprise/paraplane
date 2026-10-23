@@ -1,6 +1,7 @@
 package gitx
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -81,7 +82,7 @@ func signedRepo(t *testing.T, begin, end string) string {
 // names the verification program of each signature format.
 func TestWaveCommitsNoSignatureProgram(t *testing.T) {
 	skipWindows(t)
-	needGit(t, 2, 22, "%(trailers:key=)")
+	needGit(t, 2, 24, "--end-of-options")
 	for _, tc := range []struct{ name, format, key, begin, end string }{
 		{"openpgp", "openpgp", "gpg.program", "-----BEGIN PGP SIGNATURE-----", "-----END PGP SIGNATURE-----"},
 		{"ssh", "ssh", "gpg.ssh.program", "-----BEGIN SSH SIGNATURE-----", "-----END SSH SIGNATURE-----"},
@@ -100,7 +101,7 @@ func TestWaveCommitsNoSignatureProgram(t *testing.T) {
 			git(t, dir, "config", tc.key, prog)
 			git(t, dir, "config", "gpg.ssh.allowedSignersFile", signers)
 
-			got, _, err := WaveCommits(dir, "plan.md")
+			got, _, err := waveCommits(dir, "plan.md")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -109,7 +110,7 @@ func TestWaveCommitsNoSignatureProgram(t *testing.T) {
 			}
 			assertNoMarker(t, marker, "WaveCommits")
 			// Explicit --show-signature: only the program override protects.
-			run(dir, "log", "--show-signature", "-1")
+			run(context.Background(), dir, "log", "--show-signature", "-1")
 			assertNoMarker(t, marker, "git log --show-signature through run")
 
 			gitRun(dir, nil, "log", "-1") // the repo setting alone
@@ -122,18 +123,18 @@ func TestWaveCommitsNoSignatureProgram(t *testing.T) {
 // program override is "false", found on PATH, here a script with a marker.
 func TestRunDisablesShowSignature(t *testing.T) {
 	skipWindows(t)
-	needGit(t, 2, 22, "%(trailers:key=)")
+	needGit(t, 2, 24, "--end-of-options")
 	dir := signedRepo(t, "-----BEGIN PGP SIGNATURE-----", "-----END PGP SIGNATURE-----")
 	bin := t.TempDir()
 	_, marker := markerProgram(t, bin, "false")
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	git(t, dir, "config", "log.showSignature", "true")
 
-	if _, err := run(dir, "log", "-1"); err != nil {
+	if _, err := run(context.Background(), dir, "log", "-1"); err != nil {
 		t.Fatal(err)
 	}
 	assertNoMarker(t, marker, "git log through run")
-	if _, _, err := WaveCommits(dir, "plan.md"); err != nil {
+	if _, _, err := waveCommits(dir, "plan.md"); err != nil {
 		t.Fatal(err)
 	}
 	assertNoMarker(t, marker, "WaveCommits")
@@ -151,7 +152,7 @@ func TestRunNoHooks(t *testing.T) {
 	_, marker := markerProgram(t, hooks, "pre-commit")
 	git(t, dir, "config", "core.hooksPath", hooks)
 
-	if _, err := run(dir, "commit", "--allow-empty", "-q", "-m", "x"); err != nil {
+	if _, err := run(context.Background(), dir, "commit", "--allow-empty", "-q", "-m", "x"); err != nil {
 		t.Fatal(err)
 	}
 	assertNoMarker(t, marker, "git commit through run")
@@ -248,7 +249,7 @@ func TestChangedNoLazyFetch(t *testing.T) {
 	_, err := Changed(dir) // may fail closed; it must not run the transport
 	assertNoMarker(t, marker, "Changed (lazy fetch)")
 	// A git that may ignore GIT_NO_LAZY_FETCH must not get to git status.
-	if v, ok, _ := version(dir); !lazyFetchSafe(v, ok) && !errors.Is(err, ErrPartialClone) {
+	if v, ok, _ := version(context.Background(), dir); !lazyFetchSafe(v, ok) && !errors.Is(err, ErrPartialClone) {
 		t.Fatalf("git %v: err = %v, want ErrPartialClone", v, err)
 	}
 }

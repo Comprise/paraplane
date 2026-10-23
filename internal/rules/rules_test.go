@@ -575,7 +575,7 @@ waves:
 		t.Fatal(err)
 	}
 	changed := []string{"internal/b/x.go", "a/y.go", "go.mod", "docs/plan.md", "cover.out", "cmd/main.go", "internal/x.go"}
-	fs, err := Audit(p, "W2", changed, "docs/plan.md", []string{"*.out"})
+	fs, err := AuditCommits(p, []string{"W2"}, changed, nil, "docs/plan.md", []string{"*.out"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -594,18 +594,18 @@ waves:
 		t.Errorf("Audit = %q, want %q", got, want)
 	}
 
-	if fs, err := Audit(p, "W1", []string{"a/y.go"}, "docs/plan.md", nil); err != nil || len(fs) != 0 {
+	if fs, err := AuditCommits(p, []string{"W1"}, []string{"a/y.go"}, nil, "docs/plan.md", nil); err != nil || len(fs) != 0 {
 		t.Errorf("W1: %v %v", fs, err)
 	}
-	if _, err := Audit(p, "W9", changed, "docs/plan.md", nil); err == nil || !strings.Contains(err.Error(), "W9") {
+	if _, err := AuditCommits(p, []string{"W9"}, changed, nil, "docs/plan.md", nil); err == nil || !strings.Contains(err.Error(), "W9") {
 		t.Errorf("unknown wave: err = %v", err)
 	}
-	if _, err := Audit(p, "T2", changed, "docs/plan.md", nil); err == nil {
+	if _, err := AuditCommits(p, []string{"T2"}, changed, nil, "docs/plan.md", nil); err == nil {
 		t.Errorf("task id as wave: no error")
 	}
 
 	// A stage audits several waves at once: a file of any of them is owned.
-	fs, err = AuditWaves(p, []string{"W1", "W2"}, changed, "docs/plan.md", []string{"*.out"})
+	fs, err = AuditCommits(p, []string{"W1", "W2"}, changed, nil, "docs/plan.md", []string{"*.out"})
 	got = nil
 	for _, f := range fs {
 		got = append(got, f.String())
@@ -613,7 +613,7 @@ waves:
 	if want := []string{"error A1 W1,W2: internal/x.go changed but no task of W1, W2 owns it"}; err != nil || !reflect.DeepEqual(got, want) {
 		t.Errorf("AuditWaves = %q, %v; want %q", got, err, want)
 	}
-	if _, err := AuditWaves(p, []string{"W1", "W9"}, changed, "docs/plan.md", nil); err == nil || !strings.Contains(err.Error(), "W9") {
+	if _, err := AuditCommits(p, []string{"W1", "W9"}, changed, nil, "docs/plan.md", nil); err == nil || !strings.Contains(err.Error(), "W9") {
 		t.Errorf("unknown wave in a stage: err = %v", err)
 	}
 
@@ -622,7 +622,7 @@ waves:
 	if r.Errors() > 0 {
 		t.Fatalf("check: %v", r.Findings)
 	}
-	if fs, err := Audit(r.Plan, "W1", []string{"a/x.go"}, "docs/plan.md", nil); err != nil || len(fs) != 0 {
+	if fs, err := AuditCommits(r.Plan, []string{"W1"}, []string{"a/x.go"}, nil, "docs/plan.md", nil); err != nil || len(fs) != 0 {
 		t.Errorf("cleaned owns: %v %v", fs, err)
 	}
 }
@@ -691,7 +691,7 @@ func TestCheckDeadline(t *testing.T) {
 	o.Deadline = start.Add(50 * time.Millisecond)
 	r := Check(in, o)
 	d := time.Since(start)
-	if len(r.Findings) != 1 || r.Findings[0].Code != "E0" || r.Findings[0].Msg != layout.ErrDeadline.Error() {
+	if len(r.Findings) != 1 || r.Findings[0].Code != "E0" || !r.TimedOut || r.Findings[0].Msg != layout.ErrDeadline.Error() {
 		t.Fatalf("findings = %v", r.Findings[:min(5, len(r.Findings))])
 	}
 	if r.Plan != nil || r.Suggested != nil {
@@ -761,7 +761,7 @@ func TestInvalidWaveIDWhere(t *testing.T) {
 }
 
 func TestAuditNilPlan(t *testing.T) {
-	if _, err := Audit(nil, "W1", []string{"a"}, "plan.md", nil); err == nil {
+	if _, err := AuditCommits(nil, []string{"W1"}, []string{"a"}, nil, "plan.md", nil); err == nil {
 		t.Error("Audit(nil) returned no error")
 	}
 }
