@@ -11,6 +11,8 @@
 | `PreToolUse` | `Skill` | `pre-tool-use` | 10 s | an execution skill (the name contains `execut` or `subagent-driven`, not `paraplane:`) — a digest of the execution rules with the progress mode from `progress`; a skill with `plan` in its name — a digest of the plan-writing rules |
 | `PreToolUse` | `Bash`, `if: Bash(paraplane *)` | `pre-tool-use` | 10 s | auto-approves `paraplane check <path>`, `paraplane audit <path> <wave>[,<wave>…]`, `paraplane progress [--done <ids>] <path>` (ids joined by `,`), `paraplane version` |
 | `PostToolUse` | `Write\|Edit\|Bash\|Agent\|Task` | `post-tool-use` | 10 s | `Write`/`Edit`: if the file is in `plan_paths` — plan validation: E0 — context, E1–E7 — `decision: block`, only W — context (and only for `Write`). `Agent`/`Task`: a returned subagent whose prompt has `Paraplane-Task: <plan> <id>` is recorded in `.git/paraplane/closed.json`; `Bash` with `commit`, `merge`, `cherry-pick`, `rebase`, `am`, `pull` or `revert`: new commits naming a plan. Then, when a wave (`progress: wave`) or a task (`progress: task`) got done since the last time, the progress goes to the user as `systemMessage` |
+| `SubagentStop` | — | `subagent-stop` | 10 s | a finished subagent (also a background one): `Paraplane-Task` lines from the first record of `agent_transcript_path` (its prompt) are recorded; Claude Code does not show a `systemMessage` here, so the plan is marked pending |
+| `Stop` | — | `stop` | 10 s | shows the progress of pending plans as `systemMessage` (the end of the coordinator's turn after a subagent finished) |
 
 ## Codex: `hooks/codex.json`
 

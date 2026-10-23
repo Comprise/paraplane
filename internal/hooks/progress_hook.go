@@ -1,11 +1,14 @@
 package hooks
 
 import (
+	"bufio"
 	"encoding/json"
+	"io"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	"paraplane/internal/fsx"
 	"paraplane/internal/gitx"
 	"paraplane/internal/plan"
 	"paraplane/internal/rules"
@@ -43,38 +46,8 @@ func progressAfterAgent(env Env, in Input) ([]byte, error) {
 		return nil, nil
 	}
 	prompt, _ := v.Prompt.(string)
-	var entries []state.Entry
-	var plans []string
-	for _, m := range taskLine.FindAllStringSubmatch(prompt, maxTaskLines) {
-		p := m[1]
-		if !filepath.IsAbs(p) {
-			p = filepath.Join(env.Root, filepath.FromSlash(p))
-		}
-		rel, ok := rootRel(env.Root, p)
-		if !ok || !isPlanPath(env, rel) {
-			continue
-		}
-		if _, ok := loadPlan(env, rel); !ok {
-			continue
-		}
-		entries = append(entries, state.Entry{Plan: rel, Task: m[2]})
-		plans = appendUnique(plans, rel)
-	}
-	if len(entries) == 0 {
-		return nil, nil
-	}
-	gitDir, err := gitx.GitDir(env.Root)
-	if err != nil {
-		return nil, nil
-	}
-	head, err := gitx.Head(env.Root)
-	if err != nil {
-		return nil, nil
-	}
-	for i := range entries {
-		entries[i].Head = head
-	}
-	if state.Update(gitDir, func(s *state.State) { s.Entries = append(s.Entries, entries...) }) != nil {
+	gitDir, plans, ok := recordTasks(env, prompt, false)
+	if !ok {
 		return nil, nil
 	}
 	return showProgress(env, gitDir, plans)
@@ -224,4 +197,114 @@ func mergeOutputs(a, b []byte) ([]byte, error) {
 		}
 	}
 	return encodeJSON(x)
+}
+
+// recordTasks records the tasks the subagent prompt names
+// (Paraplane-Task: <plan> <id>) with the current HEAD; with pending the
+// plans also wait for a hook that can show their progress. ok is false when
+// nothing was recorded.
+func recordTasks(env Env, prompt string, pending bool) (gitDir string, plans []string, ok bool) {
+	var entries []state.Entry
+	for _, m := range taskLine.FindAllStringSubmatch(prompt, maxTaskLines) {
+		p := m[1]
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(env.Root, filepath.FromSlash(p))
+		}
+		rel, ok := rootRel(env.Root, p)
+		if !ok || !isPlanPath(env, rel) {
+			continue
+		}
+		if _, ok := loadPlan(env, rel); !ok {
+			continue
+		}
+		entries = append(entries, state.Entry{Plan: rel, Task: m[2]})
+		plans = appendUnique(plans, rel)
+	}
+	if len(entries) == 0 {
+		return "", nil, false
+	}
+	gitDir, err := gitx.GitDir(env.Root)
+	if err != nil {
+		return "", nil, false
+	}
+	head, err := gitx.Head(env.Root)
+	if err != nil {
+		return "", nil, false
+	}
+	for i := range entries {
+		entries[i].Head = head
+	}
+	err = state.Update(gitDir, func(s *state.State) {
+		s.Entries = append(s.Entries, entries...)
+		if pending {
+			for _, p := range plans {
+				s.Pending = appendUnique(s.Pending, p)
+			}
+		}
+	})
+	return gitDir, plans, err == nil
+}
+
+// maxTranscriptHead caps the bytes read from a subagent transcript: only its
+// first record, the prompt, is needed.
+const maxTranscriptHead = 1 << 20
+
+// SubagentStop records the tasks a finished subagent's prompt names, read from
+// the first record of its transcript. Claude Code does not show a
+// SubagentStop systemMessage, so the progress waits for Stop or PostToolUse
+// (pending). Subagents without a Paraplane-Task line, among them Claude
+// Code's own helpers, are ignored.
+func SubagentStop(env Env, in Input) ([]byte, error) {
+	if !env.Config.Enabled || in.AgentTranscriptPath == "" {
+		return nil, nil
+	}
+	f, _, err := fsx.OpenRegular(in.AgentTranscriptPath)
+	if err != nil {
+		return nil, nil
+	}
+	defer f.Close()
+	line, _ := bufio.NewReaderSize(io.LimitReader(f, maxTranscriptHead), 64<<10).ReadString('\n')
+	var rec struct {
+		Type    string `json:"type"`
+		Message struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"message"`
+	}
+	if json.Unmarshal([]byte(line), &rec) != nil || rec.Type != "user" {
+		return nil, nil
+	}
+	var prompt string
+	if json.Unmarshal(rec.Message.Content, &prompt) != nil {
+		var blocks []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if json.Unmarshal(rec.Message.Content, &blocks) != nil {
+			return nil, nil
+		}
+		for _, b := range blocks {
+			if b.Type == "text" {
+				prompt += b.Text + "\n"
+			}
+		}
+	}
+	recordTasks(env, prompt, true)
+	return nil, nil
+}
+
+// flushPending shows the progress of the plans waiting since a SubagentStop
+// (Claude Code's Stop shows a systemMessage).
+func flushPending(env Env) ([]byte, error) {
+	gitDir, err := gitx.GitDir(env.Root)
+	if err != nil {
+		return nil, nil
+	}
+	pending := state.Load(gitDir).Pending
+	if len(pending) == 0 {
+		return nil, nil
+	}
+	if state.Update(gitDir, func(s *state.State) { s.Pending = nil }) != nil {
+		return nil, nil
+	}
+	return showProgress(env, gitDir, pending)
 }

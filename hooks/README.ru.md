@@ -11,6 +11,8 @@
 | `PreToolUse` | `Skill` | `pre-tool-use` | 10 с | skill исполнения (имя содержит `execut` или `subagent-driven`, не `paraplane:`) — выжимка правил исполнения с режимом прогресса из `progress`; skill с `plan` в имени — выжимка правил составления плана |
 | `PreToolUse` | `Bash`, `if: Bash(paraplane *)` | `pre-tool-use` | 10 с | авто-одобрение `paraplane check <путь>`, `paraplane audit <путь> <волна>[,<волна>…]`, `paraplane progress [--done <ids>] <путь>` (id через `,`), `paraplane version` |
 | `PostToolUse` | `Write\|Edit\|Bash\|Agent\|Task` | `post-tool-use` | 10 с | `Write`/`Edit`: если файл входит в `plan_paths` — проверка плана: E0 — контекст, E1–E7 — `decision: block`, только W — контекст (и только для `Write`). `Agent`/`Task`: вернувшийся субагент со строкой `Paraplane-Task: <план> <id>` в промпте записывается в `.git/paraplane/closed.json`; `Bash` с `commit`, `merge`, `cherry-pick`, `rebase`, `am`, `pull` или `revert` — новые коммиты, называющие план. Если с прошлого раза сделана волна (`progress: wave`) или задача (`progress: task`), прогресс уходит пользователю в `systemMessage` |
+| `SubagentStop` | — | `subagent-stop` | 10 с | субагент закончил (в том числе фоновый): строки `Paraplane-Task` из первой записи `agent_transcript_path` (его промпт) записываются; `systemMessage` здесь Claude Code не показывает, поэтому план помечается ожидающим |
+| `Stop` | — | `stop` | 10 с | показывает прогресс ожидающих планов в `systemMessage` (конец хода координатора после завершения субагента) |
 
 ## Codex: `hooks/codex.json`
 

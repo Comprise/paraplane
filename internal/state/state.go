@@ -49,6 +49,7 @@ type State struct {
 	LastHead string           `json:"lastHead,omitempty"`
 	Entries  []Entry          `json:"entries,omitempty"`
 	Shown    map[string]Shown `json:"shown,omitempty"`
+	Pending  []string         `json:"pending,omitempty"` // plans whose progress waits for a hook that can show it
 }
 
 // file is the on-disk form, with its version.

@@ -262,6 +262,7 @@ Skill `paraplane:rules` главнее указаний любого skill ис�
 | `PreToolUse` `ExitPlanMode` | проверяет план; есть ошибки E (включая E0) — **запрещает выход из plan mode** и перечисляет нарушения (до 20) с инструкцией; только замечания W — добавляет их в контекст |
 | `PreToolUse` `Skill` | перед skill исполнения (имя содержит `execut` или `subagent-driven`, не начинается с `paraplane:`) напоминает правила исполнения и их приоритет; перед skill с `plan` в имени — правила составления плана |
 | `PreToolUse` `Bash` | одобряет без запроса `paraplane check <путь>`, `paraplane audit <путь> <волна>[,<волна>…]`, `paraplane progress [--done <ids>] <путь>`, `paraplane version` |
+| `SubagentStop`, `Stop` | субагент закончил (в том числе фоновый): строки `Paraplane-Task` из промпта в его транскрипте записываются; в конце хода `Stop` показывает прогресс пользователю (`systemMessage`) |
 | `PostToolUse` `Bash\|Agent\|Task` | вернувшийся субагент со строкой `Paraplane-Task: <план> <id>` в промпте или коммит, называющий план: если с прошлого раза сделана волна (`progress: task` — задача), показывает прогресс пользователю (`systemMessage`) |
 | `PostToolUse` `Write\|Edit` | если файл входит в `plan_paths` — проверяет его (≤ 1 МБ). E0 — только подсказка `add the block before the plan is final`; E1–E7 — **блокировка** с причиной; только W — подсказка, и только для `Write` |
 

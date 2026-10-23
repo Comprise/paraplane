@@ -25,7 +25,7 @@ commands:
   audit <file> <wave>[,<wave>…]    audit the files changed by a wave (or a stage of waves)
   progress [--done <ids>] <file>   show the execution progress of a plan;
                                    --done: closed, uncommitted task ids, comma-separated
-  hook <session-start|pre-tool-use|post-tool-use> [--agent codex]
+  hook <session-start|pre-tool-use|post-tool-use|subagent-stop|stop> [--agent codex]
   hook <stop|prompt-submit|permission-request> --agent codex
   version
 `
@@ -87,14 +87,16 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, cwd string) i
 	return 2
 }
 
-// hookHandlers maps `paraplane hook <event>` to its handler. stop,
-// prompt-submit and permission-request serve only Codex (hooks/codex.json)
-// and answer nothing for Claude.
+// hookHandlers maps `paraplane hook <event>` to its handler. prompt-submit
+// and permission-request serve only Codex (hooks/codex.json) and answer
+// nothing for Claude; stop checks the plan for Codex and shows pending
+// progress for Claude; subagent-stop serves only Claude.
 var hookHandlers = map[string]func(hooks.Env, hooks.Input) ([]byte, error){
 	"session-start":      hooks.SessionStart,
 	"pre-tool-use":       hooks.PreToolUse,
 	"post-tool-use":      hooks.PostToolUse,
 	"stop":               hooks.Stop,
+	"subagent-stop":      hooks.SubagentStop,
 	"prompt-submit":      hooks.PromptSubmit,
 	"permission-request": hooks.PermissionRequest,
 }

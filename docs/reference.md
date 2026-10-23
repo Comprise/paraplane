@@ -263,6 +263,7 @@ The hooks catch a plan in any form: from plan mode, from a skill with `plan` in 
 | `PreToolUse` `ExitPlanMode` | validates the plan; E errors (including E0) — **forbids leaving plan mode** and lists the violations (up to 20) with an instruction; only W warnings — adds them to the context |
 | `PreToolUse` `Skill` | before an execution skill (the name contains `execut` or `subagent-driven`, does not start with `paraplane:`) reminds of the execution rules and their priority; before a skill with `plan` in its name — the plan-writing rules |
 | `PreToolUse` `Bash` | approves without a prompt `paraplane check <path>`, `paraplane audit <path> <wave>[,<wave>…]`, `paraplane progress [--done <ids>] <path>`, `paraplane version` |
+| `SubagentStop`, `Stop` | a subagent finished (background ones too): its `Paraplane-Task` lines, read from the prompt in its transcript, are recorded; at the end of the turn `Stop` shows the progress to the user (`systemMessage`) |
 | `PostToolUse` `Bash\|Agent\|Task` | a returned subagent with `Paraplane-Task: <plan> <id>` in its prompt, or a commit naming a plan: when a wave (`progress: task` — a task) got done since the last time, shows the progress to the user (`systemMessage`) |
 | `PostToolUse` `Write\|Edit` | if the file is in `plan_paths` — validates it (≤ 1 MB). E0 — only the hint `add the block before the plan is final`; E1–E7 — **block** with a reason; only W — a hint, and only for `Write` |
 

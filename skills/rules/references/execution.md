@@ -98,8 +98,9 @@ The coordinator is the main Claude session. Subagents implement tasks.
 The moments come from the key `progress` in `.paraplane/config.yaml` (default `wave`). The execution
 digest the hooks add names the mode; when no digest named it, read the key yourself.
 
-**Claude Code:** a hook shows the progress to the user by itself (`systemMessage`) when a subagent with a
-`Paraplane-Task` line returns or a commit names the plan, at the moments below. Do not repeat it; show
+**Claude Code:** hooks show the progress to the user by themselves (`systemMessage`) when a subagent
+with a `Paraplane-Task` line finishes (a background one: at the end of your turn) or a commit names the
+plan, at the moments below. Do not repeat it; show
 it yourself only when the user asks or no hook message appeared. **Codex:** the hook passes the progress
 to you; show it to the user as the rules below say.
 

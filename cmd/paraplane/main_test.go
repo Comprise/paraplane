@@ -505,6 +505,7 @@ func TestHooksJSONContract(t *testing.T) {
 	}
 	want := map[string]string{
 		"SessionStart": "session-start", "PreToolUse": "pre-tool-use", "PostToolUse": "post-tool-use",
+		"SubagentStop": "subagent-stop", "Stop": "stop",
 	}
 	if len(cfg.Hooks) != len(want) {
 		t.Errorf("events = %d, want %d", len(cfg.Hooks), len(want))
@@ -549,7 +550,8 @@ func TestVersion(t *testing.T) {
 }
 
 // claudeHooks is hooks/hooks.json: Codex support must not change it. The
-// PostToolUse matcher includes Bash, Agent and Task for the progress hook.
+// PostToolUse matcher includes Bash, Agent and Task, and SubagentStop and
+// Stop are registered, for the progress hook.
 const claudeHooks = `{
   "hooks": {
     "SessionStart": [{ "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook session-start", "timeout": 10 }] }],
@@ -557,13 +559,15 @@ const claudeHooks = `{
       { "matcher": "ExitPlanMode|Skill", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook pre-tool-use", "timeout": 10 }] },
       { "matcher": "Bash", "hooks": [{ "type": "command", "if": "Bash(paraplane *)", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook pre-tool-use", "timeout": 10 }] }
     ],
-    "PostToolUse": [{ "matcher": "Write|Edit|Bash|Agent|Task", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook post-tool-use", "timeout": 10 }] }]
+    "PostToolUse": [{ "matcher": "Write|Edit|Bash|Agent|Task", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook post-tool-use", "timeout": 10 }] }],
+    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook subagent-stop", "timeout": 10 }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook stop", "timeout": 10 }] }]
   }
 }
 `
 
 // codexOnly are the handlers only hooks/codex.json uses.
-var codexOnly = map[string]bool{"stop": true, "prompt-submit": true, "permission-request": true}
+var codexOnly = map[string]bool{"prompt-submit": true, "permission-request": true}
 
 func TestClaudeHooksUnchanged(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "hooks", "hooks.json"))
@@ -642,7 +646,9 @@ func TestCodexHooksManifest(t *testing.T) {
 			t.Errorf("Codex-only handler %q is not used by codex.json", sub)
 		}
 	}
-	if len(hookHandlers) != len(codexOnly)+3 {
+	// session-start, pre-tool-use, post-tool-use, stop (both agents) and
+	// subagent-stop (Claude only).
+	if len(hookHandlers) != len(codexOnly)+5 {
 		t.Errorf("hookHandlers has %d entries; update the hooks.json and codex.json contracts", len(hookHandlers))
 	}
 }

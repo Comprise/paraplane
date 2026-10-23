@@ -18,6 +18,9 @@ type Input struct {
 	ToolInput      json.RawMessage `json:"tool_input"`
 	ToolResponse   json.RawMessage `json:"tool_response"`
 
+	// SubagentStop: the finished subagent's own transcript.
+	AgentTranscriptPath string `json:"agent_transcript_path"`
+
 	// Codex fields (spec section 12a.2).
 	TranscriptPath       string `json:"transcript_path"`
 	TurnID               string `json:"turn_id"`

@@ -1,7 +1,7 @@
 ---
 unit: internal/hooks
-source_hash: sha256:8b74917954809efaaa61af37d5d29d07281043623d1f291e6102429bb0d29426
-commit: 2eda41621ba2eb0a9309f6117f1210a78c331432
+source_hash: sha256:f7e4d4a95b27d49b85766e2221b49d3e1319fa861d3dec2b15df488a53565cdd
+commit: 930e887a622e41e57d7c9f836e7bf379ad8ab08f
 updated: "2026-10-23"
 ---
 # internal/hooks
@@ -34,6 +34,7 @@ updated: "2026-10-23"
   - сначала проверяются записанные/правленые файлы, потом прочитанные; первый block побеждает, иначе первый ответ.
 - Codex Stop: план — последний `<proposed_plan>` из `last_assistant_message`, иначе из хвоста транскрипта (до 4 МиБ) для текущего `turn_id`; ошибки → `decision: block` (в `warn` — `systemMessage`).
 - Хук прогресса (`progress_hook.go`, спека 2026-10-23 §7): `PostToolUse` для `Agent`/`Task` — строки `Paraplane-Task: <план> <id>` промпта (≤ 16; план из `plan_paths`, валидный) пишутся в `state` с текущим `HEAD`; для `Bash` — только при слове `commit`/`merge`/`cherry-pick`/`rebase`/`am`/`pull`/`revert` (до любого git): `gitx.PlansSince(lastHead, HEAD)` (или один `HEAD`), `lastHead` обновляется. `showProgress` (≤ 8 планов) через `track.PlanStatus`: показ, если сделанных волн больше `Shown.Waves` (при `progress: task` — задач больше `Shown.Tasks`); Claude — `systemMessage` + `additionalContext` «не повторяй», Codex — `additionalContext` с выводом и просьбой показать. Ошибки git/состояния — молчание.
+- `SubagentStop` (Claude): промпт — первая запись `agent_transcript_path` (обычный файл, ≤ 1 МиБ, строка или текстовые блоки); строки `Paraplane-Task` → `recordTasks` с `pending`. Ответа нет: `systemMessage` из `SubagentStop` не показывается. `Stop` (Claude) → `flushPending`: прогресс планов из `State.Pending` в `systemMessage`. Фоновый `Agent` в `PostToolUse` (`run_in_background` или ответ «Async agent launched») не засчитывается.
 - Codex `PostToolUse` на `Bash`: сначала `codexPost` (block побеждает), затем прогресс; ответы склеивает `mergeOutputs`.
 - Codex PromptSubmit: упоминания `$skill`/`$plugin:skill` в промпте → дайджест, `ExecDigest` важнее `Digest`; выводится `execDigest(Config.Progress)`.
 - SessionStart при `progress: task` дописывает к `SessionContext` правило показывать прогресс после каждой закрытой задачи (`sessionTask`): режим доходит и без скилла исполнения.

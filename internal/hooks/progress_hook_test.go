@@ -139,3 +139,51 @@ func TestProgressAfterAgentBackground(t *testing.T) {
 		t.Errorf("a launched background subagent was recorded: %v", err)
 	}
 }
+
+// transcript writes a subagent transcript whose first record is the prompt.
+func transcript(t *testing.T, content any) string {
+	t.Helper()
+	rec, err := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": content}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(t.TempDir(), "agent-x.jsonl")
+	if err := os.WriteFile(p, append(rec, []byte("\n{\"type\":\"assistant\"}\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestSubagentStopThenStop(t *testing.T) {
+	env := progressEnv(t, testEnv(t), "task")
+	in := Input{HookEventName: "SubagentStop", AgentTranscriptPath: transcript(t, "Do T1.\nParaplane-Task: docs/plans/x.md T1")}
+	nilOut(t)(SubagentStop(env, in)) // SubagentStop's systemMessage is not shown: record only
+	out, err := Stop(env, Input{HookEventName: "Stop"})
+	v := decode(t, out)
+	if err != nil || !strings.Contains(v.SystemMessage, "1/3 tasks") || v.Decision != "" {
+		t.Fatalf("stop: got %s, %v", out, err)
+	}
+	nilOut(t)(Stop(env, Input{HookEventName: "Stop"}))
+
+	// Content as a list of text blocks.
+	in.AgentTranscriptPath = transcript(t, []map[string]any{{"type": "text", "text": "Paraplane-Task: docs/plans/x.md T2"}})
+	nilOut(t)(SubagentStop(env, in))
+	out, _ = Stop(env, Input{HookEventName: "Stop"})
+	if v := decode(t, out); !strings.Contains(v.SystemMessage, "2/3 tasks") {
+		t.Fatalf("blocks: got %s", out)
+	}
+}
+
+func TestSubagentStopIgnored(t *testing.T) {
+	env := progressEnv(t, testEnv(t), "task")
+	for name, path := range map[string]string{
+		"no marker": transcript(t, "Summarize the conversation."),
+		"missing":   filepath.Join(t.TempDir(), "nope.jsonl"),
+		"empty":     "",
+	} {
+		nilOut(t)(SubagentStop(env, Input{HookEventName: "SubagentStop", AgentTranscriptPath: path}))
+		if out, err := Stop(env, Input{HookEventName: "Stop"}); out != nil || err != nil {
+			t.Errorf("%s: stop got %s, %v", name, out, err)
+		}
+	}
+}

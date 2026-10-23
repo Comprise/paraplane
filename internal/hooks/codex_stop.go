@@ -35,7 +35,13 @@ const (
 // (stop_hook_active); in mode warn the text goes to the user instead.
 // Claude Code does not use this hook.
 func Stop(env Env, in Input) ([]byte, error) {
-	if !env.Config.Enabled || env.Agent != Codex || in.StopHookActive {
+	if !env.Config.Enabled {
+		return nil, nil
+	}
+	if env.Agent != Codex {
+		return flushPending(env)
+	}
+	if in.StopHookActive {
 		return nil, nil
 	}
 	md, ok := codexTagPlan(in.LastAssistantMessage)

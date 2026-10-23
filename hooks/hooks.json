@@ -5,6 +5,8 @@
       { "matcher": "ExitPlanMode|Skill", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook pre-tool-use", "timeout": 10 }] },
       { "matcher": "Bash", "hooks": [{ "type": "command", "if": "Bash(paraplane *)", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook pre-tool-use", "timeout": 10 }] }
     ],
-    "PostToolUse": [{ "matcher": "Write|Edit|Bash|Agent|Task", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook post-tool-use", "timeout": 10 }] }]
+    "PostToolUse": [{ "matcher": "Write|Edit|Bash|Agent|Task", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook post-tool-use", "timeout": 10 }] }],
+    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook subagent-stop", "timeout": 10 }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook stop", "timeout": 10 }] }]
   }
 }
