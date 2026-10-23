@@ -1,7 +1,7 @@
 ---
 unit: internal/hooks
-source_hash: sha256:5710ce0c1dc3087770dc779550a995aa779f6c45f5dcd364a56b43c7cdf65d86
-commit: d3b7e4c68cdd97065be8d78d922d7b565b23d507
+source_hash: sha256:3c837d172771cfdaae62a415b2151d96231ef4b7d24a4728b050ac56b4f5f04d
+commit: cf351827e7241787d9a30c285c647699aa9f20f9
 updated: "2026-10-23"
 ---
 # internal/hooks
@@ -33,6 +33,8 @@ updated: "2026-10-23"
   - чтение даёт только context по E1–E7 и никогда не блокирует;
   - сначала проверяются записанные/правленые файлы, потом прочитанные; первый block побеждает, иначе первый ответ.
 - Codex Stop: план — последний `<proposed_plan>` из `last_assistant_message`, иначе из хвоста транскрипта (до 4 МиБ) для текущего `turn_id`; ошибки → `decision: block` (в `warn` — `systemMessage`).
+- Хук прогресса (`progress_hook.go`, спека 2026-10-23 §7): `PostToolUse` для `Agent`/`Task` — строки `Paraplane-Task: <план> <id>` промпта (≤ 16; план из `plan_paths`, валидный) пишутся в `state` с текущим `HEAD`; для `Bash` — только при слове `commit`/`merge`/`cherry-pick`/`rebase`/`am`/`pull`/`revert` (до любого git): `gitx.PlansSince(lastHead, HEAD)` (или один `HEAD`), `lastHead` обновляется. `showProgress` (≤ 8 планов) через `track.PlanStatus`: показ, если сделанных волн больше `Shown.Waves` (при `progress: task` — задач больше `Shown.Tasks`); Claude — `systemMessage` + `additionalContext` «не повторяй», Codex — `additionalContext` с выводом и просьбой показать. Ошибки git/состояния — молчание.
+- Codex `PostToolUse` на `Bash`: сначала `codexPost` (block побеждает), затем прогресс; ответы склеивает `mergeOutputs`.
 - Codex PromptSubmit: упоминания `$skill`/`$plugin:skill` в промпте → дайджест, `ExecDigest` важнее `Digest`; выводится `execDigest(Config.Progress)`.
 - SessionStart при `progress: task` дописывает к `SessionContext` правило показывать прогресс после каждой закрытой задачи (`sessionTask`): режим доходит и без скилла исполнения.
 - Codex PermissionRequest: заменяет Bash-allow из PreToolUse.

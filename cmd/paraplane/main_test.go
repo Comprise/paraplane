@@ -15,7 +15,9 @@ import (
 	"testing"
 	"time"
 
+	"paraplane/internal/gitx"
 	"paraplane/internal/hooks"
+	"paraplane/internal/state"
 )
 
 // planMD wraps a ```paraplane block body into a Markdown plan.
@@ -347,6 +349,57 @@ func TestProgressLostTrailers(t *testing.T) {
 	}
 }
 
+func TestProgressTaskCommits(t *testing.T) {
+	dir := repo(t, validPlan)
+	write(t, dir, "a.go", "package a\n")
+	git(t, dir, "add", "-A")
+	git(t, dir, "commit", "-q", "-m", "feat: a\n\nParaplane-Plan: docs/plan.md\nParaplane-Task: T1")
+	code, out, _ := cli(t, dir, "", "progress", "docs/plan.md")
+	if code != 0 || !strings.Contains(out, "✓ done") || !strings.Contains(out, "1/2 tasks") {
+		t.Errorf("code %d, out %q", code, out)
+	}
+}
+
+func TestProgressState(t *testing.T) {
+	dir := repo(t, validPlan)
+	g, err := gitx.GitDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, _ := gitx.Head(dir)
+	if err := state.Update(g, func(s *state.State) {
+		s.Entries = append(s.Entries, state.Entry{Plan: "docs/plan.md", Task: "T1", Head: head})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	code, out, _ := cli(t, dir, "", "progress", "docs/plan.md")
+	if code != 0 || !strings.Contains(out, "✓ done") {
+		t.Errorf("code %d, out %q", code, out)
+	}
+}
+
+func TestAuditCommits(t *testing.T) {
+	dir := repo(t, validPlan)
+	write(t, dir, "a.go", "package a\n")
+	write(t, dir, "b.go", "package b\n")
+	git(t, dir, "add", "-A")
+	git(t, dir, "commit", "-q", "-m", "feat: t1\n\nParaplane-Plan: docs/plan.md\nParaplane-Task: T1")
+	code, out, _ := cli(t, dir, "", "audit", "docs/plan.md", "W1")
+	if code != 1 || !regexp.MustCompile(`^error A1 W1: b\.go changed by T1 \(commit [0-9a-f]{7,}\) but T1 does not own it\n`).MatchString(out) {
+		t.Errorf("stray committed file: code %d, out %q", code, out)
+	}
+
+	dir = repo(t, validPlan)
+	write(t, dir, "a.go", "package a\n")
+	git(t, dir, "add", "-A")
+	git(t, dir, "commit", "-q", "-m", "feat: t1\n\nParaplane-Plan: docs/plan.md\nParaplane-Task: T1")
+	write(t, dir, "a.go", "package a // more\n")
+	code, out, _ = cli(t, dir, "", "audit", "docs/plan.md", "W1")
+	if code != 0 || out != "audit ok: W1, 1 changed file(s), 1 commit(s)\n" {
+		t.Errorf("clean: code %d, out %q", code, out)
+	}
+}
+
 func TestProgressDoneArgs(t *testing.T) {
 	dir := repo(t, validPlan)
 	if code, out, _ := cli(t, dir, "", "progress", "--done", "T1", "docs/plan.md"); code != 0 || !strings.Contains(out, "✓ done") {
@@ -495,8 +548,8 @@ func TestVersion(t *testing.T) {
 	}
 }
 
-// claudeHooks is hooks/hooks.json as shipped before Codex support: Codex
-// support must not change it.
+// claudeHooks is hooks/hooks.json: Codex support must not change it. The
+// PostToolUse matcher includes Bash, Agent and Task for the progress hook.
 const claudeHooks = `{
   "hooks": {
     "SessionStart": [{ "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook session-start", "timeout": 10 }] }],
@@ -504,7 +557,7 @@ const claudeHooks = `{
       { "matcher": "ExitPlanMode|Skill", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook pre-tool-use", "timeout": 10 }] },
       { "matcher": "Bash", "hooks": [{ "type": "command", "if": "Bash(paraplane *)", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook pre-tool-use", "timeout": 10 }] }
     ],
-    "PostToolUse": [{ "matcher": "Write|Edit", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook post-tool-use", "timeout": 10 }] }]
+    "PostToolUse": [{ "matcher": "Write|Edit|Bash|Agent|Task", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/paraplane hook post-tool-use", "timeout": 10 }] }]
   }
 }
 `

@@ -27,10 +27,21 @@ func PostToolUse(env Env, in Input) ([]byte, error) {
 	if !env.Config.Enabled {
 		return nil, nil
 	}
-	if env.Agent == Codex && (in.ToolName == "Bash" || in.ToolName == "apply_patch") {
+	switch {
+	case env.Agent == Codex && in.ToolName == "Bash":
+		out, err := codexPost(env, in)
+		if err != nil || isBlock(out) {
+			return out, err
+		}
+		prog, _ := progressAfterBash(env, in)
+		return mergeOutputs(out, prog)
+	case env.Agent == Codex && in.ToolName == "apply_patch":
 		return codexPost(env, in)
-	}
-	if in.ToolName != "Write" && in.ToolName != "Edit" {
+	case in.ToolName == "Agent" || in.ToolName == "Task":
+		return progressAfterAgent(env, in)
+	case in.ToolName == "Bash":
+		return progressAfterBash(env, in)
+	case in.ToolName != "Write" && in.ToolName != "Edit":
 		return nil, nil
 	}
 	var v postInput

@@ -1,7 +1,7 @@
 ---
 unit: cmd/paraplane
-source_hash: sha256:785484e3736d8c0977e0ce4aa01348da2b58fcff12cad90bfdd1364395cda98a
-commit: d3b7e4c68cdd97065be8d78d922d7b565b23d507
+source_hash: sha256:9f28f22033b1d0169c86f482e25af7491e54b9329eb636c583cde9f971dc60bb
+commit: cf351827e7241787d9a30c285c647699aa9f20f9
 updated: "2026-10-23"
 ---
 # cmd/paraplane
@@ -12,8 +12,8 @@ updated: "2026-10-23"
 
 ## Публичный API / точки входа
 - `check [--suggest] <file>` — находки, при `--suggest` — более короткая раскладка, затем сводка; `-` читает stdin; код 1 при ошибках.
-- `audit <file> <wave>[,<wave>…]` — файлы, изменённые в git (`gitx.Changed`), вне `owns` волны или этапа из нескольких волн (`rules.AuditWaves`, A1); код 1 при находках; список волн с запятой проверяется `waveList`, иначе usage и код 2.
-- `progress [--done <ids>] <file>` — прогресс по коммитам волн (`gitx.WaveCommits`) и закрытым незакоммиченным задачам из `--done` (`progress.RenderClosed`), вывод показывается пользователю как есть. `--done` — только перед файлом, id по правилу плана через `,` без пробелов (`doneIDs`); иначе usage и код 2. После вывода — `warning: wave <id> commit <hash>: trailers not in the last paragraph` для каждой волны из `lost` `gitx.WaveCommits`.
+- `audit <file> <wave>[,<wave>…]` — файлы рабочего дерева (`gitx.Changed`) и коммитов волн (`gitx.PlanCommitFiles`) против `owns` (`rules.AuditCommits`, A1); итог `audit ok: W, n changed file(s)[, m commit(s)]`; код 1 при находках; список волн с запятой проверяется `waveList`, иначе usage и код 2.
+- `progress [--done <ids>] <file>` — прогресс через `track.PlanStatus`: коммиты волн, этапов и задач, задачи вернувшихся субагентов из `<git-dir>/paraplane/closed.json` и `--done`; вывод (с предупреждениями о потерянных трейлерах) показывается пользователю как есть. `--done` — только перед файлом, id по правилу плана через `,` без пробелов (`doneIDs`); иначе usage и код 2. После вывода — `warning: wave <id> commit <hash>: trailers not in the last paragraph` для каждой волны из `lost` `gitx.WaveCommits`.
 - `hook <event> [--agent claude|codex]` — события из `hookHandlers`: `session-start`, `pre-tool-use`, `post-tool-use`, `stop`, `prompt-submit`, `permission-request`.
 - `version` — значение `main.version`, задаётся через `-ldflags -X` в `Makefile`.
 - Коды выхода: 0 — успех, 1 — ошибка или находки, 2 — неверные аргументы (usage в stderr).

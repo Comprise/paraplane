@@ -77,7 +77,7 @@ waves:
         verify: "go test ./cmd/paraplane/"
       - id: T6
         title: "hooks: progress hook for Agent and Bash, Codex, digest"
-        owns: ["internal/hooks/**", context/internal/hooks.md]
+        owns: ["internal/hooks/**", internal/gitx/plans.go, internal/gitx/plans_test.go, context/internal/hooks.md]
         reads: [internal/track/track.go]
         depends: [T8]
         verify: "go test ./internal/hooks/"
@@ -167,10 +167,10 @@ waves:
 
 **Interfaces — Consumes:** `track.PlanStatus` (T8); `gitx.PlanCommitFiles` (T1); `rules.AuditCommits`, `rules.CommitFiles` (T4).
 
-- [ ] **Step 1: Failing tests** — `TestProgressTaskCommits`: repo with `validPlan`, commit with `Paraplane-Task: T1` → W1 `✓ done`; `TestProgressState`: a state entry for T1 written via `state.Update` into the repo's git dir → W1 `✓ done` without `--done`; `TestAuditCommits`: a committed T1 file outside its owns → `error A1 W1: … changed by T1 (commit …)`, exit 1; a clean task commit plus one uncommitted owned file → `audit ok: W1, 1 changed file(s), 1 commit(s)`.
-- [ ] **Step 2: Run** `go test ./cmd/paraplane/ -run 'Progress|Audit'` — FAIL.
-- [ ] **Step 3: Implement** `runProgress` via `track.PlanStatus(root, rel, p, closed)`; `runAudit` via `PlanCommitFiles` + `AuditCommits` with the wave list `W1,W2` as today, new summary line; `hooks/hooks.json` PostToolUse matcher `Write|Edit` → `Write|Edit|Bash|Agent|Task` and the `claudeHooks` constant of `TestClaudeHooksUnchanged` with it.
-- [ ] **Step 4: Run** `go test ./cmd/paraplane/` — PASS; update the context doc.
+- [x] **Step 1: Failing tests** — `TestProgressTaskCommits`: repo with `validPlan`, commit with `Paraplane-Task: T1` → W1 `✓ done`; `TestProgressState`: a state entry for T1 written via `state.Update` into the repo's git dir → W1 `✓ done` without `--done`; `TestAuditCommits`: a committed T1 file outside its owns → `error A1 W1: … changed by T1 (commit …)`, exit 1; a clean task commit plus one uncommitted owned file → `audit ok: W1, 1 changed file(s), 1 commit(s)`.
+- [x] **Step 2: Run** `go test ./cmd/paraplane/ -run 'Progress|Audit'` — FAIL.
+- [x] **Step 3: Implement** `runProgress` via `track.PlanStatus(root, rel, p, closed)`; `runAudit` via `PlanCommitFiles` + `AuditCommits` with the wave list `W1,W2` as today, new summary line; `hooks/hooks.json` PostToolUse matcher `Write|Edit` → `Write|Edit|Bash|Agent|Task` and the `claudeHooks` constant of `TestClaudeHooksUnchanged` with it.
+- [x] **Step 4: Run** `go test ./cmd/paraplane/` — PASS; update the context doc.
 
 ### Task T6: hooks
 
@@ -181,10 +181,10 @@ waves:
 
 Rules: spec §7 (markers, trigger words, `lastHead`, `shown`, `wave`/`task` thresholds, ≤ 8 plans, outputs joined by a blank line). Claude answer = `systemMessage` + `additionalContext` `paraplane: progress of <plan> was shown to the user; do not repeat it.`; Codex answer = `additionalContext` with the progress text and `Show this progress to the user in a code block.` Digest/`sessionTask`: coordinator puts `Paraplane-Task: <plan> <id>` into each subagent prompt; for Claude Code the hook shows progress.
 
-- [ ] **Step 1: Failing tests** — `TestProgressAfterAgentTaskMode` (marker for T1 of 2-task W1 → `systemMessage` with `1/2`; same call again → nil); `TestProgressAfterAgentWaveMode` (T1 → nil, then T2 → `systemMessage` with W1 `✓ done`); `TestProgressAfterAgentNoMarker` → nil, no `closed.json`; `TestProgressAfterBashNoTrigger` (`ls`) → nil and git not run (git missing from PATH must not matter); `TestProgressAfterBashStageCommit` (commit with W1+W2 trailers, wave mode) → one message with both done; `TestProgressCodexContext` → `additionalContext`, no `systemMessage`.
-- [ ] **Step 2: Run** `go test ./internal/hooks/` — FAIL.
-- [ ] **Step 3: Implement** `progress_hook.go`, dispatch, Codex merge, digest text.
-- [ ] **Step 4: Run** `go test ./internal/hooks/` — PASS; update the context doc.
+- [x] **Step 1: Failing tests** — `TestProgressAfterAgentTaskMode` (marker for T1 of 2-task W1 → `systemMessage` with `1/2`; same call again → nil); `TestProgressAfterAgentWaveMode` (T1 → nil, then T2 → `systemMessage` with W1 `✓ done`); `TestProgressAfterAgentNoMarker` → nil, no `closed.json`; `TestProgressAfterBashNoTrigger` (`ls`) → nil and git not run (git missing from PATH must not matter); `TestProgressAfterBashStageCommit` (commit with W1+W2 trailers, wave mode) → one message with both done; `TestProgressCodexContext` → `additionalContext`, no `systemMessage`.
+- [x] **Step 2: Run** `go test ./internal/hooks/` — FAIL.
+- [x] **Step 3: Implement** `progress_hook.go`, dispatch, Codex merge, digest text.
+- [x] **Step 4: Run** `go test ./internal/hooks/` — PASS; update the context doc.
 
 ## After the plan
 

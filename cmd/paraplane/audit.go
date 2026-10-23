@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 
 	"paraplane/internal/config"
@@ -38,7 +39,17 @@ func runAudit(args []string, stdout, stderr io.Writer, cwd string) int {
 		printErr(stdout, err)
 		return 1
 	}
-	findings, err := rules.AuditWaves(p, strings.Split(args[1], ","), changed, rel, env.Config.AuditIgnore)
+	commits, err := gitx.PlanCommitFiles(root, rel)
+	if err != nil {
+		printErr(stdout, err)
+		return 1
+	}
+	var cf []rules.CommitFiles
+	for _, c := range commits {
+		cf = append(cf, rules.CommitFiles{Hash: c.Hash, Waves: c.Waves, Tasks: c.Tasks, Files: c.Files})
+	}
+	waves := strings.Split(args[1], ",")
+	findings, err := rules.AuditCommits(p, waves, changed, cf, rel, env.Config.AuditIgnore)
 	if err != nil {
 		printErr(stdout, err)
 		return 1
@@ -50,6 +61,10 @@ func runAudit(args []string, stdout, stderr io.Writer, cwd string) int {
 	if len(findings) > 0 {
 		fmt.Fprintf(stdout, "audit failed: %d file(s) outside %s\n", len(findings), wave)
 		return 1
+	}
+	if n := waveCommits(cf, p, waves); n > 0 {
+		fmt.Fprintf(stdout, "audit ok: %s, %d changed file(s), %d commit(s)\n", wave, len(changed), n)
+		return 0
 	}
 	fmt.Fprintf(stdout, "audit ok: %s, %d changed file(s)\n", wave, len(changed))
 	return 0
@@ -75,4 +90,24 @@ func loadValidPlan(name, cwd string, env hooks.Env) (*plan.Plan, string, error) 
 			textx.Line(name, maxName), n, first, textx.Line(name, maxName))
 	}
 	return r.Plan, rel, nil
+}
+
+// waveCommits counts the commits that name one of waves or a task of them.
+func waveCommits(cs []rules.CommitFiles, p *plan.Plan, waves []string) int {
+	in := map[string]bool{}
+	for _, w := range p.Waves {
+		if slices.Contains(waves, w.ID) {
+			in[w.ID] = true
+			for _, t := range w.Tasks {
+				in[t.ID] = true
+			}
+		}
+	}
+	n := 0
+	for _, c := range cs {
+		if slices.ContainsFunc(c.Waves, func(id string) bool { return in[id] }) || slices.ContainsFunc(c.Tasks, func(id string) bool { return in[id] }) {
+			n++
+		}
+	}
+	return n
 }
