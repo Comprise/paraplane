@@ -156,10 +156,10 @@ waves:
 - Consumes: `gitx.PlanCommits`, `gitx.GitDir`, `gitx.Head`, `gitx.IsAncestor` (T1); `state.Load`, `State.Closed` (T2); `progress.RenderFrom`, `progress.Input` (T3).
 - Produces: `type Status struct { Text string; Waves, Tasks int }` (Text ends with the lost-trailer warnings, verbatim from the spec); `func PlanStatus(root, planRel string, p *plan.Plan, extra []string) (Status, error)` — committed waves/tasks from git, closed = valid state entries ∪ `extra`; `Waves`/`Tasks` = number of done waves / done tasks by the §4 rule.
 
-- [ ] **Step 1: Failing tests** in a temp repo: task commit T1 + state entry T2 (head = HEAD) of a 2-task W1 → W1 done, `Waves 1`; state entry recorded at a head then `git reset --hard HEAD~1` → entry not counted; `extra` adds a task; lost task trailer → text ends with `warning: task T1 commit <hash>: trailers not in the last paragraph`.
-- [ ] **Step 2: Run** `go test ./internal/track/` — FAIL.
-- [ ] **Step 3: Implement** `PlanStatus`.
-- [ ] **Step 4: Run** `go test ./internal/track/` — PASS; write `CLAUDE.md` and the context doc.
+- [x] **Step 1: Failing tests** in a temp repo: task commit T1 + state entry T2 (head = HEAD) of a 2-task W1 → W1 done, `Waves 1`; state entry recorded at a head then `git reset --hard HEAD~1` → entry not counted; `extra` adds a task; lost task trailer → text ends with `warning: task T1 commit <hash>: trailers not in the last paragraph`.
+- [x] **Step 2: Run** `go test ./internal/track/` — FAIL.
+- [x] **Step 3: Implement** `PlanStatus`.
+- [x] **Step 4: Run** `go test ./internal/track/` — PASS; write `CLAUDE.md` and the context doc.
 
 ### Task T5: CLI
 
