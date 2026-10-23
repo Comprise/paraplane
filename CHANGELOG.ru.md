@@ -6,7 +6,7 @@
 по [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/). Подробности поведения — в
 [справочнике](docs/reference.ru.md).
 
-## [1.2.0] — не выпущена
+## [1.2.0] — 2026-10-23
 
 ### Добавлено
 
@@ -143,7 +143,7 @@
 - Skills `rules`, `create`, `check` и агент `conflict-auditor`.
 - Готовые бинарники для Linux, macOS и Windows (amd64, arm64) за POSIX-шимом `bin/paraplane`.
 
-[1.2.0]: https://github.com/Comprise/paraplane/compare/v1.1.2...HEAD
+[1.2.0]: https://github.com/Comprise/paraplane/compare/v1.1.2...v1.2.0
 [1.1.2]: https://github.com/Comprise/paraplane/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/Comprise/paraplane/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Comprise/paraplane/compare/v1.0.2...v1.1.0
