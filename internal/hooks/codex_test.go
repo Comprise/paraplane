@@ -31,8 +31,8 @@ func codexEnv(t *testing.T) Env {
 	return env
 }
 
-// codexPayload reads testdata/<name>.json (a captured Codex payload), applies
-// the overrides and decodes it into Input.
+// codexPayload reads testdata/<name>.json (a captured Codex or Claude Code
+// payload), applies the overrides and decodes it into Input.
 func codexPayload(t *testing.T, name string, set map[string]any) Input {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("testdata", name+".json"))

@@ -138,6 +138,9 @@ func TestProgressAfterAgentBackground(t *testing.T) {
 	in = postIn(t, "Agent", map[string]any{"prompt": "Paraplane-Task: docs/plans/x.md T1"})
 	in.ToolResponse = json.RawMessage(`[{"type":"text","text":"Async agent launched successfully."}]`)
 	nilOut(t)(PostToolUse(env, in))
+	// Captured from Claude Code: a subagent it put in the background on its
+	// own has no run_in_background, and the response is the result object.
+	nilOut(t)(PostToolUse(env, codexPayload(t, "claude_post_agent_async", nil)))
 	if _, err := os.Stat(filepath.Join(env.Root, ".git", "paraplane", "closed.json")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("a launched background subagent was recorded: %v", err)
 	}
@@ -159,8 +162,13 @@ func transcript(t *testing.T, content any) string {
 
 func TestSubagentStopThenStop(t *testing.T) {
 	env := progressEnv(t, testEnv(t), "task")
-	in := Input{HookEventName: "SubagentStop", AgentTranscriptPath: transcript(t, "Do T1.\nParaplane-Task: docs/plans/x.md T1")}
-	nilOut(t)(SubagentStop(env, in)) // SubagentStop's systemMessage is not shown: record only
+	// Captured from Claude Code: the launch, then SubagentStop twice for the
+	// same subagent (the second with stop_hook_active).
+	set := map[string]any{"agent_transcript_path": fixtureAbs(t, "claude_agent_transcript.jsonl")}
+	nilOut(t)(PostToolUse(env, codexPayload(t, "claude_post_agent_async", nil)))
+	// SubagentStop's systemMessage is not shown: record only.
+	nilOut(t)(SubagentStop(env, codexPayload(t, "claude_subagent_stop", set)))
+	nilOut(t)(SubagentStop(env, codexPayload(t, "claude_subagent_stop_again", set)))
 	out, err := Stop(env, Input{HookEventName: "Stop"})
 	v := decode(t, out)
 	if err != nil || !strings.Contains(v.SystemMessage, "1/3 tasks") || v.Decision != "" {
@@ -168,8 +176,8 @@ func TestSubagentStopThenStop(t *testing.T) {
 	}
 	nilOut(t)(Stop(env, Input{HookEventName: "Stop"}))
 
-	// Content as a list of text blocks.
-	in.AgentTranscriptPath = transcript(t, []map[string]any{{"type": "text", "text": "Paraplane-Task: docs/plans/x.md T2"}})
+	// Content as a list of text blocks (not seen live; kept as a fallback).
+	in := Input{HookEventName: "SubagentStop", AgentTranscriptPath: transcript(t, []map[string]any{{"type": "text", "text": "Paraplane-Task: docs/plans/x.md T2"}})}
 	nilOut(t)(SubagentStop(env, in))
 	out, _ = Stop(env, Input{HookEventName: "Stop"})
 	if v := decode(t, out); !strings.Contains(v.SystemMessage, "2/3 tasks") {

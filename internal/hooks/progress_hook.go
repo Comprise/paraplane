@@ -172,8 +172,16 @@ func progressAfterAgent(env Env, in Input) ([]byte, error) {
 		return nil, nil
 	}
 	// A background subagent's PostToolUse fires when it is launched, not
-	// when it finishes: it is not done yet.
-	if v.Background == true || strings.Contains(string(in.ToolResponse), "Async agent launched") {
+	// when it finishes: it is not done yet. Claude Code may put it in the
+	// background on its own (no run_in_background), so the response is
+	// checked too: its result object or, in older forms, its text.
+	var r struct {
+		IsAsync any `json:"isAsync"`
+		Status  any `json:"status"`
+	}
+	_ = json.Unmarshal(in.ToolResponse, &r)
+	if v.Background == true || r.IsAsync == true || r.Status == "async_launched" ||
+		strings.Contains(string(in.ToolResponse), "Async agent launched") {
 		return nil, nil
 	}
 	prompt, _ := v.Prompt.(string)
