@@ -67,7 +67,7 @@ All notable changes of paraplane. Versions follow [semantic versioning](https://
   only when the user asks or no hook message appeared. In Codex nothing changes: the coordinator shows it.
 - Pass in `--done` only tasks closed without a subagent; recorded subagents and committed tasks are counted
   already.
-- Git older than 2.24 now gets an explicit error from `progress` and from the commit part of `audit`.
+- Git older than 2.24 now gets an explicit error from `progress` and `audit` (`audit` then fails as a whole).
 
 ## [1.1.2] — 2026-10-23
 

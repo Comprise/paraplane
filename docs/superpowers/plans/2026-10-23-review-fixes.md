@@ -1,5 +1,7 @@
 # paraplane — fixes for the full project review Implementation Plan
 
+**Status:** implemented, unreleased (1.2.0).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. The paraplane execution rules (`skills/rules/references/execution.md`) take precedence: tasks of a wave run in parallel, each only in its `owns`, subagents never commit, golden files are edited by hand. Each subagent prompt carries `Paraplane-Task: docs/superpowers/plans/2026-10-23-review-fixes.md <task id>`. Trailers: `Paraplane-Plan: docs/superpowers/plans/2026-10-23-review-fixes.md`, `Paraplane-Wave: <id>`.
 
 **Goal:** fix every finding of the full review (`.full-review/05-final-report.md`, 131 findings + 16 Info) on branch `feat/progress-hook`, so that v1.2.0 can ship.

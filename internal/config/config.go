@@ -36,7 +36,7 @@ type Config struct {
 	MaxParallel int
 	PlansDir    string
 	AuditIgnore []string
-	Progress    string // "wave" | "task": when the progress hook shows progress
+	Progress    string // "wave" | "task": when progress is shown (by the hooks in Claude Code, by the coordinator in Codex)
 }
 
 // Default returns the defaults of spec section 9.

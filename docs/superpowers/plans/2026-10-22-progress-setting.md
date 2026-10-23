@@ -1,5 +1,7 @@
 # paraplane — progress setting, `--done` and /paraplane:progress Implementation Plan
 
+**Status:** implemented in v1.1.0; its stateless design is superseded by `2026-10-23-progress-hook.md` (1.2.0).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. The paraplane execution rules (`skills/rules/references/execution.md`) take precedence: tasks of a wave run in parallel, each only in its `owns`, subagents never commit, golden files are edited by hand. Trailers: `Paraplane-Plan: docs/superpowers/plans/2026-10-22-progress-setting.md`, `Paraplane-Wave: <id>`.
 
 **Goal:** the user picks when progress is shown (`progress: wave | task` in `.paraplane/config.yaml`), closed but uncommitted tasks count as done via `paraplane progress --done <ids> <file>`, and `/paraplane:progress` shows progress on demand.

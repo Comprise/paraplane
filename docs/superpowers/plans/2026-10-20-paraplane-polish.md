@@ -1,5 +1,7 @@
 # paraplane — polish (every remaining finding)
 
+**Status:** implemented in v0.0.1 (first released as v1.0.0).
+
 > **For agentic workers:** Execution Rules of `docs/superpowers/plans/2026-10-20-paraplane.md` (parallel wave, only your `owns`, no commits, golden files by hand, stop and report on interface mismatch). Trailers: `Paraplane-Plan: docs/superpowers/plans/2026-10-20-paraplane-polish.md`, `Paraplane-Wave: <id>`.
 
 **Goal:** fix every finding left open after the final review, including the three behaviour items the user decided on: (1) a Codex *read* of a broken plan gives context instead of blocking; (2) overlap compares literal segments case-insensitively; (3) git < 2.26 gets a filter-driver fallback. Unicode NFC/NFD stays a documented limitation (would need `golang.org/x/text`, outside the dependency list).

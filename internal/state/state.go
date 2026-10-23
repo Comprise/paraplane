@@ -90,10 +90,14 @@ type Entry struct {
 	PlanHash string `json:"planHash,omitempty"`
 }
 
-// Shown is what a plan's progress counted when it was last shown.
+// Shown is what a plan's progress counted when it was last shown, with the
+// SHA-256 of the plan block it was counted against: counts of another block
+// (a new plan at the same path, an edited block) do not hold. Hash is empty
+// in states written before it existed, which then matches no block.
 type Shown struct {
-	Waves int `json:"waves"`
-	Tasks int `json:"tasks"`
+	Hash  string `json:"hash,omitempty"`
+	Waves int    `json:"waves"`
+	Tasks int    `json:"tasks"`
 }
 
 // ScanCache is the commit scan up to Head; state keeps Commits opaque.
@@ -108,6 +112,7 @@ type State struct {
 	Entries  []Entry          `json:"entries,omitempty"`
 	Shown    map[string]Shown `json:"shown,omitempty"`
 	Pending  []string         `json:"pending,omitempty"` // plans whose progress waits for a hook that can show it
+	Late     map[string]int   `json:"late,omitempty"`    // pending plans: checks in a row that ran out of time
 	Scan     *ScanCache       `json:"scan,omitempty"`
 }
 
@@ -401,13 +406,22 @@ func (s *State) clean() {
 		}
 	}
 	s.Pending = pending
-	for k := range s.Shown {
-		if !validPlan(k) {
+	for k, v := range s.Shown {
+		if !validPlan(k) || (v.Hash != "" && !shaRE.MatchString(v.Hash)) {
 			delete(s.Shown, k)
 		}
 	}
 	if len(s.Shown) == 0 {
 		s.Shown = nil
+	}
+	// Late counts only plans still pending, so it is bounded by Pending.
+	for k, n := range s.Late {
+		if n < 1 || !seenPlan[k] {
+			delete(s.Late, k)
+		}
+	}
+	if len(s.Late) == 0 {
+		s.Late = nil
 	}
 }
 

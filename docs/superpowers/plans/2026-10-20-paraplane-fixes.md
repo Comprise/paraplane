@@ -1,5 +1,7 @@
 # paraplane — audit fixes
 
+**Status:** implemented in v0.0.1 (first released as v1.0.0).
+
 > **For agentic workers:** execute wave by wave with the Execution Rules of `docs/superpowers/plans/2026-10-20-paraplane.md` (all tasks of a wave in parallel, only your `owns`, no commits, golden files by hand, stop and report on interface mismatch). Commit trailers: `Paraplane-Plan: docs/superpowers/plans/2026-10-20-paraplane-fixes.md`, `Paraplane-Wave: <id>`.
 
 **Goal:** fix every finding of the security scan (`CLAUDE-SECURITY-20261020-115517`) and the three code audits (correctness; CLI/packaging/docs; tests/simplification), plus the confirmed deferred minors.

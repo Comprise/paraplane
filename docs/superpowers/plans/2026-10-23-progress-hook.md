@@ -1,5 +1,7 @@
 # paraplane — progress hook and per-task commits Implementation Plan
 
+**Status:** implemented, unreleased (1.2.0).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. The paraplane execution rules (`skills/rules/references/execution.md`) take precedence: tasks of a wave run in parallel, each only in its `owns`, subagents never commit, golden files are edited by hand. Trailers: `Paraplane-Plan: docs/superpowers/plans/2026-10-23-progress-hook.md`, `Paraplane-Wave: <id>`.
 
 **Goal:** progress shows itself to the user (a `PostToolUse` hook with `systemMessage`) when a wave or task is done, done-ness comes from wave commits, stage commits, task commits (`Paraplane-Task`), returned subagents and `--done`, and the audit checks committed work of a wave.

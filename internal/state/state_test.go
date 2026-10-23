@@ -87,8 +87,9 @@ func TestUpdateRoundTrip(t *testing.T) {
 	err := Update(context.Background(), dir, func(s *State) {
 		s.LastHead = hash(1)
 		s.Add(Entry{Plan: "p.md", Task: "T1", Head: hash(1), PlanHash: sha(1)})
-		s.Shown = map[string]Shown{"p.md": {Waves: 1, Tasks: 2}}
+		s.Shown = map[string]Shown{"p.md": {Hash: sha(1), Waves: 1, Tasks: 2}, "q.md": {Waves: 1}}
 		s.Pending = []string{"p.md"}
+		s.Late = map[string]int{"p.md": 2}
 		s.Scan = &ScanCache{Head: hash(1), Commits: nil}
 	})
 	if err != nil {
@@ -101,8 +102,9 @@ func TestUpdateRoundTrip(t *testing.T) {
 	want := State{
 		LastHead: hash(1),
 		Entries:  []Entry{{Plan: "p.md", Task: "T1", Head: hash(1), PlanHash: sha(1)}},
-		Shown:    map[string]Shown{"p.md": {Waves: 1, Tasks: 2}},
+		Shown:    map[string]Shown{"p.md": {Hash: sha(1), Waves: 1, Tasks: 2}, "q.md": {Waves: 1}},
 		Pending:  []string{"p.md"},
+		Late:     map[string]int{"p.md": 2},
 		Scan:     &ScanCache{Head: hash(1)},
 	}
 	if !reflect.DeepEqual(s, want) {
@@ -347,7 +349,10 @@ func TestLoadDropsInvalid(t *testing.T) {
 		}
 		fmt.Fprintf(&body, `{"plan":%q,"task":%q,"head":%q,"planHash":%q}`, e.Plan, e.Task, e.Head, e.PlanHash)
 	}
-	body.WriteString(`],"pending":["docs/p.md","","../up.md"],"shown":{"docs/p.md":{"waves":1,"tasks":1},"../x.md":{"waves":1,"tasks":1}},"scan":{"head":"nothex","commits":[1]}}`)
+	body.WriteString(`],"pending":["docs/p.md","","../up.md"],` +
+		`"shown":{"docs/p.md":{"waves":1,"tasks":1},"docs/h.md":{"hash":"` + sha(3) + `","waves":2},"docs/bad.md":{"hash":"xyz","waves":1},"../x.md":{"waves":1,"tasks":1}},` +
+		`"late":{"docs/p.md":2,"docs/q.md":1,"../up.md":1},` +
+		`"scan":{"head":"nothex","commits":[1]}}`)
 	writeFile(t, stateFile(dir), body.String())
 	s, err := Load(dir)
 	if err != nil {
@@ -356,7 +361,8 @@ func TestLoadDropsInvalid(t *testing.T) {
 	want := State{
 		Entries: []Entry{good, good64},
 		Pending: []string{"docs/p.md"},
-		Shown:   map[string]Shown{"docs/p.md": {Waves: 1, Tasks: 1}},
+		Shown:   map[string]Shown{"docs/p.md": {Waves: 1, Tasks: 1}, "docs/h.md": {Hash: sha(3), Waves: 2}},
+		Late:    map[string]int{"docs/p.md": 2}, // only plans still pending
 	}
 	if !reflect.DeepEqual(s, want) {
 		t.Errorf("got %+v\nwant %+v", s, want)

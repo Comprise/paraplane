@@ -26,6 +26,7 @@ import (
 const (
 	maxTaskLines     = 16 // Paraplane-Task lines read from one prompt
 	maxProgressPlans = 8  // plans shown per hook call
+	maxLate          = 3  // late checks in a row after which a plan leaves Pending
 )
 
 // maxStateSize caps the marshalled state a hook writes: above it the scan
@@ -177,7 +178,9 @@ func progressAfterAgent(env Env, in Input) ([]byte, error) {
 	}
 	prompt, _ := v.Prompt.(string)
 	cache := planCache{}
-	gitDir, plans, ok := recordTasks(env, cache, prompt, false)
+	// The plans are recorded as pending: showProgress takes them once
+	// handled, and a failed scan leaves them for the next Stop.
+	gitDir, plans, ok := recordTasks(env, cache, prompt, true)
 	if !ok {
 		return nil, nil
 	}
@@ -252,18 +255,21 @@ type showOpts struct {
 // showProgress renders the plans (paths pass storedPlanRel first) with one
 // track.Statuses outside the lock and answers for those whose done waves
 // (progress: wave) or done tasks (progress: task) grew since they were last
-// shown. At most maxProgressPlans are rendered; the others and those whose
-// check ran out of time go to Pending for the next hook, so a moved
-// lastHead loses no plan. The write applies the statuses, raises the shown
-// counts (never lowers them), moves lastHead and takes from Pending the
-// plans shown or unusable; a plan that got an entry after the scan stays
-// pending. A failed scan writes nothing. Claude gets a systemMessage for the
-// user (Stop gets nothing else); Codex, whose display of it is unverified,
-// gets it as context to show.
+// shown for the same plan block (Shown.Hash; counts of another block count
+// as zero). At most maxProgressPlans are rendered; the others and those
+// whose check ran out of time go to Pending for the next hook, so a moved
+// lastHead loses no plan; a plan late maxLate checks in a row leaves
+// Pending. The write applies the statuses, raises the shown counts of the
+// same block (never lowers them) or replaces those of another block, moves
+// lastHead and takes from Pending the plans shown or unusable; a plan that
+// got an entry after the scan stays pending. A failed scan writes nothing.
+// Claude gets a systemMessage for the user (Stop gets nothing else); Codex,
+// whose display of it is unverified, gets it as context to show.
 func showProgress(env Env, in Input, cache planCache, gitDir string, plans []string, o showOpts) ([]byte, error) {
 	var refs []track.PlanRef
 	var dead []string  // plans that can never be shown
 	var later []string // plans to show in a later hook
+	var late []string  // plans whose check ran out of time
 	for _, p := range plans {
 		if !storedPlanRel(env, p) {
 			dead = append(dead, p)
@@ -276,14 +282,14 @@ func showProgress(env Env, in Input, cache planCache, gitDir string, plans []str
 		ch := cache.check(env, p)
 		switch {
 		case ch.late:
-			later = append(later, p)
+			late = append(late, p)
 		case ch.plan == nil:
 			dead = append(dead, p)
 		default:
 			refs = append(refs, track.PlanRef{Rel: p, Hash: ch.hash, Plan: ch.plan})
 		}
 	}
-	if len(refs) == 0 && o.lastHead == "" && len(dead) == 0 && len(later) == 0 {
+	if len(refs) == 0 && o.lastHead == "" && len(dead) == 0 && len(later) == 0 && len(late) == 0 {
 		return nil, nil
 	}
 	ctx := env.ctx()
@@ -312,6 +318,25 @@ func showProgress(env Env, in Input, cache planCache, gitDir string, plans []str
 				take = append(take, r.Rel)
 			}
 		}
+		if s.Late == nil {
+			s.Late = map[string]int{}
+		}
+		for _, p := range dead {
+			delete(s.Late, p)
+		}
+		for _, r := range refs {
+			delete(s.Late, r.Rel)
+		}
+		wait := later
+		for _, p := range late {
+			if n := s.Late[p] + 1; n < maxLate {
+				s.Late[p] = n
+				wait = append(wait, p)
+			} else {
+				delete(s.Late, p)
+				take = append(take, p)
+			}
+		}
 		res.Apply(s)
 		if o.lastHead != "" {
 			moveLastHead(s, o.prevHead, o.lastHead)
@@ -321,14 +346,17 @@ func showProgress(env Env, in Input, cache planCache, gitDir string, plans []str
 		}
 		for _, r := range refs {
 			now, prev := res.ByPlan[r.Rel], s.Shown[r.Rel]
+			if prev.Hash != r.Hash {
+				prev = state.Shown{} // another block: its counts do not hold
+			}
 			if now.Waves > prev.Waves || (env.Config.Progress == "task" && now.Tasks > prev.Tasks) {
 				texts = append(texts, strings.TrimRight(now.Text, "\n"))
 				names = append(names, textx.Line(r.Rel, maxPath))
 			}
-			s.Shown[r.Rel] = state.Shown{Waves: max(prev.Waves, now.Waves), Tasks: max(prev.Tasks, now.Tasks)}
+			s.Shown[r.Rel] = state.Shown{Hash: r.Hash, Waves: max(prev.Waves, now.Waves), Tasks: max(prev.Tasks, now.Tasks)}
 		}
 		s.TakePending(take)
-		for _, p := range later {
+		for _, p := range wait {
 			s.Pending = appendUnique(s.Pending, p)
 		}
 		capState(s)

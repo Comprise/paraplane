@@ -327,22 +327,129 @@ func TestPendingNotLostConcurrent(t *testing.T) {
 	nilOut(t)(Stop(env, stopEvent))
 }
 
+// planHashOf is the block hash of the plan file rel of env.
+func planHashOf(t *testing.T, env Env, rel string) string {
+	t.Helper()
+	md, err := os.ReadFile(filepath.Join(env.Root, rel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return track.PlanHash(md)
+}
+
 func TestShownMonotonic(t *testing.T) {
 	env := progressEnv(t, testEnv(t), "task")
-	setState(t, env, func(s *state.State) { s.Shown = map[string]state.Shown{planRel: {Waves: 1, Tasks: 3}} })
+	h := planHashOf(t, env, planRel)
+	setState(t, env, func(s *state.State) { s.Shown = map[string]state.Shown{planRel: {Hash: h, Waves: 1, Tasks: 3}} })
 	nilOut(t)(PostToolUse(env, agentIn(t, "Paraplane-Task: "+planRel+" T1")))
-	if got := loadState(t, env).Shown[planRel]; got != (state.Shown{Waves: 1, Tasks: 3}) {
+	if got := loadState(t, env).Shown[planRel]; got != (state.Shown{Hash: h, Waves: 1, Tasks: 3}) {
 		t.Errorf("shown %+v; it must never go down", got)
 	}
 	// Another hook shows more meanwhile: its count stays.
 	beforeShowWrite = func() {
 		beforeShowWrite = nil
-		setState(t, env, func(s *state.State) { s.Shown[planRel] = state.Shown{Waves: 2, Tasks: 9} })
+		setState(t, env, func(s *state.State) { s.Shown[planRel] = state.Shown{Hash: h, Waves: 2, Tasks: 9} })
 	}
 	t.Cleanup(func() { beforeShowWrite = nil })
 	nilOut(t)(PostToolUse(env, agentIn(t, "Paraplane-Task: "+planRel+" T2")))
-	if got := loadState(t, env).Shown[planRel]; got != (state.Shown{Waves: 2, Tasks: 9}) {
+	if got := loadState(t, env).Shown[planRel]; got != (state.Shown{Hash: h, Waves: 2, Tasks: 9}) {
 		t.Errorf("shown %+v after a concurrent show; want {2 9}", got)
+	}
+}
+
+// TestNewPlanSamePathShown is the review scenario of I1: plan A was shown up
+// to {1 wave, 2 tasks}; plan B replaces it at the same path; B's progress
+// shows from its first returned task on, not only once it passes A's counts.
+func TestNewPlanSamePathShown(t *testing.T) {
+	env := progressEnv(t, testEnv(t), "task")
+	subagentDone(t, env, "Paraplane-Task: "+planRel+" T1")
+	subagentDone(t, env, "Paraplane-Task: "+planRel+" T2")
+	out, _ := Stop(env, stopEvent)
+	if v := decode(t, out); !strings.Contains(v.SystemMessage, "2/3 tasks") {
+		t.Fatalf("plan A: got %s", out)
+	}
+	if got := loadState(t, env).Shown[planRel]; got.Waves != 1 || got.Tasks != 2 {
+		t.Fatalf("plan A shown %+v, want {1 2}", got)
+	}
+	planB := "# b\n\n```paraplane\ngate: make\nwaves:\n  - id: X1\n    tasks:\n" +
+		"      - {id: A1, title: a, owns: [a.go], verify: v}\n      - {id: A2, title: b, owns: [b.go], verify: v}\n```\n"
+	writePlan(t, env, planRel, planB)
+	subagentDone(t, env, "Paraplane-Task: "+planRel+" A1")
+	out, _ = Stop(env, stopEvent)
+	if v := decode(t, out); !strings.Contains(v.SystemMessage, "1/2 tasks") {
+		t.Fatalf("plan B, A1: got %s", out)
+	}
+	if got, h := loadState(t, env).Shown[planRel], planHashOf(t, env, planRel); got != (state.Shown{Hash: h, Waves: 0, Tasks: 1}) {
+		t.Errorf("plan B shown %+v; want B's own counts with its hash", got)
+	}
+	subagentDone(t, env, "Paraplane-Task: "+planRel+" A2")
+	out, _ = Stop(env, stopEvent)
+	if v := decode(t, out); !strings.Contains(v.SystemMessage, "2/2 tasks") || !strings.Contains(v.SystemMessage, "✓ done") {
+		t.Fatalf("plan B, A2: got %s", out)
+	}
+	nilOut(t)(Stop(env, stopEvent))
+}
+
+// TestAgentScanFailPending: a foreground subagent whose scan fails leaves
+// its plan pending, so the next Stop shows it.
+func TestAgentScanFailPending(t *testing.T) {
+	env := progressEnv(t, testEnv(t), "task")
+	old := statuses
+	statuses = func(context.Context, string, []track.PlanRef, state.State) (track.Result, error) {
+		return track.Result{}, errors.New("scan failed")
+	}
+	nilOut(t)(PostToolUse(env, agentIn(t, "Paraplane-Task: "+planRel+" T1")))
+	statuses = old
+	if st := loadState(t, env); !slices.Contains(st.Pending, planRel) {
+		t.Fatalf("pending %v: the plan of a failed scan is lost", st.Pending)
+	}
+	out, _ := Stop(env, stopEvent)
+	if v := decode(t, out); !strings.Contains(v.SystemMessage, "1/3 tasks") {
+		t.Fatalf("stop: got %s", out)
+	}
+	if st := loadState(t, env); st.Pending != nil {
+		t.Errorf("pending left: %v", st.Pending)
+	}
+	// A shown foreground return leaves nothing pending.
+	out, _ = PostToolUse(env, agentIn(t, "Paraplane-Task: "+planRel+" T2"))
+	if v := decode(t, out); !strings.Contains(v.SystemMessage, "2/3 tasks") {
+		t.Fatalf("T2: got %s", out)
+	}
+	if st := loadState(t, env); st.Pending != nil {
+		t.Errorf("pending after a shown return: %v", st.Pending)
+	}
+}
+
+// TestLatePlanDropped: a plan whose check runs out of time on every Stop
+// leaves Pending after maxLate checks.
+func TestLatePlanDropped(t *testing.T) {
+	env := progressEnv(t, testEnv(t), "task")
+	subagentDone(t, env, "Paraplane-Task: "+planRel+" T1")
+	old := postNow
+	postNow = func() time.Time { return time.Now().Add(-time.Minute) }
+	t.Cleanup(func() { postNow = old })
+	for i := 1; i < maxLate; i++ {
+		nilOut(t)(Stop(env, stopEvent))
+		if st := loadState(t, env); !slices.Contains(st.Pending, planRel) || st.Late[planRel] != i {
+			t.Fatalf("late check %d: pending %v, late %v", i, st.Pending, st.Late)
+		}
+	}
+	nilOut(t)(Stop(env, stopEvent))
+	if st := loadState(t, env); st.Pending != nil || st.Late != nil {
+		t.Fatalf("after %d late checks: pending %v, late %v", maxLate, st.Pending, st.Late)
+	}
+	// A check in time resets the count.
+	postNow = old
+	subagentDone(t, env, "Paraplane-Task: "+planRel+" T2")
+	postNow = func() time.Time { return time.Now().Add(-time.Minute) }
+	nilOut(t)(Stop(env, stopEvent))
+	postNow = old
+	out, _ := Stop(env, stopEvent)
+	if v := decode(t, out); !strings.Contains(v.SystemMessage, "2/3 tasks") {
+		t.Fatalf("in time: got %s", out)
+	}
+	if st := loadState(t, env); st.Pending != nil || st.Late != nil {
+		t.Errorf("pending %v, late %v after a check in time", st.Pending, st.Late)
 	}
 }
 

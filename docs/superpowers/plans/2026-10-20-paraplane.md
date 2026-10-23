@@ -1,5 +1,7 @@
 # paraplane Implementation Plan
 
+**Status:** implemented in v0.0.1 (first released as v1.0.0).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan **wave by wave** (rules below). Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Плагин Claude Code `paraplane` на Go: проверяет, что любой план содержит блок ` ```paraplane `, пригодный для параллельного исполнения субагентами (владение файлами, волны, зависимости, gate), подсказывает более короткую раскладку, проверяет после волны, что субагенты не вышли за свои файлы, и показывает прогресс исполнения.

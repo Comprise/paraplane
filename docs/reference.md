@@ -303,7 +303,8 @@ contradicting instructions ("do not run implementers in parallel", "the implemen
    line is ignored silently. The record is made before the review and the gate; a task that fails its review
    is undone with `paraplane progress --forget <ids> <plan>`.
 6. Progress is shown as [`paraplane progress`](#paraplane-progress) says: by the hooks in Claude Code, by the
-   coordinator in Codex.
+   coordinator in Codex. The hook compares with what it last showed for the same plan block: a new or edited
+   block at the same path starts from zero.
 7. Gate, `verify` and `default_gate` are commands from the repository: the coordinator shows them to the user
    before running them in a repository it did not write.
 
@@ -333,7 +334,8 @@ The hooks catch a plan in any form: from plan mode, from a skill with `plan` in 
   check takes the time left; a plan check gets at most 5 s of it. A check that does not finish is error E0
   `plan is too complex to check in time; simplify brace patterns or split the plan`. The progress hook answers
   with what it has when the time runs out: plans not computed in time wait in `pending` for the next hook, and
-  a failed scan writes nothing. The CLI has no overall deadline: each git call is limited to 10 s, a check has
+  a failed scan writes nothing more (a returned subagent's plan is already in `pending`). A plan whose check
+  runs out of time on 3 hooks in a row leaves `pending`; it is shown again at its next return or commit. The CLI has no overall deadline: each git call is limited to 10 s, a check has
   no deadline.
 - **Limits of the progress hook:** ≤ 16 `Paraplane-Task` lines per prompt, ≤ 8 plans shown per call, ≤ 4096 state
   entries (the oldest go), the state file is read up to 4 MiB, the commit scan cached in it up to 1 MiB (it is
@@ -419,13 +421,13 @@ The project root is `CLAUDE_PROJECT_DIR`, otherwise the session `cwd`; then the 
 - Claude Code (CLI, IDE extension or desktop app) or Codex CLI (see "Codex CLI").
 - Linux, macOS or Windows (amd64 or arm64). Go is not needed: the plugin is installed with prebuilt binaries.
 - `git` — needed for `paraplane audit` and `paraplane progress`; plan validation (`check`) and hooks work without it.
-  - `audit` is tested from git 2.18. In a partial clone it refuses unless git honors `GIT_NO_LAZY_FETCH`: 2.46+,
-    or 2.45.1, 2.44.1, 2.43.4, 2.42.2, 2.41.1, 2.40.2, 2.39.4. A distro git that backports the fix under an older
-    version number (for example Ubuntu's 2.34.1) is treated as old, so `audit` refuses in partial clones there:
-    upgrade git or use a full clone.
-  - `progress`, the progress hook and the commit part of `audit` need git 2.24+ (`--end-of-options` before
-    revisions; trailers are read with `%(trailers:key=…)`); older git gives an explicit error
-    (`git 2.24 or later is required`). The working-tree part of `audit` and `check` have no such floor.
+  - `audit`, `progress` and the progress hook need git 2.24+ (`--end-of-options` before revisions; trailers are
+    read with `%(trailers:key=…)`); older git gives an explicit error (`git 2.24 or later is required`), and
+    `audit` then fails as a whole, its working-tree part included. `check` needs no git.
+  - In a partial clone `audit` refuses unless git honors `GIT_NO_LAZY_FETCH`: 2.46+, or 2.45.1, 2.44.1, 2.43.4,
+    2.42.2, 2.41.1, 2.40.2, 2.39.4. A distro git that backports the fix under an older version number (for
+    example Ubuntu's 2.34.1) is treated as old, so `audit` refuses in partial clones there: upgrade git or use a
+    full clone.
   - The partial-clone refusal above applies to every command that reads commits (`audit`, `progress` and the
     progress hook), not only to `git status`.
   - git output over 16 MiB (for example a huge untracked tree) makes `audit` refuse with `git output too large`.
