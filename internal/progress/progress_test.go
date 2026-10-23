@@ -256,3 +256,21 @@ func TestRenderClosedNil(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderFromCommittedTasks(t *testing.T) {
+	got := RenderFrom(mk(3, 3, 2), "p.md", Input{CommittedTasks: []string{"T1", "T2", "T3"}})
+	if !strings.Contains(rowOf(got, "W1"), "✓ done") || !strings.Contains(rowOf(got, "W2"), "▶ running") {
+		t.Errorf("tasks close a wave:\n%s", got)
+	}
+	got = RenderFrom(mk(3, 3, 2), "p.md", Input{CommittedWaves: []string{"W1"}, CommittedTasks: []string{"T7"}})
+	if !strings.HasSuffix(got, "warning: task T7 was committed before W2\n") || !strings.Contains(got, "  3/8 tasks") {
+		t.Errorf("task of a waiting wave:\n%s", got)
+	}
+}
+
+func TestRenderFromMixed(t *testing.T) {
+	got := RenderFrom(mk(3, 3, 2), "p.md", Input{CommittedWaves: []string{"W1"}, CommittedTasks: []string{"T4"}, Closed: []string{"T5"}})
+	if !strings.Contains(rowOf(got, "W2"), "🟩🟩🟨") || !strings.Contains(got, "  5/8 tasks") || strings.Contains(got, "warning") {
+		t.Errorf("got:\n%s", got)
+	}
+}

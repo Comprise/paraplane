@@ -167,6 +167,12 @@ E6 — главное правило «следующий этап не лома
 к корню проекта через `git rev-parse --show-prefix`, файлы вне корня отбрасываются) должны попадать в `owns`
 какой-либо задачи этой волны; исключения — сам файл плана и шаблоны `audit_ignore`.
 Нарушение — `error A1 W2: internal/x.go changed but no task of W2 owns it`.
+Проверяются и коммиты волны текущей ветки (`git log --name-only --no-renames` по коммитам с `Paraplane-Plan` =
+план и `Paraplane-Task` задачи этой волны или `Paraplane-Wave` = эта волна; слияния без файлов): файл коммита
+задачи — в `owns` названной задачи (`error A1 W2: <файл> changed by T3 (commit <hash>) but T3 does not own it`;
+несколько задач — `but none of them owns it`), файл коммита волны или этапа — в `owns` задачи любой названной
+волны (`error A1 W2: <файл> changed in commit <hash> but no task of W1, W2 owns it`). Находки коммитов — первыми,
+файл один раз на коммит; итог — `audit ok: W2, 5 changed file(s), 2 commit(s)` (без коммитов — прежний вид).
 
 Безопасность: `git status` может выполнить команду, заданную конфигом репозитория, а `paraplane audit`
 одобряется хуком без запроса. Поэтому:
@@ -236,14 +242,22 @@ paraplane version
 ### 7.1. Прогресс
 
 Координатор коммитит каждую волну один раз, после зелёного gate, с трейлерами
-`Paraplane-Plan: <путь плана от корня>` и `Paraplane-Wave: <id волны>`. `paraplane progress <file>`
-читает блок и трейлеры коммитов текущей ветки и печатает состояние. Плагин не хранит состояния:
-прогресс переживает перезапуск сессии. Цвет — эмодзи, т.к. ANSI в чате не рисуется.
+`Paraplane-Plan: <путь плана от корня>` и `Paraplane-Wave: <id волны>` (если правила проекта требуют — раз в этап
+или раз в задачу с `Paraplane-Task: <id>`). `paraplane progress <file>` читает блок, трейлеры коммитов текущей
+ветки и состояние вернувшихся субагентов и печатает состояние; закоммиченное переживает перезапуск сессии.
+
+Задача **сделана**, если: её называет коммит (`Paraplane-Task`, несколько на коммит или список через запятую);
+у её волны есть коммит; её субагент вернулся со строкой `Paraplane-Task: <план> <id>` в промпте (хук записывает
+это в `<git-dir>/paraplane/closed.json`: `{"version":1,"lastHead","entries":[{"plan","task","head"}],"shown"}`,
+под блокировкой `closed.json.lock` с `O_EXCL`, ожидание ≤ 2 с, брошенная старше 30 с; ≤ 4096 записей; запись
+считается, только если её `head` — предок текущего `HEAD`); она есть в `--done`. Закоммиченная задача
+`waiting`-волны — `warning: task <id> was committed before <running id>`, не считается; строка задачи вне
+абзаца трейлеров — `warning: task <id> commit <hash>: trailers not in the last paragraph`. Цвет — эмодзи, т.к. ANSI в чате не рисуется.
 
 `--done <ids>` (id задач через `,` без пробелов, перед файлом) — задачи, закрытые координатором, но ещё не
 закоммиченные. Пустой список, id не по шаблону, флаг дважды или после файла — неверные аргументы, код 2.
 
-Волна **закрыта**, если у неё есть коммит или все её задачи перечислены в `--done`. Состояние волны по
+Волна **закрыта**, если у неё есть коммит или все её задачи сделаны. Состояние волны по
 порядку плана: закрытая волна, все предыдущие волны которой тоже `done`, — `done`; первая не `done` —
 `running`; остальные — `waiting`. Задачи `running`-волны из `--done` считаются выполненными: 🟩 в порядке
 задач волны (остальные 🟨), входят в `d/n`, процент и полосу. id из `--done`, которого нет в плане, —
@@ -308,6 +322,7 @@ W5  ⬜⬜          0/2  · waiting  T16 T17
 | `PreToolUse` | `Skill` | имя skill не начинается с `paraplane:` и (без учёта регистра) содержит `execut` или `subagent-driven` — `additionalContext` с выжимкой **правил исполнения**, их приоритета над skill и режима прогресса из `progress` (п. 7.1); иначе содержит `plan` — выжимка правил составления плана |
 | `PreToolUse` | `Bash`, `if: Bash(paraplane *)` | авто-одобрение `paraplane check <путь>`, `paraplane audit <путь> <волна>[,<волна>…]`, `paraplane progress [--done <ids>] <путь>`, `paraplane version` (как в auto-context) |
 | `PostToolUse` | `Write\|Edit` | `file_path` попадает в `plan_paths` — проверка файла (≤ 1 МБ), см. ниже |
+| `PostToolUse` | `Bash\|Agent\|Task` | хук прогресса: `Agent`/`Task` — строки `Paraplane-Task: <план> <id>` промпта вернувшегося субагента (≤ 16; план — из `plan_paths`, обычный файл) пишутся в состояние; `Bash` — только если в команде есть слово `commit`, `merge`, `cherry-pick`, `rebase`, `am`, `pull` или `revert`: коммиты `lastHead..HEAD` (или `HEAD`) с трейлерами плана (≤ 8 планов). Если сделанных волн стало больше `shown.waves` (при `progress: task` — задач больше `shown.tasks`), ответ `systemMessage` с выводом `progress` и `additionalContext` `paraplane: progress of <план> was shown to the user; do not repeat it.`; `shown` обновляется. План с E, нет git — молчит |
 
 PostToolUse не должен шуметь, пока план пишется и пока исполнитель отмечает чекбоксы:
 - `Edit` проверяется, только если `old_string` или `new_string` содержит `paraplane` или ключ блока
@@ -466,6 +481,10 @@ Go 1.27, модуль `paraplane`; зависимости — stdlib, `gopkg.in/
   Формат транскрипта не документирован: если хвост транскрипта читается, но в нём нет ни одной записи
   `response_item`/`message`, хук выдаёт `systemMessage` `paraplane: Codex transcript format not recognized; plan checks in
   Plan Mode are off (update paraplane)`, а не молчит. После каждого обновления Codex — живая проверка на плане с ошибкой.
+- **Прогресс:** инструмента субагентов нет, поэтому возврат субагента не виден. `PostToolUse` на `Bash` с
+  коммитом, называющим план, отдаёт вывод `progress` в `additionalContext` с просьбой показать его пользователю в
+  блоке кода (показ `systemMessage` в Codex не проверен — пункт ручной проверки); между коммитами координатор
+  передаёт закрытые задачи в `--done` сам.
 - **Запись файлов:** Codex пишет файлы через `Bash` (`printf … > docs/plans/x.md`); `apply_patch` в проверке не
   встретился. `PostToolUse`: `tool_name: "Bash"`, `tool_input.command` — строка, `tool_response` — вывод.
   → `PostToolUse` (Codex, matcher `^(Bash|apply_patch)$`): из команды берутся слова-кандидаты (разбиение по пробелам

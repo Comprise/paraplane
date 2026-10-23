@@ -77,8 +77,9 @@ You do not have to learn anything new: plan as usual. paraplane works in the bac
    W3  ⬜      0/1  · waiting  T6
    ```
 
-   With `progress: task` in the config Claude also shows it after each closed task, before the wave commit.
-   To see it at any moment yourself: `/paraplane:progress`.
+   In Claude Code a hook shows this to you by itself when a wave is done, committed or not; with
+   `progress: task` in the config also after each finished task. To see it at any moment yourself:
+   `/paraplane:progress`. A project that commits once per task or per stage works too (see the reference).
 
 In Codex the commands are `$paraplane:create`, `$paraplane:check`, `$paraplane:progress` and `$paraplane:rules`.
 

@@ -10,7 +10,7 @@
 | `PreToolUse` | `ExitPlanMode` | `pre-tool-use` | 10 с | проверяет план (`tool_input.plan`, иначе файл `planFilePath`, ≤ 1 МБ); есть ошибки E (включая E0) — `deny` со списком нарушений (≤ 20); только W — `additionalContext` |
 | `PreToolUse` | `Skill` | `pre-tool-use` | 10 с | skill исполнения (имя содержит `execut` или `subagent-driven`, не `paraplane:`) — выжимка правил исполнения с режимом прогресса из `progress`; skill с `plan` в имени — выжимка правил составления плана |
 | `PreToolUse` | `Bash`, `if: Bash(paraplane *)` | `pre-tool-use` | 10 с | авто-одобрение `paraplane check <путь>`, `paraplane audit <путь> <волна>[,<волна>…]`, `paraplane progress [--done <ids>] <путь>` (id через `,`), `paraplane version` |
-| `PostToolUse` | `Write\|Edit` | `post-tool-use` | 10 с | если файл входит в `plan_paths` — проверка плана: E0 — контекст, E1–E7 — `decision: block`, только W — контекст (и только для `Write`) |
+| `PostToolUse` | `Write\|Edit\|Bash\|Agent\|Task` | `post-tool-use` | 10 с | `Write`/`Edit`: если файл входит в `plan_paths` — проверка плана: E0 — контекст, E1–E7 — `decision: block`, только W — контекст (и только для `Write`). `Agent`/`Task`: вернувшийся субагент со строкой `Paraplane-Task: <план> <id>` в промпте записывается в `.git/paraplane/closed.json`; `Bash` с `commit`, `merge`, `cherry-pick`, `rebase`, `am`, `pull` или `revert` — новые коммиты, называющие план. Если с прошлого раза сделана волна (`progress: wave`) или задача (`progress: task`), прогресс уходит пользователю в `systemMessage` |
 
 ## Codex: `hooks/codex.json`
 
@@ -21,7 +21,7 @@ Codex читает только `hooks/codex.json` (`hooks/hooks.json` игно�
 |---|---|---|---|---|
 | `SessionStart` | — | `session-start` | 10 с | тот же `additionalContext` с `$paraplane:rules` |
 | `UserPromptSubmit` | — | `prompt-submit` | 10 с | промпт упоминает `$…` с `execut`/`subagent-driven` — выжимка правил исполнения; с `plan` — правил составления плана |
-| `PostToolUse` | `^(Bash\|apply_patch)$` | `post-tool-use` | 10 с | из `tool_input.command` берутся слова-пути (относительные — от `cwd`), из патча — заголовки `*** Add/Update File:`, `*** Move to:`; совпавшие с `plan_paths` существующие обычные файлы проверяются: E0 — контекст, E1–E7 — `block` для файла, который команда пишет; файл, который она только читает (`cat plan.md`), — только контекст и только при E1–E7, без `block` |
+| `PostToolUse` | `^(Bash\|apply_patch)$` | `post-tool-use` | 10 с | после коммита, называющего план, — его прогресс в `additionalContext` с просьбой показать пользователю (субагентов в Codex нет); и | из `tool_input.command` берутся слова-пути (относительные — от `cwd`), из патча — заголовки `*** Add/Update File:`, `*** Move to:`; совпавшие с `plan_paths` существующие обычные файлы проверяются: E0 — контекст, E1–E7 — `block` для файла, который команда пишет; файл, который она только читает (`cat plan.md`), — только контекст и только при E1–E7, без `block` |
 | `Stop` | — | `stop` | 10 с | в Plan Mode `last_assistant_message` пуст: транскрипт (`transcript_path`, обычный файл, хвост ≤ 4 МБ) — последний `<proposed_plan>` ассистента текущего хода; есть E — `{"decision":"block","reason":…}`; `stop_hook_active: true`, нет транскрипта или плана — молчит |
 | `PermissionRequest` | `^Bash$` | `permission-request` | 10 с | `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}` только для строгой формы команды `paraplane check/audit/progress/version` с абсолютным путём CLI |
 

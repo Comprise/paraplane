@@ -20,6 +20,8 @@ The coordinator is the main Claude session. Subagents implement tasks.
 2. **The prompt of each subagent contains:**
    - the text of its task from the plan and the global constraints of the plan;
    - its `owns`, `reads` and `verify`, verbatim;
+   - a line `Paraplane-Task: <plan path from the project root> <task id>` on its own (the progress hook
+     reads it when the subagent returns, to count the task as done);
    - the rule: "Change only files in your `owns`. Do not touch files outside `owns`; if you need one,
      or a consumed interface does not match the plan, stop and report instead of editing it."
    - the rule: "Do not commit, do not tick checkboxes in the plan, run formatters (`gofmt -w` and the
@@ -37,9 +39,15 @@ The coordinator is the main Claude session. Subagents implement tasks.
    patterns are exempt. Output:
    - a violation: `error A1 W2: internal/x.go changed but no task of W2 owns it`;
    - the summary: `audit ok: W2, 5 changed file(s)` or `audit failed: 2 file(s) outside W2`.
-   Run the audit before the gate, so gate artifacts (coverage files, binaries) do not enter it. The
-   audit cannot tell tasks of one wave apart (T1 writing a file of T2 is not visible); the gate's
-   tests catch that.
+   The audit also checks the commits of the wave on the current branch: a task commit
+   (`Paraplane-Task`) may only change files of the tasks it names, a wave or stage commit only files of
+   the waves it names:
+   - `error A1 W2: internal/x.go changed by T3 (commit abc1234) but T3 does not own it`;
+   - `error A1 W2: internal/x.go changed in commit abc1234 but no task of W1, W2 owns it`;
+   - the summary then counts the commits: `audit ok: W2, 5 changed file(s), 2 commit(s)`.
+   Run the audit before the gate, so gate artifacts (coverage files, binaries) do not enter it. In the
+   working tree the audit cannot tell tasks of one wave apart (T1 writing a file of T2 is not visible);
+   task commits can, and the gate's tests catch the rest.
    The audit runs `git status` with `--ignore-submodules=all`. Because `git status` may run filter
    drivers and the audit is approved without a prompt, it refuses to run when the local or worktree
    repository config (including files pulled in with `include`/`includeIf`) defines
@@ -71,6 +79,10 @@ The coordinator is the main Claude session. Subagents implement tasks.
    not counted and `paraplane progress` prints `warning: wave <id> commit <hash>: trailers not in the last
    paragraph`. Amend such a commit (`git commit --amend`) so the trailers form the last paragraph.
 
+   Only when the project's own rules require one commit per task, the coordinator commits each task
+   after its review, one at a time, with `Paraplane-Plan` and `Paraplane-Task: <task id>` (several tasks:
+   one trailer each); the wave needs no commit of its own. Subagents still never commit.
+
    Only when the project's own rules (its `CLAUDE.md`, say) require one commit per stage of several
    waves, commit once per stage instead of once per wave. The audit then sees the uncommitted changes of
    every wave of the stage so far, so after each wave audit them all at once:
@@ -85,6 +97,11 @@ The coordinator is the main Claude session. Subagents implement tasks.
 
 The moments come from the key `progress` in `.paraplane/config.yaml` (default `wave`). The execution
 digest the hooks add names the mode; when no digest named it, read the key yourself.
+
+**Claude Code:** a hook shows the progress to the user by itself (`systemMessage`) when a subagent with a
+`Paraplane-Task` line returns or a commit names the plan, at the moments below. Do not repeat it; show
+it yourself only when the user asks or no hook message appeared. **Codex:** the hook passes the progress
+to you; show it to the user as the rules below say.
 
 - **`wave`:** after each closed wave (audit and gate passed) run `paraplane progress <plan>`. Pass in
   `--done` every closed task that is not committed yet, of all uncommitted waves (in a stage, the earlier
@@ -110,7 +127,9 @@ W4  ⬜⬜          0/2  · waiting  T14 T15
 W5  ⬜⬜          0/2  · waiting  T16 T17
 ```
 
-A wave is closed when it has a commit or all its tasks are in `--done`. A closed wave whose previous
+A task is done when a commit names it (`Paraplane-Task`), its wave has a commit (`Paraplane-Wave`), its
+subagent returned with the `Paraplane-Task` line (kept in `.git/paraplane/closed.json`), or it is in
+`--done`. A wave is closed when it has a commit or all its tasks are done. A closed wave whose previous
 waves are all `done` is `done`; the first wave that is not `done` is `running`; the rest are `waiting`.
 Tasks of the running wave listed in `--done` count as done and are drawn 🟩, the others 🟨.
 Warnings to act on:
@@ -122,6 +141,9 @@ Warnings to act on:
 - `warning: wave <id> commit <hash>: trailers not in the last paragraph` — the commit has `Paraplane-*` lines
   that git does not read as trailers (a blank line before `Co-Authored-By`, say), so the wave is not counted;
   amend the commit so they are in its last paragraph.
+- `warning: task <id> commit <hash>: trailers not in the last paragraph` — as for waves: amend the commit.
+- `warning: task <id> was committed before <running id>` — a task of a later wave was committed while an
+  earlier wave is not done; it is not counted until its wave is running.
 - `warning: --done <id> is not a task of the plan` — a typo in `--done`; fix the id.
 - `warning: --done <id> is in waiting wave <W>` — a task of a later wave was passed; it is not counted
   until its wave is running.

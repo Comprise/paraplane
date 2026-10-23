@@ -1,7 +1,7 @@
 ---
 unit: internal/rules
-source_hash: sha256:ac226c4586605a9fc7ba7b36d740f378d7256ce5db3f9bf4789bf926d67f02d5
-commit: d3b7e4c68cdd97065be8d78d922d7b565b23d507
+source_hash: sha256:c677d1ae6a9e09e1a71eb537cdb15577e07e71551fee0c6ae70f83816819f232
+commit: 45ec0164ada8ce7a4636b7626c1c8a0a5ce9582d
 updated: "2026-10-23"
 ---
 # internal/rules
@@ -16,6 +16,7 @@ updated: "2026-10-23"
 - `Result.Errors()`, `Warnings()`, `Summary()` — последняя строка `paraplane check`.
 - `Audit(p, waveID, changed, planPath, ignore)` → находки A1; неизвестная волна — ошибка, не находка.
 - `AuditWaves(p, waveIDs, …)` — то же для этапа из нескольких волн: файл может принадлежать задаче любой из них; `Where` — id через `,`, в тексте — через `, `. `Audit` = `AuditWaves` с одной волной.
+- `AuditCommits(p, waveIDs, changed, commits []CommitFiles, planPath, ignore)` — то же плюс коммиты волн (`CommitFiles{Hash, Waves, Tasks, Files}`): коммит задачи — файл должен входить в `owns` названной задачи (`changed by T3 (commit h) but T3 does not own it`; несколько задач — `but none of them owns it`), коммит волны или этапа — в `owns` задачи любой названной волны (`changed in commit h but no task of W1, W2 owns it`). Находки коммитов идут первыми, по порядку коммитов, файл — один раз на коммит. `AuditWaves` = `AuditCommits` без коммитов.
 - `Finding.String()` — `error E2 W1: …`.
 
 ## Структура и поток данных

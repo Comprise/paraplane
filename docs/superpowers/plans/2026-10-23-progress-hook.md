@@ -96,10 +96,10 @@ waves:
 - `func PlanCommitFiles(root, planPath string) ([]CommitFiles, error)` — every commit with `Paraplane-Plan` = planPath and at least one Wave or Task trailer, oldest first, `--name-only --no-renames`, merges contribute no files.
 - `func Head(root string) (string, error)` (full hash; `""`, nil for a repository without commits); `func IsAncestor(root, a, b string) (bool, error)`; `func GitDir(root string) (string, error)` (absolute).
 
-- [ ] **Step 1: Failing tests** — `TestPlanCommitsTasks`: commits `Paraplane-Task: T1` / `Paraplane-Task: T2` + `Paraplane-Task: T3` in one commit / a task of another plan / `Paraplane-Task: 1bad` → Tasks `[T1 T2 T3]`; a task line after a blank line before `Co-Authored-By` → `Lost` with `Kind:"task"`. Existing `WaveCommits` tests stay green (wrapper). `TestPlanCommitFiles`: a task commit touching `a.go`, a stage commit (W1+W2) touching `b.go c.go`, an unrelated commit → two entries, hashes ≥ 7 chars, files sorted. `TestHeadAndAncestor`: empty repo → `""`; after two commits `IsAncestor(first, second)` true, reversed false. `TestGitDir` returns an absolute existing directory.
-- [ ] **Step 2: Run** `go test ./internal/gitx/` — FAIL (undefined).
-- [ ] **Step 3: Implement** the functions above; `paraplaneLines` returns waves and tasks.
-- [ ] **Step 4: Run** `go test ./internal/gitx/` — PASS; update `context/internal/gitx.md`.
+- [x] **Step 1: Failing tests** — `TestPlanCommitsTasks`: commits `Paraplane-Task: T1` / `Paraplane-Task: T2` + `Paraplane-Task: T3` in one commit / a task of another plan / `Paraplane-Task: 1bad` → Tasks `[T1 T2 T3]`; a task line after a blank line before `Co-Authored-By` → `Lost` with `Kind:"task"`. Existing `WaveCommits` tests stay green (wrapper). `TestPlanCommitFiles`: a task commit touching `a.go`, a stage commit (W1+W2) touching `b.go c.go`, an unrelated commit → two entries, hashes ≥ 7 chars, files sorted. `TestHeadAndAncestor`: empty repo → `""`; after two commits `IsAncestor(first, second)` true, reversed false. `TestGitDir` returns an absolute existing directory.
+- [x] **Step 2: Run** `go test ./internal/gitx/` — FAIL (undefined).
+- [x] **Step 3: Implement** the functions above; `paraplaneLines` returns waves and tasks.
+- [x] **Step 4: Run** `go test ./internal/gitx/` — PASS; update `context/internal/gitx.md`.
 
 ### Task T2: state
 
@@ -113,10 +113,10 @@ waves:
 - `func (s State) Closed(plan string, valid func(head string) bool) []string` — task ids of `plan` whose `Head` passes `valid`, deduplicated, in entry order.
 - `var ErrBusy = errors.New("paraplane state is busy")`
 
-- [ ] **Step 1: Failing tests** — `TestLoadMissingAndBroken` (no dir, `{`, a symlink, a FIFO → zero State); `TestUpdateRoundTrip`; `TestUpdateConcurrent`: 20 goroutines each `Update` adding one entry → 20 entries; `TestStaleLock`: a lock file with mtime 31 s ago → `Update` succeeds; `TestBusy`: fresh lock held → `ErrBusy` after ≈2 s (use an injectable `var lockWait = 2*time.Second` set to 100 ms in the test); `TestCapEntries`: 4100 entries → 4096, the first four dropped; `TestClosedValid`: `valid` rejecting one head drops its entry.
-- [ ] **Step 2: Run** `go test ./internal/state/` — FAIL.
-- [ ] **Step 3: Implement**; read via `fsx` (see `internal/fsx`), create `<gitDir>/paraplane/` with 0o755.
-- [ ] **Step 4: Run** `go test -race ./internal/state/` — PASS; write `CLAUDE.md` and `context/internal/state.md` (Russian, as the other units).
+- [x] **Step 1: Failing tests** — `TestLoadMissingAndBroken` (no dir, `{`, a symlink, a FIFO → zero State); `TestUpdateRoundTrip`; `TestUpdateConcurrent`: 20 goroutines each `Update` adding one entry → 20 entries; `TestStaleLock`: a lock file with mtime 31 s ago → `Update` succeeds; `TestBusy`: fresh lock held → `ErrBusy` after ≈2 s (use an injectable `var lockWait = 2*time.Second` set to 100 ms in the test); `TestCapEntries`: 4100 entries → 4096, the first four dropped; `TestClosedValid`: `valid` rejecting one head drops its entry.
+- [x] **Step 2: Run** `go test ./internal/state/` — FAIL.
+- [x] **Step 3: Implement**; read via `fsx` (see `internal/fsx`), create `<gitDir>/paraplane/` with 0o755.
+- [x] **Step 4: Run** `go test -race ./internal/state/` — PASS; write `CLAUDE.md` and `context/internal/state.md` (Russian, as the other units).
 
 ### Task T3: progress
 
@@ -124,10 +124,10 @@ waves:
 
 **Interfaces — Produces:** `type Input struct { CommittedWaves, CommittedTasks, Closed []string }`; `func RenderFrom(p *plan.Plan, name string, in Input) string`. `RenderClosed(p, name, done, closed)` = `RenderFrom(p, name, Input{CommittedWaves: done, Closed: closed})`. A task is done if in `CommittedTasks` or `Closed`; warning for a committed task of a waiting wave `warning: task <id> was committed before <running id>`; for `Closed` the existing `--done` warnings.
 
-- [ ] **Step 1: Failing tests** with `mk(3, 3, 2)`: `TestRenderFromCommittedTasks` — CommittedTasks `T1,T2,T3` → W1 `✓ done`, W2 `▶ running`; CommittedTasks `T7` (W3 waiting) + W1 done → `warning: task T7 was committed before W2`, `3/8 tasks`; `TestRenderFromMixed` — CommittedTasks `T4`, Closed `T5`, CommittedWaves `W1` → W2 row `🟩🟩🟨`, `5/8 tasks`.
-- [ ] **Step 2: Run** `go test ./internal/progress/` — FAIL.
-- [ ] **Step 3: Implement** `RenderFrom` (move `RenderClosed`'s body, add committed tasks).
-- [ ] **Step 4: Run** `go test ./internal/progress/` — PASS (old tests unchanged); update the context doc.
+- [x] **Step 1: Failing tests** with `mk(3, 3, 2)`: `TestRenderFromCommittedTasks` — CommittedTasks `T1,T2,T3` → W1 `✓ done`, W2 `▶ running`; CommittedTasks `T7` (W3 waiting) + W1 done → `warning: task T7 was committed before W2`, `3/8 tasks`; `TestRenderFromMixed` — CommittedTasks `T4`, Closed `T5`, CommittedWaves `W1` → W2 row `🟩🟩🟨`, `5/8 tasks`.
+- [x] **Step 2: Run** `go test ./internal/progress/` — FAIL.
+- [x] **Step 3: Implement** `RenderFrom` (move `RenderClosed`'s body, add committed tasks).
+- [x] **Step 4: Run** `go test ./internal/progress/` — PASS (old tests unchanged); update the context doc.
 
 ### Task T4: rules — audit of wave commits
 
@@ -135,18 +135,18 @@ waves:
 
 **Interfaces — Produces:** `type CommitFiles struct { Hash string; Waves, Tasks, Files []string }` (same shape as gitx's; the CLI converts); `func AuditCommits(p *plan.Plan, waveIDs []string, changed []string, commits []CommitFiles, planPath string, ignore []string) ([]Finding, error)` (several ids = a stage, as `AuditWaves` since v1.1.2; `Where` = ids joined by `,`). Relevant commits: a Task of a listed wave, or a listed wave among Waves. Task commit: each file in the owns of that task (any named task of this wave, for several); wave/stage commit: in the owns of any task of any named wave. Same file+commit reported once. `AuditWaves` = `AuditCommits(…, nil, …)`; the working-tree part keeps its v1.1.2 texts.
 
-- [ ] **Step 1: Failing tests** (plan W1: T1 `a/**`, T2 `b/**`; W2: T3 `c/**`): task commit T1 with `b/x` → `error A1 W1: b/x changed by T1 (commit abc1234) but T1 does not own it`; stage commit W1+W2 with `a/x c/x` → no finding for W1 nor W2; stage commit with `d/x` → `error A1 W1: d/x changed in commit abc1234 but no task of W1, W2 owns it`; commit of another wave only → ignored; plan file and `audit_ignore` exempt.
-- [ ] **Step 2: Run** `go test ./internal/rules/` — FAIL.
-- [ ] **Step 3: Implement** `AuditCommits`.
-- [ ] **Step 4: Run** `go test ./internal/rules/` — PASS; update the context doc.
+- [x] **Step 1: Failing tests** (plan W1: T1 `a/**`, T2 `b/**`; W2: T3 `c/**`): task commit T1 with `b/x` → `error A1 W1: b/x changed by T1 (commit abc1234) but T1 does not own it`; stage commit W1+W2 with `a/x c/x` → no finding for W1 nor W2; stage commit with `d/x` → `error A1 W1: d/x changed in commit abc1234 but no task of W1, W2 owns it`; commit of another wave only → ignored; plan file and `audit_ignore` exempt.
+- [x] **Step 2: Run** `go test ./internal/rules/` — FAIL.
+- [x] **Step 3: Implement** `AuditCommits`.
+- [x] **Step 4: Run** `go test ./internal/rules/` — PASS; update the context doc.
 
 ### Task T7: rules text, docs, main spec
 
 **Files:** `skills/rules/references/execution.md`, `skills/rules/SKILL.md`, `skills/rules/references/codex.md`, `skills/progress/SKILL.md`, `skills/README*`, `README*`, `hooks/README*`, `docs/reference*`, main spec, root `CLAUDE.md` (units list: `internal/state`, `internal/track`).
 
-- [ ] **Step 1: execution.md** — subagent prompt carries `Paraplane-Task: <plan> <id>`; commit schemes (wave / stage / task; task commits by the coordinator one by one after review, with `Paraplane-Task`); Claude Code: the hook shows progress, do not repeat it; Codex: show it yourself; audit covers wave commits; new warnings and A1 texts verbatim.
-- [ ] **Step 2: SKILL.md, codex.md, skills/progress** (state counts; `--done` still accepted), **README*, hooks/README*** (PostToolUse matcher `Write|Edit|Bash|Agent|Task`, what it shows), **docs/reference*** (sources of done-ness, state file, audit of commits), **main spec** (fold the design doc into §5.1, §7, §7.1, §8, §12a), root `CLAUDE.md` units.
-- [ ] **Step 3: Run** `go test ./internal/plugintest/` — PASS.
+- [x] **Step 1: execution.md** — subagent prompt carries `Paraplane-Task: <plan> <id>`; commit schemes (wave / stage / task; task commits by the coordinator one by one after review, with `Paraplane-Task`); Claude Code: the hook shows progress, do not repeat it; Codex: show it yourself; audit covers wave commits; new warnings and A1 texts verbatim.
+- [x] **Step 2: SKILL.md, codex.md, skills/progress** (state counts; `--done` still accepted), **README*, hooks/README*** (PostToolUse matcher `Write|Edit|Bash|Agent|Task`, what it shows), **docs/reference*** (sources of done-ness, state file, audit of commits), **main spec** (fold the design doc into §5.1, §7, §7.1, §8, §12a), root `CLAUDE.md` units.
+- [x] **Step 3: Run** `go test ./internal/plugintest/` — PASS.
 
 ### Task T8: track
 

@@ -437,3 +437,95 @@ func TestChangedDeletedAndStaged(t *testing.T) {
 		t.Fatalf("got %v want %v", got, want)
 	}
 }
+
+func TestPlanCommitsTasks(t *testing.T) {
+	needGit(t, 2, 22, "%(trailers:key=)")
+	dir := initRepo(t)
+	msgs := []string{
+		"t1\n\nParaplane-Plan: plan.md\nParaplane-Task: T1\n",
+		"t2 t3\n\nParaplane-Plan: plan.md\nParaplane-Task: T2\nParaplane-Task: T3\n",
+		"other\n\nParaplane-Plan: other.md\nParaplane-Task: T9\n",
+		"bad\n\nParaplane-Plan: plan.md\nParaplane-Task: 1bad\n",
+		"wave\n\nParaplane-Plan: plan.md\nParaplane-Wave: W1\n",
+		"lost\n\nParaplane-Plan: plan.md\nParaplane-Task: T4\n\nCo-Authored-By: A <a@b>\n",
+	}
+	for i, m := range msgs {
+		write(t, filepath.Join(dir, "f.txt"), strings.Repeat("x", i+1))
+		commitAll(t, dir, m)
+	}
+	c, err := PlanCommits(dir, "plan.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(c.Tasks, []string{"T1", "T2", "T3"}) || !reflect.DeepEqual(c.Waves, []string{"W1"}) {
+		t.Errorf("tasks %v, waves %v", c.Tasks, c.Waves)
+	}
+	if len(c.Lost) != 1 || c.Lost[0].Kind != "task" || c.Lost[0].ID != "T4" || len(c.Lost[0].Commit) < 7 {
+		t.Errorf("lost %+v", c.Lost)
+	}
+	// WaveCommits keeps reporting waves only.
+	waves, lost, err := WaveCommits(dir, "plan.md")
+	if err != nil || !reflect.DeepEqual(waves, []string{"W1"}) || len(lost) != 0 {
+		t.Errorf("WaveCommits %v %v %v", waves, lost, err)
+	}
+}
+
+func TestPlanCommitFiles(t *testing.T) {
+	needGit(t, 2, 22, "%(trailers:key=)")
+	dir := initRepo(t)
+	write(t, filepath.Join(dir, "a.go"), "a")
+	commitAll(t, dir, "t1\n\nParaplane-Plan: plan.md\nParaplane-Task: T1\n")
+	write(t, filepath.Join(dir, "c.go"), "c")
+	write(t, filepath.Join(dir, "b.go"), "b")
+	commitAll(t, dir, "stage\n\nParaplane-Plan: plan.md\nParaplane-Wave: W1\nParaplane-Wave: W2\n")
+	write(t, filepath.Join(dir, "d.go"), "d")
+	commitAll(t, dir, "unrelated")
+	got, err := PlanCommitFiles(dir, "plan.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %+v", got)
+	}
+	if !reflect.DeepEqual(got[0].Tasks, []string{"T1"}) || !reflect.DeepEqual(got[0].Files, []string{"a.go"}) ||
+		!reflect.DeepEqual(got[1].Waves, []string{"W1", "W2"}) || !reflect.DeepEqual(got[1].Files, []string{"b.go", "c.go"}) ||
+		len(got[0].Hash) < 7 {
+		t.Errorf("got %+v", got)
+	}
+}
+
+func TestHeadAndAncestor(t *testing.T) {
+	dir := initRepo(t)
+	if h, err := Head(dir); err != nil || h != "" {
+		t.Fatalf("empty repo: %q, %v", h, err)
+	}
+	write(t, filepath.Join(dir, "a"), "1")
+	commitAll(t, dir, "one")
+	first, err := Head(dir)
+	if err != nil || len(first) < 40 {
+		t.Fatalf("head %q %v", first, err)
+	}
+	write(t, filepath.Join(dir, "a"), "2")
+	commitAll(t, dir, "two")
+	second, _ := Head(dir)
+	if ok, err := IsAncestor(dir, first, second); err != nil || !ok {
+		t.Errorf("first before second: %v %v", ok, err)
+	}
+	if ok, err := IsAncestor(dir, second, first); err != nil || ok {
+		t.Errorf("second before first: %v %v", ok, err)
+	}
+	if _, err := IsAncestor(dir, "deadbeef", second); err == nil {
+		t.Error("unknown commit: no error")
+	}
+}
+
+func TestGitDir(t *testing.T) {
+	dir := initRepo(t)
+	g, err := GitDir(dir)
+	if err != nil || !filepath.IsAbs(g) {
+		t.Fatalf("%q %v", g, err)
+	}
+	if fi, err := os.Stat(g); err != nil || !fi.IsDir() {
+		t.Fatalf("stat %v", err)
+	}
+}

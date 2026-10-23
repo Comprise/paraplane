@@ -1,8 +1,8 @@
 ---
 unit: internal/progress
-source_hash: sha256:b9641773b22c485a26b9c3f5009beda617b8361c9513774f913048712f93a854
-commit: e83fd1f7ea6d385ea24f37f41230bf99588e4597
-updated: "2026-10-22"
+source_hash: sha256:fa38d08daecfd2a111ccd2858f91fadbb103ae3ed7e64854b97fc94aca2e16e6
+commit: 45ec0164ada8ce7a4636b7626c1c8a0a5ce9582d
+updated: "2026-10-23"
 ---
 # internal/progress
 Рендер прогресса плана: шапка 72 колонки, полоса задач, строка на волну с эмодзи-квадратами, предупреждения.
@@ -14,6 +14,7 @@ updated: "2026-10-22"
 ## Публичный API / точки входа
 - `Render(p *plan.Plan, name string, done []string) string` — `name` — имя файла плана, `done` — id волн, у которых есть коммит. Пакет не ходит в git и в файловую систему.
 - `RenderClosed(p, name, done, closed []string) string` — то же с `closed`: id задач, закрытых, но не закоммиченных (`--done`). `Render` = `RenderClosed(…, nil)`.
+- `RenderFrom(p, name, Input{CommittedWaves, CommittedTasks, Closed})` — общий вид: задачи, закоммиченные по одной (`Paraplane-Task`), считаются как закрытые; закоммиченная задача `waiting`-волны — `warning: task <id> was committed before <running id>` и не считается. `RenderClosed` = `RenderFrom` без `CommittedTasks`.
 
 ## Структура и поток данных
 - Волна закрыта, если у неё есть коммит или все её задачи есть в `closed`. Состояние по порядку плана: закрытые волны до первой незакрытой — `done`; первая незакрытая — `running`; все дальнейшие — `waiting`, даже если они закрыты.

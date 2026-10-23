@@ -1,7 +1,7 @@
 ---
 unit: internal/gitx
-source_hash: sha256:e442fc53a865d44f62c8d5c80e685c777af662d0313ad834d899f42ce6e2be64
-commit: d3b7e4c68cdd97065be8d78d922d7b565b23d507
+source_hash: sha256:2ecba7f5c24f2fc3eec97aed77143b34479266963461b837bc87f8d576e34161
+commit: 45ec0164ada8ce7a4636b7626c1c8a0a5ce9582d
 updated: "2026-10-23"
 ---
 # internal/gitx
@@ -13,7 +13,10 @@ Changed и WaveCommits поверх git, запускаемого так, что
 
 ## Публичный API / точки входа
 - `Changed(root)` — изменённые файлы относительно `root`: слэши, отсортированы, без дублей; пути вне `root` отбрасываются. Переименование даёт оба пути (`--no-renames`). Сабмодули игнорируются.
-- `WaveCommits(root, planPath) (waves, lost, err)` — id волн из коммитов с трейлером `Paraplane-Plan` == `planPath`, в порядке первого появления, без дублей; `lost` — `[]LostTrailer{Commit, Wave}`: коммиты, где строки `Paraplane-*` для плана есть в тексте, но git не читает их как трейлеры (не в последнем абзаце), по одному на волну и только для незасчитанных волн. Требует git ≥ 2.22. Репозиторий без коммитов → пустой список.
+- `PlanCommits(root, planPath) (Commits, error)` — `Commits{Waves, Tasks, Lost}`: волны и задачи из трейлеров `Paraplane-Wave`/`Paraplane-Task` коммитов с `Paraplane-Plan` == `planPath`, в порядке первого появления, без дублей; значение может быть списком через запятую. `Lost` — `LostTrailer{Commit, Kind, ID, Wave}`: строки `Paraplane-*` в теле, которых нет в трейлерах (не последний абзац), по одной на id и только для незасчитанных. Требует git ≥ 2.22. Репозиторий без коммитов → пусто.
+- `WaveCommits(root, planPath) (waves, lost, err)` — обёртка над `PlanCommits` только с волнами (для старых вызовов).
+- `PlanCommitFiles(root, planPath) ([]CommitFiles, error)` — коммиты плана с волнами/задачами и изменёнными файлами (`--name-only --no-renames`, слияния без файлов), старые первыми.
+- `Head(root)` (полный хеш, `""` без коммитов), `IsAncestor(root, a, b)` (`merge-base --is-ancestor`), `GitDir(root)` (`rev-parse --absolute-git-dir`).
 - `ErrFilterDrivers`, `ErrPartialClone` — отказы `Changed`.
 
 ## Структура и поток данных
@@ -23,7 +26,7 @@ Changed и WaveCommits поверх git, запускаемого так, что
   - добавляются `GIT_NO_LAZY_FETCH=1`, `GIT_OPTIONAL_LOCKS=0` (status не пишет индекс и не дёргает index-хуки), `GIT_CONFIG_NOSYSTEM=1`, `GIT_TERMINAL_PROMPT=0`, `LC_ALL=C`;
   - таймаут 10 с; stdout ограничен 16 MiB (`maxOutput`), при переполнении git останавливается и возвращается ошибка.
 - `Changed`: `rev-parse --show-prefix` → версия git → `repoConfigSets(filterKeys)` → при git без `GIT_NO_LAZY_FETCH` проверки partial clone и `uploadpack` → `git status --porcelain=v1 -z`.
-- `WaveCommits`: `git log --reverse -i --grep=^paraplane-wave:` (только коммиты со строкой `Paraplane-Wave:`, чтобы вывод с `%B` не рос с историей), формат `%h`, `%(trailers:key=…,unfold)`, `%B` через `\x1f`, разделитель записей `\x1e`; коммит может закрывать несколько волн — засчитываются все `Paraplane-Wave`, значение может быть списком через запятую (`W1, W2`; значение с хоть одной частью не по `waveID` отбрасывается целиком); строки `Paraplane-*` в теле, которых нет в трейлерах (этап, разбитый пустой строкой), попадают в `lost`; при повторе `Paraplane-Plan` побеждает последний.
+- `PlanCommits`/`PlanCommitFiles`: `git log --reverse -i --grep=^paraplane-wave: --grep=^paraplane-task:` (только коммиты с такими строками, чтобы вывод с `%B` не рос с историей), формат `%h`, `%(trailers:key=…,unfold)`, `%B` через `\x1f`, разделитель записей `\x1e`; коммит может закрывать несколько волн — засчитываются все `Paraplane-Wave`, значение может быть списком через запятую (`W1, W2`; значение с хоть одной частью не по `waveID` отбрасывается целиком); строки `Paraplane-*` в теле, которых нет в трейлерах (этап, разбитый пустой строкой), попадают в `lost`; при повторе `Paraplane-Plan` побеждает последний.
 
 ## Инварианты и подводные камни
 - `run` сам не нейтрализует filter-драйверы и lazy fetch: любая новая команда, способная их запустить, обязана повторить проверки `Changed`.

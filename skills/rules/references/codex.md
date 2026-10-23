@@ -25,6 +25,9 @@ hook text gives, `<plugin dir>/bin/paraplane` (the plugin directory in the Codex
 - **Skills.** `UserPromptSubmit` sees `$…` mentions in the prompt: an execution skill (`execut`,
   `subagent-driven`) brings the execution rules (with the progress mode), a skill with `plan` in its name
   brings the planning rules. Without such a mention, read `progress` in `.paraplane/config.yaml` yourself.
+- **Progress.** Codex has no subagent tool, so returned subagents are not seen. After a commit that names
+  the plan (`git commit`, `merge`, …) the `PostToolUse` hook passes the progress to you as context; show
+  it to the user in a code block. Between commits pass closed tasks in `--done` yourself.
 
 ## The conflict-auditor without agents
 

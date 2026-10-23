@@ -10,7 +10,7 @@
 | `PreToolUse` | `ExitPlanMode` | `pre-tool-use` | 10 s | validates the plan (`tool_input.plan`, otherwise the file `planFilePath`, ≤ 1 MB); E errors (including E0) — `deny` with a list of violations (≤ 20); only W — `additionalContext` |
 | `PreToolUse` | `Skill` | `pre-tool-use` | 10 s | an execution skill (the name contains `execut` or `subagent-driven`, not `paraplane:`) — a digest of the execution rules with the progress mode from `progress`; a skill with `plan` in its name — a digest of the plan-writing rules |
 | `PreToolUse` | `Bash`, `if: Bash(paraplane *)` | `pre-tool-use` | 10 s | auto-approves `paraplane check <path>`, `paraplane audit <path> <wave>[,<wave>…]`, `paraplane progress [--done <ids>] <path>` (ids joined by `,`), `paraplane version` |
-| `PostToolUse` | `Write\|Edit` | `post-tool-use` | 10 s | if the file is in `plan_paths` — plan validation: E0 — context, E1–E7 — `decision: block`, only W — context (and only for `Write`) |
+| `PostToolUse` | `Write\|Edit\|Bash\|Agent\|Task` | `post-tool-use` | 10 s | `Write`/`Edit`: if the file is in `plan_paths` — plan validation: E0 — context, E1–E7 — `decision: block`, only W — context (and only for `Write`). `Agent`/`Task`: a returned subagent whose prompt has `Paraplane-Task: <plan> <id>` is recorded in `.git/paraplane/closed.json`; `Bash` with `commit`, `merge`, `cherry-pick`, `rebase`, `am`, `pull` or `revert`: new commits naming a plan. Then, when a wave (`progress: wave`) or a task (`progress: task`) got done since the last time, the progress goes to the user as `systemMessage` |
 
 ## Codex: `hooks/codex.json`
 
@@ -21,7 +21,7 @@ Codex reads only `hooks/codex.json` (it ignores `hooks/hooks.json`). All hooks c
 |---|---|---|---|---|
 | `SessionStart` | — | `session-start` | 10 s | the same `additionalContext` with `$paraplane:rules` |
 | `UserPromptSubmit` | — | `prompt-submit` | 10 s | the prompt mentions `$…` with `execut`/`subagent-driven` — a digest of the execution rules; with `plan` — of the plan-writing rules |
-| `PostToolUse` | `^(Bash\|apply_patch)$` | `post-tool-use` | 10 s | path words are taken from `tool_input.command` (relative ones from `cwd`), from a patch — the headers `*** Add/Update File:`, `*** Move to:`; existing regular files matching `plan_paths` are validated: E0 — context, E1–E7 — `block` for a file the command writes; a file it only reads (`cat plan.md`) gets context on E1–E7 only, never `block` |
+| `PostToolUse` | `^(Bash\|apply_patch)$` | `post-tool-use` | 10 s | after a commit naming a plan, its progress as `additionalContext` with a request to show it to the user (no subagents in Codex); and | path words are taken from `tool_input.command` (relative ones from `cwd`), from a patch — the headers `*** Add/Update File:`, `*** Move to:`; existing regular files matching `plan_paths` are validated: E0 — context, E1–E7 — `block` for a file the command writes; a file it only reads (`cat plan.md`) gets context on E1–E7 only, never `block` |
 | `Stop` | — | `stop` | 10 s | in Plan Mode `last_assistant_message` is empty: the transcript (`transcript_path`, a regular file, tail ≤ 4 MB) — the assistant's last `<proposed_plan>` of the current turn; E errors — `{"decision":"block","reason":…}`; `stop_hook_active: true`, no transcript or plan — silent |
 | `PermissionRequest` | `^Bash$` | `permission-request` | 10 s | `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}` only for the strict form of the command `paraplane check/audit/progress/version` with the absolute CLI path |
 

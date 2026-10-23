@@ -144,7 +144,11 @@ The shim is the exception: when the binary is missing or not executable, `bin/pa
 
 A check **after** a wave is executed and **before** its gate (gate artifacts — coverage, binaries — do not
 count). Changed files of the working copy must fall into `owns` of some task of this wave; exceptions are the
-plan file itself and the `audit_ignore` patterns. For example, with two stray files:
+plan file itself and the `audit_ignore` patterns. The commits of the wave on the current branch are checked
+too: a task commit (`Paraplane-Task`) may change only files of the tasks it names
+(`error A1 W2: x.go changed by T3 (commit abc1234) but T3 does not own it`), a wave or stage commit only files
+of the waves it names (`… changed in commit abc1234 but no task of W1, W2 owns it`); the summary then reads
+`audit ok: W2, 5 changed file(s), 2 commit(s)`. For example, with two stray files in the working copy:
 
 ```
 error A1 W2: internal/x.go changed but no task of W2 owns it
@@ -217,7 +221,17 @@ them. A commit whose `Paraplane-*` lines git does not read as trailers leaves it
 waves (a project that commits once per stage): give it one `Paraplane-Wave` trailer per wave
 (`Paraplane-Wave: W1, W2` works too), and each counts.
 
-When the coordinator shows progress depends on the key `progress`: `wave` (default) — after each closed
+A task is done when any of these holds: a commit names it (`Paraplane-Plan` and `Paraplane-Task: <id>`, several
+per commit allowed); its wave has a commit; its subagent returned with a prompt line
+`Paraplane-Task: <plan> <id>` (kept in `.git/paraplane/closed.json`, out of the working tree; an entry
+recorded before a `git reset` to an earlier commit no longer counts); it is in `--done`. A wave is done when it
+has a commit or all its tasks are done. A committed task of a waiting wave gives
+`warning: task <id> was committed before <running id>`; a task line outside the trailer paragraph gives
+`warning: task <id> commit <hash>: trailers not in the last paragraph`.
+
+In Claude Code a `PostToolUse` hook shows the progress to the user by itself (`systemMessage`) when a
+subagent returns or a commit names the plan, if a wave (or, with `progress: task`, a task) got done since the
+last time; the model is told not to repeat it. When the coordinator shows progress depends on the key `progress`: `wave` (default) — after each closed
 wave (audit and gate passed), `task` — also after each closed task. The output always goes to the user
 in a code block. The user can ask for it at any moment with `/paraplane:progress`.
 
@@ -249,6 +263,7 @@ The hooks catch a plan in any form: from plan mode, from a skill with `plan` in 
 | `PreToolUse` `ExitPlanMode` | validates the plan; E errors (including E0) — **forbids leaving plan mode** and lists the violations (up to 20) with an instruction; only W warnings — adds them to the context |
 | `PreToolUse` `Skill` | before an execution skill (the name contains `execut` or `subagent-driven`, does not start with `paraplane:`) reminds of the execution rules and their priority; before a skill with `plan` in its name — the plan-writing rules |
 | `PreToolUse` `Bash` | approves without a prompt `paraplane check <path>`, `paraplane audit <path> <wave>[,<wave>…]`, `paraplane progress [--done <ids>] <path>`, `paraplane version` |
+| `PostToolUse` `Bash\|Agent\|Task` | a returned subagent with `Paraplane-Task: <plan> <id>` in its prompt, or a commit naming a plan: when a wave (`progress: task` — a task) got done since the last time, shows the progress to the user (`systemMessage`) |
 | `PostToolUse` `Write\|Edit` | if the file is in `plan_paths` — validates it (≤ 1 MB). E0 — only the hint `add the block before the plan is final`; E1–E7 — **block** with a reason; only W — a hint, and only for `Write` |
 
 - `Edit` is checked only if the edit touches the `paraplane` block or its keys (`waves:`, `tasks:`, `id:`,

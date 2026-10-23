@@ -204,75 +204,209 @@ func runCode(root string, args ...string) ([]byte, int, error) {
 }
 
 // LostTrailer is a commit whose message has Paraplane-Plan and
-// Paraplane-Wave lines that git does not read as trailers: they are not in
-// the last paragraph (a blank line before Co-Authored-By, say).
+// Paraplane-Wave or Paraplane-Task lines that git does not read as trailers:
+// they are not in the last paragraph (a blank line before Co-Authored-By,
+// say).
 type LostTrailer struct {
 	Commit string // abbreviated hash
-	Wave   string
+	Kind   string // "wave" or "task"
+	ID     string // the wave or task id
+	Wave   string // ID for kind "wave", for WaveCommits callers
 }
 
-// WaveCommits returns the ids of waves committed with the Paraplane-Plan
-// trailer equal to planPath, in order of first appearance, without duplicates.
-// A commit may close several waves, one Paraplane-Wave trailer each (a project
-// that commits once per stage); when it repeats the plan trailer, the last
-// occurrence wins. lost lists, once
-// per wave and only for waves missing from waves, the commits whose
-// Paraplane-* lines for planPath git does not read as trailers. Only commits
-// with a line starting with Paraplane-Wave: are read. It needs git 2.22 or
-// later: older git has no %(trailers:key=…) and would print no trailers at
-// all, so it is an error.
-func WaveCommits(root, planPath string) (waves []string, lost []LostTrailer, err error) {
+// Commits is what the commits of a plan record: waves and tasks named by
+// trailers, and the lines git did not read as trailers.
+type Commits struct {
+	Waves, Tasks []string
+	Lost         []LostTrailer
+}
+
+// planTrailers is the git log format of a plan commit's trailers.
+const planTrailers = "%(trailers:key=Paraplane-Plan,key=Paraplane-Wave,key=Paraplane-Task,unfold)"
+
+// planGreps limits git log to commits with a Paraplane-Wave or
+// Paraplane-Task line, so the output does not grow with the history.
+var planGreps = []string{"-i", "--grep=^paraplane-wave:", "--grep=^paraplane-task:"}
+
+// PlanCommits returns the waves and tasks committed with the Paraplane-Plan
+// trailer equal to planPath, each in order of first appearance, without
+// duplicates. A commit may name several waves (a stage) or tasks, one
+// trailer each or a comma list; when it repeats the plan trailer, the last
+// occurrence wins. Lost lists, once per id and only for ids not counted, the
+// commits whose Paraplane-* lines for planPath git does not read as trailers.
+// It needs git 2.22 or later: older git has no %(trailers:key=…) and would
+// print no trailers at all, so it is an error.
+func PlanCommits(root, planPath string) (Commits, error) {
+	c := Commits{Waves: []string{}, Tasks: []string{}}
 	v, ok, err := version(root)
 	if err != nil {
-		return nil, nil, err
+		return c, err
 	}
 	if !ok || !v.atLeast(2, 22, 0) {
-		return nil, nil, errors.New("git 2.22 or later is required for progress")
+		return c, errors.New("git 2.22 or later is required for progress")
 	}
-	out, err := run(root, "log", "--no-show-signature", "--reverse", "-i", "--grep=^paraplane-wave:",
-		"--format=%h%x1f%(trailers:key=Paraplane-Plan,key=Paraplane-Wave,unfold)%x1f%B%x1e")
+	args := append([]string{"log", "--no-show-signature", "--reverse"}, planGreps...)
+	out, err := run(root, append(args, "--format=%h%x1f"+planTrailers+"%x1f%B%x1e")...)
 	if err != nil {
 		if _, e := run(root, "rev-parse", "--git-dir"); e == nil {
 			if _, e := run(root, "rev-parse", "--verify", "-q", "HEAD"); e != nil {
-				return []string{}, nil, nil // no commits yet
+				return c, nil // no commits yet
 			}
 		}
-		return nil, nil, err
+		return c, err
 	}
-	waves = []string{}
 	var lostAll []LostTrailer
 	for _, rec := range strings.Split(string(out), "\x1e") {
 		hash, rest, _ := strings.Cut(strings.TrimLeft(rec, "\n"), "\x1f")
 		trailers, body, _ := strings.Cut(rest, "\x1f")
-		ws := paraplaneLines(trailers, planPath)
-		for _, w := range ws {
-			if !slices.Contains(waves, w) {
-				waves = append(waves, w)
-			}
-		}
+		tw, tt := paraplaneLines(trailers, planPath)
+		c.Waves = appendNew(c.Waves, tw...)
+		c.Tasks = appendNew(c.Tasks, tt...)
 		// Paraplane-* lines git did not read as trailers, also next to some
 		// it did (a stage commit split by a blank line).
-		for _, w := range paraplaneLines(body, planPath) {
-			if !slices.Contains(ws, w) {
-				lostAll = append(lostAll, LostTrailer{Commit: hash, Wave: w})
+		bw, bt := paraplaneLines(body, planPath)
+		for _, w := range bw {
+			if !slices.Contains(tw, w) {
+				lostAll = append(lostAll, LostTrailer{Commit: hash, Kind: "wave", ID: w, Wave: w})
+			}
+		}
+		for _, id := range bt {
+			if !slices.Contains(tt, id) {
+				lostAll = append(lostAll, LostTrailer{Commit: hash, Kind: "task", ID: id})
 			}
 		}
 	}
 	for _, l := range lostAll {
-		if !slices.Contains(waves, l.Wave) && !slices.ContainsFunc(lost, func(x LostTrailer) bool { return x.Wave == l.Wave }) {
+		counted := c.Waves
+		if l.Kind == "task" {
+			counted = c.Tasks
+		}
+		if !slices.Contains(counted, l.ID) && !slices.ContainsFunc(c.Lost, func(x LostTrailer) bool { return x.Kind == l.Kind && x.ID == l.ID }) {
+			c.Lost = append(c.Lost, l)
+		}
+	}
+	return c, nil
+}
+
+// WaveCommits is PlanCommits reduced to waves: the committed waves and the
+// lost wave lines.
+func WaveCommits(root, planPath string) (waves []string, lost []LostTrailer, err error) {
+	c, err := PlanCommits(root, planPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, l := range c.Lost {
+		if l.Kind == "wave" {
 			lost = append(lost, l)
 		}
 	}
-	return waves, lost, nil
+	return c.Waves, lost, nil
 }
 
-// paraplaneLines reads Paraplane-Plan and Paraplane-Wave lines (key case
-// ignored; the last plan wins) and returns the valid wave ids, in order, when
-// the plan is planPath. A wave value may list several ids separated by
-// commas (Paraplane-Wave: W1, W2); a value with any invalid part is dropped.
-func paraplaneLines(text, planPath string) []string {
+// CommitFiles is a commit of a plan with the waves and tasks its trailers
+// name and the files it changed.
+type CommitFiles struct {
+	Hash                string // abbreviated
+	Waves, Tasks, Files []string
+}
+
+// PlanCommitFiles returns the commits of the current branch whose trailers
+// name planPath and at least one wave or task, oldest first, with their
+// changed files (sorted; --no-renames, so a rename gives both paths; a merge
+// gives none).
+func PlanCommitFiles(root, planPath string) ([]CommitFiles, error) {
+	v, ok, err := version(root)
+	if err != nil {
+		return nil, err
+	}
+	if !ok || !v.atLeast(2, 22, 0) {
+		return nil, errors.New("git 2.22 or later is required for audit of commits")
+	}
+	if _, e := run(root, "rev-parse", "--verify", "-q", "HEAD"); e != nil {
+		if _, e := run(root, "rev-parse", "--git-dir"); e == nil {
+			return nil, nil // no commits yet
+		}
+	}
+	args := append([]string{"log", "--no-show-signature", "--reverse", "--no-renames", "--name-only"}, planGreps...)
+	out, err := run(root, append(args, "--format=%x1e%h%x1f"+planTrailers+"%x1f")...)
+	if err != nil {
+		return nil, err
+	}
+	var res []CommitFiles
+	for _, rec := range strings.Split(string(out), "\x1e")[1:] {
+		parts := strings.SplitN(rec, "\x1f", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		waves, tasks := paraplaneLines(parts[1], planPath)
+		if len(waves) == 0 && len(tasks) == 0 {
+			continue
+		}
+		var files []string
+		for _, f := range strings.Split(parts[2], "\n") {
+			if f = strings.TrimSpace(f); f != "" {
+				files = appendNew(files, f)
+			}
+		}
+		slices.Sort(files)
+		res = append(res, CommitFiles{Hash: parts[0], Waves: waves, Tasks: tasks, Files: files})
+	}
+	return res, nil
+}
+
+// Head returns the full hash of HEAD, or "" in a repository without commits.
+func Head(root string) (string, error) {
+	out, code, err := runCode(root, "rev-parse", "--verify", "-q", "HEAD")
+	if err != nil {
+		if code == 1 && len(bytes.TrimSpace(out)) == 0 {
+			if _, e := run(root, "rev-parse", "--git-dir"); e == nil {
+				return "", nil
+			}
+		}
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// IsAncestor reports whether commit a is an ancestor of b or equal to it.
+func IsAncestor(root, a, b string) (bool, error) {
+	_, code, err := runCode(root, "merge-base", "--is-ancestor", a, b)
+	switch {
+	case err == nil:
+		return true, nil
+	case code == 1:
+		return false, nil
+	}
+	return false, err
+}
+
+// GitDir returns the absolute git directory of the repository at root (a
+// worktree has its own).
+func GitDir(root string) (string, error) {
+	out, err := run(root, "rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// appendNew appends the ids not yet in list.
+func appendNew(list []string, ids ...string) []string {
+	for _, id := range ids {
+		if !slices.Contains(list, id) {
+			list = append(list, id)
+		}
+	}
+	return list
+}
+
+// paraplaneLines reads Paraplane-Plan, Paraplane-Wave and Paraplane-Task
+// lines (key case ignored; the last plan wins) and returns the valid wave
+// and task ids, in order, when the plan is planPath. A value may list several
+// ids separated by commas (Paraplane-Wave: W1, W2); a value with any invalid
+// part is dropped.
+func paraplaneLines(text, planPath string) (waves, tasks []string) {
 	var plan string
-	var waves []string
 	var hasPlan bool
 	for _, line := range strings.Split(text, "\n") {
 		k, v, ok := strings.Cut(line, ":")
@@ -284,19 +418,27 @@ func paraplaneLines(text, planPath string) []string {
 		case "paraplane-plan":
 			plan, hasPlan = v, true
 		case "paraplane-wave":
-			ids := strings.Split(v, ",")
-			for i := range ids {
-				ids[i] = strings.TrimSpace(ids[i])
-			}
-			if !slices.ContainsFunc(ids, func(id string) bool { return !waveID.MatchString(id) }) {
-				waves = append(waves, ids...)
-			}
+			waves = append(waves, idList(v)...)
+		case "paraplane-task":
+			tasks = append(tasks, idList(v)...)
 		}
 	}
 	if !hasPlan || plan != planPath {
+		return nil, nil
+	}
+	return waves, tasks
+}
+
+// idList splits a trailer value on commas; any invalid part drops it all.
+func idList(v string) []string {
+	ids := strings.Split(v, ",")
+	for i := range ids {
+		ids[i] = strings.TrimSpace(ids[i])
+	}
+	if slices.ContainsFunc(ids, func(id string) bool { return !waveID.MatchString(id) }) {
 		return nil
 	}
-	return waves
+	return ids
 }
 
 // Changed returns the files changed in the working tree relative to root

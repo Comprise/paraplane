@@ -119,9 +119,11 @@ W3 is checked only when there are no errors at all.
 Follow `references/execution.md`. In short: dispatch all tasks of a wave in one message, each subagent
 limited to its `owns`; subagents never commit; after the wave run `paraplane audit <plan> <wave>`,
 then the gate; fix until both pass; the coordinator makes one commit per wave with the trailers
-`Paraplane-Plan` and `Paraplane-Wave`. Progress (`paraplane progress [--done <ids>] <plan>`, output in a
-code block) is shown after each closed wave, and with `progress: task` in `.paraplane/config.yaml` also
-after each closed task.
+`Paraplane-Plan` and `Paraplane-Wave` (a commit per task or per stage only when the project's rules
+require it). Each subagent prompt carries a line `Paraplane-Task: <plan> <task id>`. In Claude Code a
+hook shows the progress to the user after each closed wave (with `progress: task` in
+`.paraplane/config.yaml`, after each closed task); in Codex show `paraplane progress [--done <ids>] <plan>`
+yourself in a code block.
 
 ## Precedence
 

@@ -78,7 +78,9 @@ codex plugin marketplace add Comprise/paraplane --ref release
    W3  ⬜      0/1  · waiting  T6
    ```
 
-   С `progress: task` в настройке Claude показывает его ещё и после каждой закрытой задачи, до коммита волны.
+   В Claude Code его сам показывает хук, когда волна сделана, закоммичена она или нет; с `progress: task` в
+   настройке — ещё и после каждой готовой задачи. Проект, который коммитит раз в задачу или раз в этап, тоже
+   поддерживается (см. справочник).
    Посмотреть самому в любой момент: `/paraplane:progress`.
 
 В Codex команды называются `$paraplane:create`, `$paraplane:check`, `$paraplane:progress` и `$paraplane:rules`.

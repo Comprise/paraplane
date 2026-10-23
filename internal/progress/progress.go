@@ -3,6 +3,7 @@ package progress
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"paraplane/internal/plan"
@@ -85,12 +86,26 @@ func Render(p *plan.Plan, name string, done []string) string {
 // 🟩. A closed id that is no task of the plan, or a task of a waiting wave,
 // gets a warning and is not counted.
 func RenderClosed(p *plan.Plan, name string, done, closed []string) string {
+	return RenderFrom(p, name, Input{CommittedWaves: done, Closed: closed})
+}
+
+// Input is what is known done: waves and tasks named by commit trailers,
+// and tasks closed but not committed (returned subagents, --done).
+type Input struct {
+	CommittedWaves, CommittedTasks, Closed []string
+}
+
+// RenderFrom is RenderClosed with tasks committed one by one: a committed
+// task counts like a closed one. A committed task of a waiting wave gets
+// "warning: task <id> was committed before <running id>" and is not counted.
+func RenderFrom(p *plan.Plan, name string, in Input) string {
+	done, closed := in.CommittedWaves, in.Closed
 	doneSet := map[string]bool{}
 	for _, id := range done {
 		doneSet[id] = true
 	}
 	closedSet := map[string]bool{}
-	for _, id := range closed {
+	for _, id := range append(slices.Clone(closed), in.CommittedTasks...) {
 		closedSet[id] = true
 	}
 	known := map[string]bool{}
@@ -152,6 +167,13 @@ func RenderClosed(p *plan.Plan, name string, done, closed []string) string {
 		if !known[id] && !seen[id] {
 			seen[id] = true
 			warns = append(warns, capLine("warning: commit for unknown wave "+textx.Line(id, idRunesBeforeEllipsis)))
+		}
+	}
+	committed := map[string]bool{}
+	for _, id := range in.CommittedTasks {
+		if i, ok := waveOf[id]; ok && rows[i].st == stWaiting && !committed[id] {
+			committed[id] = true
+			warns = append(warns, capLine("warning: task "+textx.Line(id, taskIDRunesBeforeEllipsis)+" was committed before "+rows[cur].id))
 		}
 	}
 	warned := map[string]bool{}
