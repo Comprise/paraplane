@@ -1,7 +1,8 @@
 ---
 unit: _root
-source_hash: sha256:97fa2f983a0d177ad082646d5f87e486a01314ff87b46f51a9ac2e7ee9de1ce0
-updated: "2026-10-20"
+source_hash: sha256:dab70cee738b0b3c6bc203d0a9881bace7fac9f90da64bd99003713595a2ab6e
+commit: 3c73b8274ac2ce7f037cf9422c4644140529df03
+updated: "2026-10-23"
 ---
 # _root
 Плагин paraplane: правила и проверки плана для параллельного исполнения субагентами в Claude Code и Codex.
@@ -13,7 +14,8 @@ updated: "2026-10-20"
 ## Структура и поток данных
 - Один бинарник `paraplane` (`cmd/paraplane`) обслуживает CLI (`check`, `audit`, `progress`, `version`) и хуки (`hook <event> [--agent codex]`).
 - `bin/paraplane` — POSIX-shim: выбирает `libexec/paraplane-<os>-<arch>[.exe]`; бинарники собираются только в релизе (`make dist`), в `main` их нет.
-- `hooks/hooks.json` (Claude) и `hooks/codex.json` (Codex) вызывают shim; `skills/` (`rules`, `create`, `check`) и `agents/conflict-auditor.md` — текстовая часть плагина.
+- `hooks/hooks.json` (Claude) и `hooks/codex.json` (Codex) вызывают shim; `PostToolUse` Claude ловит и `Bash`/`Agent`/`Task` для хука прогресса. `skills/` (`rules`, `create`, `check`, `progress`) и `agents/conflict-auditor.md` — текстовая часть плагина.
+- Что сделано в плане, знают коммиты (трейлеры `Paraplane-Wave`/`Paraplane-Task`) и состояние вне рабочего дерева `<git-dir>/paraplane/closed.json` (`internal/state`); сводит их `internal/track`.
 - Манифесты: `.claude-plugin/` (плагин и маркетплейс Claude), `.codex-plugin/plugin.json` и `.agents/plugins/marketplace.json` (Codex).
 - `ship.txt` — единственный список того, что поставляется; его читают `make tree`, CI и релиз.
 
