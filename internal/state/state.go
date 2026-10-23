@@ -258,7 +258,7 @@ func decode(data []byte) (State, error) {
 // acquire takes the lock file of r. A non-regular lock path is ErrBusy at
 // once; a stale lock is taken over; every wait ends with ctx.
 func acquire(ctx context.Context, r *os.Root) error {
-	var denied time.Time // first create refused as a pending delete
+	var denied time.Time // first of the refusals in a row (deletePending)
 	for {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("%w: %w", ErrBusy, err)
@@ -283,9 +283,11 @@ func acquire(ctx context.Context, r *os.Root) error {
 			if denied.IsZero() {
 				denied = time.Now()
 			} else if time.Since(denied) > staleLock {
-				return err
+				return fmt.Errorf("%w: %w", ErrBusy, err)
 			}
 			lerr = fs.ErrNotExist
+		} else {
+			denied = time.Time{} // the bound counts refusals in a row
 		}
 		switch err := lerr; {
 		case errors.Is(err, fs.ErrNotExist):

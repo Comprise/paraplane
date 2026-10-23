@@ -1,7 +1,7 @@
 ---
 unit: internal/state
-source_hash: sha256:856f65a4c924404a7aa0509325d5c9c78c0beb5c603a93b6b81234ee545607a2
-commit: e28941c07faa715aa4c1088fa15a714e15c8ef05
+source_hash: sha256:259a742943056ce772728c7e73b5e5584c671253172d6df5d93f8bc00cf92532
+commit: 21b234823721c4a7eef42e510845b2a5a5b5349b
 updated: "2026-10-23"
 ---
 # internal/state
