@@ -17,7 +17,7 @@ Both branches only fast-forward: each release is a new commit on top of the prev
 2. Update the changelog if there is one, then tag and push:
 
    ```sh
-   git tag -s v1.2.3 -m "v1.2.3" && git push origin v1.2.3
+   git tag -a v1.2.3 -m "v1.2.3" && git push origin v1.2.3
    ```
 
 3. The `release` workflow runs `guard`, `ci`, `build` (Go 1.27.3, the version `go.mod` pins), `assemble` (stamps the version, builds the archive and `checksums.txt`, exports the checksums as a job output), `validate` (the only job that runs npx; it uploads nothing), `smoke` (every binary runs on its own OS and architecture), `publish` (re-verifies the downloaded files against the output, attests binaries, archive and checksums, moves the channel branch, creates the GitHub Release) and `verify-release` (the channel branch tree must equal the archive).

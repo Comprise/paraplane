@@ -17,7 +17,7 @@
 2. Обновите changelog, если он есть, затем тег и push:
 
    ```sh
-   git tag -s v1.2.3 -m "v1.2.3" && git push origin v1.2.3
+   git tag -a v1.2.3 -m "v1.2.3" && git push origin v1.2.3
    ```
 
 3. Workflow `release` выполняет `guard`, `ci`, `build` (Go 1.27.3, версия из `go.mod`), `assemble` (ставит версию, собирает архив и `checksums.txt`, отдаёт суммы как output job'а), `validate` (единственный job с npx, ничего не выгружает), `smoke` (каждый бинарник запускается на своей ОС и архитектуре), `publish` (сверяет скачанные файлы с output, подписывает attestation бинарники, архив и checksums, двигает ветку канала, создаёт GitHub Release) и `verify-release` (дерево ветки канала должно совпасть с архивом).
