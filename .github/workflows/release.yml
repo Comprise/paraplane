@@ -109,7 +109,8 @@ jobs:
           chmod +x libexec/* bin/paraplane
           # ship.txt is the one list of what ships (CI and make tree read it too).
           mkdir dist
-          tar -czf "dist/paraplane-${GITHUB_REF_NAME}.tar.gz" $(cat ship.txt)
+          mapfile -t ship < ship.txt
+          tar -czf "dist/paraplane-${GITHUB_REF_NAME}.tar.gz" "${ship[@]}"
           # Flat names, so `sha256sum -c` works in a directory with the
           # downloaded assets (the archive and the binaries are all assets).
           (cd libexec && sha256sum paraplane-*) > dist/checksums.txt
@@ -235,7 +236,7 @@ jobs:
           (cd dist && sha256sum --ignore-missing -c ../expected.txt)
           tar -xzf "dist/paraplane-${GITHUB_REF_NAME}.tar.gz"
           (cd libexec && sha256sum --ignore-missing -c ../expected.txt)
-          test "$(ls libexec | wc -l)" -eq 6
+          test "$(find libexec -mindepth 1 -maxdepth 1 | wc -l)" -eq 6
       - name: Attest build provenance
         # The binaries, the archive and checksums.txt: what users download and
         # what the release branch holds.
@@ -283,13 +284,14 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
           git rm -rq --cached .
-          git add -f $(cat ship.txt)
+          mapfile -t ship < ship.txt
+          git add -f "${ship[@]}"
           tree=$(git write-tree)
-          parents=""
+          parents=()
           if git rev-parse -q --verify "refs/remotes/origin/${BRANCH}" >/dev/null; then
-            parents="-p refs/remotes/origin/${BRANCH}"
+            parents=(-p "refs/remotes/origin/${BRANCH}")
           fi
-          commit=$(git commit-tree "$tree" $parents -m "release ${GITHUB_REF_NAME}" -m "source: ${GITHUB_SHA}")
+          commit=$(git commit-tree "$tree" "${parents[@]}" -m "release ${GITHUB_REF_NAME}" -m "source: ${GITHUB_SHA}")
           git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$commit:refs/heads/${BRANCH}"
       - name: GitHub Release
         # Tags with a hyphen (v0.1.0-rc1) are pre-releases. A re-run of a
