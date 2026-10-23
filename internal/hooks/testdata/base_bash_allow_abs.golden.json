@@ -1,0 +1,1 @@
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"paraplane CLI","updatedInput":{"command":"/opt/codex/plugins/paraplane/bin/paraplane check docs/plans/a.md","description":"check"}}}

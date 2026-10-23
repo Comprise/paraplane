@@ -18,8 +18,10 @@ func PermissionRequest(env Env, in Input) ([]byte, error) {
 	if !env.Config.Enabled || env.Agent != Codex || !bashApprovable(env, in) {
 		return nil, nil
 	}
+	_, in, done := begin(env, in, "PermissionRequest")
+	defer done()
 	var out permissionRequestOutput
-	out.Hook.EventName = "PermissionRequest"
+	out.Hook.EventName = eventOf(in)
 	out.Hook.Decision.Behavior = "allow"
 	return encodeJSON(out)
 }

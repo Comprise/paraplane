@@ -3,15 +3,21 @@ package hooks
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"io"
+	"os"
+	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"paraplane/internal/fsx"
 	"paraplane/internal/gitx"
+	"paraplane/internal/ids"
 	"paraplane/internal/plan"
 	"paraplane/internal/rules"
+	"paraplane/internal/shellx"
 	"paraplane/internal/state"
 	"paraplane/internal/textx"
 	"paraplane/internal/track"
@@ -23,11 +29,136 @@ const (
 	maxProgressPlans = 8  // plans shown per hook call
 )
 
-// taskLine is a subagent prompt line naming its plan and task.
-var taskLine = regexp.MustCompile(`(?m)^[ \t]*Paraplane-Task:[ \t]+(\S+)[ \t]+([A-Za-z][A-Za-z0-9_.-]{0,31})[ \t]*$`)
+// maxStateSize caps the marshalled state a hook writes: above it the scan
+// cache is dropped, so the file stays well under the 4 MiB the state
+// package reads (a larger file would read back as empty). A variable so
+// tests can lower it.
+var maxStateSize = 2 << 20
 
-// commitWord is a word of a Bash command after which new commits may exist.
-var commitWord = regexp.MustCompile(`(^|[^A-Za-z0-9_-])(commit|merge|cherry-pick|rebase|am|pull|revert)([^A-Za-z0-9_-]|$)`)
+// taskLine is a subagent prompt line naming its plan and task.
+var taskLine = regexp.MustCompile(`(?m)^[ \t]*Paraplane-Task:[ \t]+(\S+)[ \t]+(` + ids.Pattern + `)[ \t]*$`)
+
+// commitWords are the git subcommands after which new commits may exist.
+var commitWords = []string{"commit", "merge", "cherry-pick", "rebase", "am", "pull", "revert"}
+
+// gitWrappers are command names that may run git as a later word: wrappers
+// and shell keywords (shellx.CommandNames gives only the first word).
+var gitWrappers = []string{"sudo", "env", "command", "exec", "time", "nohup", "{", "!", "if", "then", "do"}
+
+// The track and test hooks, replaced in tests: statuses to make the scan
+// fail, beforeShowWrite to run another hook between the scan and the write
+// of showProgress.
+var (
+	statuses        = track.Statuses
+	beforeShowWrite func()
+)
+
+// commitCommand reports whether a Bash command may have made commits: it
+// runs git (a command name whose base is git, or a wrapper or keyword
+// followed somewhere by a git word) and one of its words is a commit word.
+// It is a cheap check that runs before any git process.
+func commitCommand(cmd string) bool {
+	words := shellx.Words(cmd)
+	trigger := false
+	for _, w := range words {
+		if slices.Contains(commitWords, w.Text) {
+			trigger = true
+			break
+		}
+	}
+	if !trigger {
+		return false
+	}
+	isGit := func(name string) bool {
+		b := path.Base(anySlash(name))
+		return b == "git" || b == "git.exe"
+	}
+	wrapped := false
+	for _, n := range shellx.CommandNames(cmd) {
+		if isGit(n) {
+			return true
+		}
+		if slices.Contains(gitWrappers, path.Base(anySlash(n))) {
+			wrapped = true
+		}
+	}
+	return wrapped && slices.ContainsFunc(words, func(w shellx.Word) bool { return isGit(w.Text) })
+}
+
+// checked is a plan file read once per hook call: parsed for recording,
+// fully checked for showing.
+type checked struct {
+	md     []byte
+	parsed *plan.Plan // nil: missing, irregular or not parsable
+	hash   string     // track.PlanHash of md
+	plan   *plan.Plan // the checked plan; nil until check, or with E errors
+	done   bool       // check ran
+	late   bool       // the parse or check ran out of time: the plan may be fine
+}
+
+// planCache keeps the plan files of one hook call by path from the root.
+type planCache map[string]*checked
+
+// read reads and parses the plan file rel once.
+func (c planCache) read(env Env, rel string) *checked {
+	if ch, ok := c[rel]; ok {
+		return ch
+	}
+	ch := &checked{}
+	c[rel] = ch
+	md, ok, err := readPlan(filepath.Join(env.Root, filepath.FromSlash(rel)))
+	if err != nil || !ok {
+		return ch
+	}
+	p, err := plan.LoadWithin(md, Options(env).Deadline)
+	switch {
+	case err == nil:
+		ch.md, ch.parsed, ch.hash = md, p, track.PlanHash(md)
+	case errors.Is(err, plan.ErrDeadline):
+		ch.late = true
+	}
+	return ch
+}
+
+// check checks the plan rel by the rules once: plan is nil with E errors
+// or when the file cannot be read; late tells a timeout apart.
+func (c planCache) check(env Env, rel string) *checked {
+	ch := c.read(env, rel)
+	if ch.done || ch.parsed == nil || ch.late {
+		return ch
+	}
+	ch.done = true
+	r := rules.Check(ch.md, Options(env))
+	ch.late = r.TimedOut
+	if r.Errors() == 0 && r.Plan != nil {
+		ch.plan = r.Plan
+	}
+	return ch
+}
+
+// hasTask reports whether id is a task of p.
+func hasTask(p *plan.Plan, id string) bool {
+	return slices.ContainsFunc(p.Tasks(), func(t *plan.Task) bool { return t.ID == id })
+}
+
+// taskPlanRel is the plan path of a Paraplane-Task line as a path from the
+// root; absolute paths inside the root count. ok is false outside the root
+// or plan_paths.
+func taskPlanRel(env Env, p string) (string, bool) {
+	if !slashAbs(anySlash(p)) {
+		p = filepath.Join(env.Root, filepath.FromSlash(p))
+	}
+	rel, ok := rootRel(env.Root, p)
+	return rel, ok && isPlanPath(env, rel)
+}
+
+// storedPlanRel checks a plan path that comes from a commit trailer or the
+// state file before anything reads it: it must already be a clean path from
+// the root (no "..", ".", absolute form or backslash) of plan_paths.
+func storedPlanRel(env Env, p string) bool {
+	rel, ok := rootRel(env.Root, p)
+	return ok && rel == p && isPlanPath(env, rel)
+}
 
 // progressAfterAgent records the tasks a returned subagent names in its
 // prompt (Paraplane-Task: <plan> <id>) and shows the progress of their plans
@@ -46,122 +177,200 @@ func progressAfterAgent(env Env, in Input) ([]byte, error) {
 		return nil, nil
 	}
 	prompt, _ := v.Prompt.(string)
-	gitDir, plans, ok := recordTasks(env, prompt, false)
+	cache := planCache{}
+	gitDir, plans, ok := recordTasks(env, cache, prompt, false)
 	if !ok {
 		return nil, nil
 	}
-	return showProgress(env, gitDir, plans)
+	return showProgress(env, in, cache, gitDir, plans, showOpts{})
 }
 
 // progressAfterBash shows the progress of the plans that new commits name,
-// only for a command with a commit-making word (no git runs otherwise).
+// only for a git command with a commit word (no git runs otherwise). The
+// state is written only when a commit names a plan or the state file
+// exists already, and lastHead advances only once the commits were read.
 func progressAfterBash(env Env, in Input) ([]byte, error) {
-	if !commitWord.MatchString(bashCommand(in)) {
+	if !commitCommand(bashCommand(in)) {
 		return nil, nil
 	}
-	gitDir, err := gitx.GitDir(env.Root)
+	ctx := env.ctx()
+	gitDir, err := gitx.GitDirContext(ctx, env.Root)
 	if err != nil {
 		return nil, nil
 	}
-	head, err := gitx.Head(env.Root)
+	head, err := gitx.HeadContext(ctx, env.Root)
 	if err != nil || head == "" {
 		return nil, nil
 	}
-	last := state.Load(gitDir).LastHead
-	if last == head {
+	st, err := state.LoadState(gitDir)
+	if err != nil || st.LastHead == head {
 		return nil, nil
 	}
 	from := ""
-	if last != "" {
-		if ok, err := gitx.IsAncestor(env.Root, last, head); err == nil && ok {
-			from = last
+	if st.LastHead != "" {
+		if ok, err := gitx.IsAncestorContext(ctx, env.Root, st.LastHead, head); err == nil && ok {
+			from = st.LastHead
 		}
 	}
-	named, err := gitx.PlansSince(env.Root, from, head)
-	if state.Update(gitDir, func(s *state.State) { s.LastHead = head }) != nil || err != nil {
+	named, err := gitx.PlansSinceContext(ctx, env.Root, from, head)
+	if err != nil {
 		return nil, nil
 	}
 	var plans []string
-	for _, rel := range named {
-		if isPlanPath(env, rel) {
-			plans = append(plans, rel)
+	for _, p := range named {
+		if storedPlanRel(env, p) {
+			plans = appendUnique(plans, p)
 		}
 	}
-	return showProgress(env, gitDir, plans)
+	// Plans still waiting (a Stop not yet run; Codex, whose Stop does not
+	// show them) are shown with the named ones.
+	for _, p := range st.Pending {
+		plans = appendUnique(plans, p)
+	}
+	if len(plans) == 0 {
+		if stateExists(gitDir) {
+			state.UpdateCtx(ctx, gitDir, func(s *state.State) { moveLastHead(s, st.LastHead, head) })
+		}
+		return nil, nil
+	}
+	return showProgress(env, in, planCache{}, gitDir, plans, showOpts{lastHead: head, prevHead: st.LastHead})
 }
 
-// showProgress renders each plan (at most maxProgressPlans) and answers for
-// those whose done waves (progress: wave) or done tasks (progress: task) grew
-// since they were last shown. Claude gets a systemMessage for the user;
-// Codex, whose display of it is unverified, gets it as context to show.
-func showProgress(env Env, gitDir string, plans []string) ([]byte, error) {
-	if len(plans) > maxProgressPlans {
-		plans = plans[:maxProgressPlans]
+// moveLastHead sets s.LastHead to head unless another hook moved it since
+// it was read as prev: two overlapping hooks must not move it back.
+func moveLastHead(s *state.State, prev, head string) {
+	if s.LastHead == prev || s.LastHead == "" {
+		s.LastHead = head
 	}
-	type shown struct {
-		rel  string
-		text string
-		st   track.Status
-	}
-	var out []shown
-	for _, rel := range plans {
-		p, ok := loadPlan(env, rel)
-		if !ok {
+}
+
+// stateExists reports whether <gitDir>/paraplane/closed.json exists (the
+// names of the state package).
+func stateExists(gitDir string) bool {
+	_, err := os.Lstat(filepath.Join(gitDir, "paraplane", "closed.json"))
+	return err == nil
+}
+
+// showOpts is what a showProgress write does besides the shown counts.
+type showOpts struct {
+	lastHead string // move lastHead to it (Bash), when not ""
+	prevHead string // the lastHead read before the scan (moveLastHead)
+}
+
+// showProgress renders the plans (paths pass storedPlanRel first) with one
+// track.Statuses outside the lock and answers for those whose done waves
+// (progress: wave) or done tasks (progress: task) grew since they were last
+// shown. At most maxProgressPlans are rendered; the others and those whose
+// check ran out of time go to Pending for the next hook, so a moved
+// lastHead loses no plan. The write applies the statuses, raises the shown
+// counts (never lowers them), moves lastHead and takes from Pending the
+// plans shown or unusable; a plan that got an entry after the scan stays
+// pending. A failed scan writes nothing. Claude gets a systemMessage for the
+// user (Stop gets nothing else); Codex, whose display of it is unverified,
+// gets it as context to show.
+func showProgress(env Env, in Input, cache planCache, gitDir string, plans []string, o showOpts) ([]byte, error) {
+	var refs []track.PlanRef
+	var dead []string  // plans that can never be shown
+	var later []string // plans to show in a later hook
+	for _, p := range plans {
+		if !storedPlanRel(env, p) {
+			dead = append(dead, p)
 			continue
 		}
-		st, err := track.PlanStatus(env.Root, rel, p, nil)
-		if err != nil {
+		if len(refs) == maxProgressPlans {
+			later = append(later, p)
 			continue
 		}
-		out = append(out, shown{rel: rel, text: st.Text, st: st})
+		ch := cache.check(env, p)
+		switch {
+		case ch.late:
+			later = append(later, p)
+		case ch.plan == nil:
+			dead = append(dead, p)
+		default:
+			refs = append(refs, track.PlanRef{Rel: p, Hash: ch.hash, Plan: ch.plan})
+		}
+	}
+	if len(refs) == 0 && o.lastHead == "" && len(dead) == 0 && len(later) == 0 {
+		return nil, nil
+	}
+	ctx := env.ctx()
+	st, err := state.LoadState(gitDir)
+	if err != nil {
+		return nil, nil
+	}
+	res := track.Result{Apply: func(*state.State) {}}
+	if len(refs) > 0 {
+		if res, err = statuses(ctx, env.Root, refs, st); err != nil {
+			return nil, nil
+		}
+	}
+	seen := map[state.Entry]bool{}
+	for _, e := range st.Entries {
+		seen[e] = true
+	}
+	if beforeShowWrite != nil {
+		beforeShowWrite()
 	}
 	var texts, names []string
-	err := state.Update(gitDir, func(s *state.State) {
+	err = state.UpdateCtx(ctx, gitDir, func(s *state.State) {
+		take := dead
+		for _, r := range refs {
+			if !slices.ContainsFunc(s.Entries, func(e state.Entry) bool { return e.Plan == r.Rel && !seen[e] }) {
+				take = append(take, r.Rel)
+			}
+		}
+		res.Apply(s)
+		if o.lastHead != "" {
+			moveLastHead(s, o.prevHead, o.lastHead)
+		}
 		if s.Shown == nil {
 			s.Shown = map[string]state.Shown{}
 		}
-		for _, o := range out {
-			prev := s.Shown[o.rel]
-			grew := o.st.Waves > prev.Waves || (env.Config.Progress == "task" && o.st.Tasks > prev.Tasks)
-			s.Shown[o.rel] = state.Shown{Waves: o.st.Waves, Tasks: o.st.Tasks}
-			if grew {
-				texts = append(texts, strings.TrimRight(o.text, "\n"))
-				names = append(names, textx.Line(o.rel, maxPath))
+		for _, r := range refs {
+			now, prev := res.ByPlan[r.Rel], s.Shown[r.Rel]
+			if now.Waves > prev.Waves || (env.Config.Progress == "task" && now.Tasks > prev.Tasks) {
+				texts = append(texts, strings.TrimRight(now.Text, "\n"))
+				names = append(names, textx.Line(r.Rel, maxPath))
 			}
+			s.Shown[r.Rel] = state.Shown{Waves: max(prev.Waves, now.Waves), Tasks: max(prev.Tasks, now.Tasks)}
 		}
+		s.TakePending(take)
+		for _, p := range later {
+			s.Pending = appendUnique(s.Pending, p)
+		}
+		capState(s)
 	})
 	if err != nil || len(texts) == 0 {
 		return nil, nil
 	}
 	msg := strings.Join(texts, "\n\n")
-	if env.Agent == Codex {
-		return contextOutput("PostToolUse", "paraplane: progress of "+strings.Join(names, ", ")+":\n"+msg+
-			"\nShow this progress to the user in a code block.")
+	about := "paraplane: progress of " + strings.Join(names, ", ")
+	switch {
+	case env.Agent == Codex:
+		return contextOutput(eventOf(in), about+":\n"+msg+"\nShow this progress to the user in a code block.")
+	case eventOf(in) == "Stop":
+		return encodeJSON(hookOutput{SystemMessage: msg})
 	}
-	return encodeJSON(hookOutput{SystemMessage: msg, Hook: &hookSpecific{EventName: "PostToolUse",
-		AdditionalContext: "paraplane: progress of " + strings.Join(names, ", ") + " was shown to the user; do not repeat it."}})
+	return encodeJSON(hookOutput{SystemMessage: msg, Hook: &hookSpecific{EventName: eventOf(in),
+		AdditionalContext: about + " was shown to the user; do not repeat it."}})
 }
 
-// loadPlan reads and checks the plan file rel; ok is false for a missing or
-// irregular file or a plan with E errors.
-func loadPlan(env Env, rel string) (*plan.Plan, bool) {
-	md, ok, err := readPlan(filepath.Join(env.Root, filepath.FromSlash(rel)))
-	if err != nil || !ok {
-		return nil, false
+// capState drops the scan cache when the state would be larger than
+// maxStateSize.
+func capState(s *state.State) {
+	if s.Scan == nil {
+		return
 	}
-	r := rules.Check(md, Options(env))
-	if r.Errors() > 0 || r.Plan == nil {
-		return nil, false
+	if data, err := json.Marshal(s); err != nil || len(data) > maxStateSize {
+		s.Scan = nil
 	}
-	return r.Plan, true
 }
 
 // appendUnique appends s when it is not in list yet.
 func appendUnique(list []string, s string) []string {
-	for _, x := range list {
-		if x == s {
-			return list
-		}
+	if slices.Contains(list, s) {
+		return list
 	}
 	return append(list, s)
 }
@@ -200,42 +409,43 @@ func mergeOutputs(a, b []byte) ([]byte, error) {
 }
 
 // recordTasks records the tasks the subagent prompt names
-// (Paraplane-Task: <plan> <id>) with the current HEAD; with pending the
-// plans also wait for a hook that can show their progress. ok is false when
-// nothing was recorded.
-func recordTasks(env Env, prompt string, pending bool) (gitDir string, plans []string, ok bool) {
+// (Paraplane-Task: <plan> <id>, at most maxTaskLines lines) with the current
+// HEAD and the hash of the plan block; with pending the plans also wait for
+// a hook that can show their progress. A line counts when its plan is a
+// plan file of plan_paths that parses and its id is a task of that plan;
+// the full check waits for the show. ok is false when nothing was recorded
+// (and nothing was written).
+func recordTasks(env Env, cache planCache, prompt string, pending bool) (gitDir string, plans []string, ok bool) {
 	var entries []state.Entry
 	for _, m := range taskLine.FindAllStringSubmatch(prompt, maxTaskLines) {
-		p := m[1]
-		if !filepath.IsAbs(p) {
-			p = filepath.Join(env.Root, filepath.FromSlash(p))
-		}
-		rel, ok := rootRel(env.Root, p)
-		if !ok || !isPlanPath(env, rel) {
+		rel, ok := taskPlanRel(env, m[1])
+		if !ok {
 			continue
 		}
-		if _, ok := loadPlan(env, rel); !ok {
+		ch := cache.read(env, rel)
+		if ch.parsed == nil || !hasTask(ch.parsed, m[2]) {
 			continue
 		}
-		entries = append(entries, state.Entry{Plan: rel, Task: m[2]})
+		entries = append(entries, state.Entry{Plan: rel, Task: m[2], PlanHash: ch.hash})
 		plans = appendUnique(plans, rel)
 	}
 	if len(entries) == 0 {
 		return "", nil, false
 	}
-	gitDir, err := gitx.GitDir(env.Root)
+	ctx := env.ctx()
+	gitDir, err := gitx.GitDirContext(ctx, env.Root)
 	if err != nil {
 		return "", nil, false
 	}
-	head, err := gitx.Head(env.Root)
-	if err != nil {
+	head, err := gitx.HeadContext(ctx, env.Root)
+	if err != nil || head == "" {
 		return "", nil, false
 	}
-	for i := range entries {
-		entries[i].Head = head
-	}
-	err = state.Update(gitDir, func(s *state.State) {
-		s.Entries = append(s.Entries, entries...)
+	err = state.UpdateCtx(ctx, gitDir, func(s *state.State) {
+		for _, e := range entries {
+			e.Head = head
+			s.Add(e)
+		}
 		if pending {
 			for _, p := range plans {
 				s.Pending = appendUnique(s.Pending, p)
@@ -250,14 +460,17 @@ func recordTasks(env Env, prompt string, pending bool) (gitDir string, plans []s
 const maxTranscriptHead = 1 << 20
 
 // SubagentStop records the tasks a finished subagent's prompt names, read from
-// the first record of its transcript. Claude Code does not show a
-// SubagentStop systemMessage, so the progress waits for Stop or PostToolUse
-// (pending). Subagents without a Paraplane-Task line, among them Claude
-// Code's own helpers, are ignored.
+// the first record of its transcript. It only records (a parse, no check,
+// no scan): Claude Code does not show a SubagentStop systemMessage, so the
+// progress waits for Stop (pending), which checks and scans. Subagents
+// without a Paraplane-Task line, among them Claude Code's own helpers, are
+// ignored.
 func SubagentStop(env Env, in Input) ([]byte, error) {
 	if !env.Config.Enabled || in.AgentTranscriptPath == "" {
 		return nil, nil
 	}
+	env, _, done := begin(env, in, "SubagentStop")
+	defer done()
 	f, _, err := fsx.OpenRegular(in.AgentTranscriptPath)
 	if err != nil {
 		return nil, nil
@@ -288,23 +501,21 @@ func SubagentStop(env Env, in Input) ([]byte, error) {
 			}
 		}
 	}
-	recordTasks(env, prompt, true)
+	recordTasks(env, planCache{}, prompt, true)
 	return nil, nil
 }
 
 // flushPending shows the progress of the plans waiting since a SubagentStop
-// (Claude Code's Stop shows a systemMessage).
-func flushPending(env Env) ([]byte, error) {
-	gitDir, err := gitx.GitDir(env.Root)
+// (Claude Code's Stop shows a systemMessage); showProgress takes them from
+// Pending only once handled.
+func flushPending(env Env, in Input) ([]byte, error) {
+	gitDir, err := gitx.GitDirContext(env.ctx(), env.Root)
 	if err != nil {
 		return nil, nil
 	}
-	pending := state.Load(gitDir).Pending
-	if len(pending) == 0 {
+	st, err := state.LoadState(gitDir)
+	if err != nil || len(st.Pending) == 0 {
 		return nil, nil
 	}
-	if state.Update(gitDir, func(s *state.State) { s.Pending = nil }) != nil {
-		return nil, nil
-	}
-	return showProgress(env, gitDir, pending)
+	return showProgress(env, in, planCache{}, gitDir, st.Pending, showOpts{})
 }

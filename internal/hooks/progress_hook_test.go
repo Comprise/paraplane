@@ -7,27 +7,28 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"paraplane/internal/testgit"
 )
 
 // progressPlan: W1 (T1, T2), W2 (T3).
 const progressPlan = "# x\n\n```paraplane\ngate: make\nwaves:\n  - id: W1\n    tasks:\n      - {id: T1, title: a, owns: [a.go], verify: v}\n      - {id: T2, title: b, owns: [b.go], verify: v}\n  - id: W2\n    tasks:\n      - {id: T3, title: c, owns: [c.go], depends: [T1], verify: v}\n```\n"
 
+// gitRun runs git in dir (testgit.Run).
 func gitRun(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1",
-		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
+	testgit.Run(t, dir, args...)
 }
 
-// progressEnv is env with a git repository holding the plan, committed.
+// progressEnv is env with a git repository holding the plan, committed;
+// the hooks' own git calls run without the caller's GIT_* variables and
+// global config (testgit.Isolate).
 func progressEnv(t *testing.T, env Env, mode string) Env {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}
+	testgit.Isolate(t)
 	env.Config.Progress = mode
 	gitRun(t, env.Root, "init", "-q")
 	writePlan(t, env, "docs/plans/x.md", progressPlan)

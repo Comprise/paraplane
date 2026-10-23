@@ -792,15 +792,15 @@ func TestCodexSharedDeadline(t *testing.T) {
 	env := codexEnv(t)
 	o := Options(env)
 	for _, k := range []postKind{postWrite, postEdit} {
-		out, err := postVerdict(env, o, "docs/plans/a.md", []byte(planOK), k, true)
+		out, err := postVerdict(env, "PostToolUse", o, "docs/plans/a.md", []byte(planOK), k, true)
 		if err != nil || !strings.Contains(string(out), `"decision":"block"`) || !strings.Contains(string(out), "a.md was not checked") ||
 			!strings.Contains(string(out), Codex.CLI()+" check docs/plans/a.md") {
 			t.Errorf("kind %d, shared: got %s, %v; want the not-checked block", k, out, err)
 		}
-		if out, err := postVerdict(env, o, "docs/plans/a.md", []byte(planOK), postRead, true); out != nil || err != nil {
+		if out, err := postVerdict(env, "PostToolUse", o, "docs/plans/a.md", []byte(planOK), postRead, true); out != nil || err != nil {
 			t.Errorf("read, shared: got %s, %v; want nil", out, err)
 		}
-		out, err = postVerdict(env, o, "docs/plans/a.md", []byte(planOK), k, false)
+		out, err = postVerdict(env, "PostToolUse", o, "docs/plans/a.md", []byte(planOK), k, false)
 		if err != nil || !strings.Contains(string(out), `"decision":"block"`) || strings.Contains(string(out), "not checked") {
 			t.Errorf("kind %d, own: got %s, %v; want the deadline block", k, out, err)
 		}

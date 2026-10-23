@@ -21,9 +21,12 @@ func codexMentions(prompt string) []string {
 	return names
 }
 
-// codexMentionEnd reports whether c would continue a skill or variable name.
+// codexMentionEnd reports whether c would continue a skill or variable name:
+// ':', '-' or an ASCII letter, digit or underscore. (shellx has a word-byte
+// test of its own for sed; it is not exported, so the test is spelled out
+// here.)
 func codexMentionEnd(c byte) bool {
-	return c == ':' || c == '-' || isWordByte(c)
+	return c == ':' || c == '-' || c == '_' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
 // PromptSubmit is Codex's counterpart of the Skill PreToolUse: Codex has no
@@ -34,6 +37,8 @@ func PromptSubmit(env Env, in Input) ([]byte, error) {
 	if !env.Config.Enabled || env.Agent != Codex {
 		return nil, nil
 	}
+	_, in, done := begin(env, in, "UserPromptSubmit")
+	defer done()
 	digest := ""
 	for _, name := range codexMentions(in.Prompt) {
 		switch d := skillDigest(name); d {
@@ -52,7 +57,7 @@ func PromptSubmit(env Env, in Input) ([]byte, error) {
 		return nil, nil
 	}
 	if digest == ExecDigest {
-		digest = execDigest(env.Config.Progress)
+		digest = execDigest(env.Agent, env.Config.Progress)
 	}
-	return encodeJSON(hookOutput{Hook: &hookSpecific{EventName: "UserPromptSubmit", AdditionalContext: env.Agent.text(digest)}})
+	return encodeJSON(hookOutput{Hook: &hookSpecific{EventName: eventOf(in), AdditionalContext: env.Agent.text(digest)}})
 }

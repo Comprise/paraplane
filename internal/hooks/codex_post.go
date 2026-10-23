@@ -126,7 +126,7 @@ func codexPost(env Env, in Input) ([]byte, error) {
 				}
 				k = postRead
 			}
-			out, err := postVerdict(env, o, rel, md, k, checked > 0)
+			out, err := postVerdict(env, eventOf(in), o, rel, md, k, checked > 0)
 			checked++
 			if err != nil {
 				return nil, err
@@ -178,12 +178,6 @@ func postKindOf(k shellx.Kind) postKind {
 		return postWrite
 	}
 	return postRead
-}
-
-// isWordByte reports whether c is an ASCII letter, digit or underscore
-// (for codex_prompt.go; shellx has its own copy for sed).
-func isWordByte(c byte) bool {
-	return c == '_' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
 // patchText is the apply_patch text: tool_input.command, input or patch,

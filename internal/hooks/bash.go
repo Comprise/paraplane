@@ -5,27 +5,64 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
+
+	"paraplane/internal/ids"
 )
+
+// bashPath is a plan path argument of an approved command.
+const bashPath = `[A-Za-z0-9_.][A-Za-z0-9_./-]*`
 
 // bashOwnCLI matches a single plain invocation of the plugin's own CLI: no
 // shell metacharacters, quotes, variables or extra whitespace can appear.
-var bashOwnCLI = regexp.MustCompile(`^paraplane (version|check( --suggest)? [A-Za-z0-9_.][A-Za-z0-9_./-]*|progress( --done [A-Za-z][A-Za-z0-9_.-]*(,[A-Za-z][A-Za-z0-9_.-]*)*)? [A-Za-z0-9_.][A-Za-z0-9_./-]*|audit [A-Za-z0-9_.][A-Za-z0-9_./-]* [A-Za-z][A-Za-z0-9_.-]*(,[A-Za-z][A-Za-z0-9_.-]*)*)$`)
+// Task and wave lists follow the id grammar of internal/ids.
+var bashOwnCLI = regexp.MustCompile(`^paraplane (version|check( --suggest)? ` + bashPath +
+	`|progress( --(done|forget) ` + ids.ListPattern + `)? ` + bashPath +
+	`|audit ` + bashPath + ` ` + ids.ListPattern + `)$`)
 
-// bash auto-approves the plugin's own read-only CLI calls; anything else keeps
-// the normal permission flow.
+// bash auto-approves the plugin's own CLI calls; anything else keeps the
+// normal permission flow. For Claude the approval also rewrites the command
+// to the plugin's binary by its absolute path (absoluteInput), so what runs
+// is the program the approval was given for.
 func bash(env Env, in Input) ([]byte, error) {
 	if !env.Config.Enabled || !bashApprovable(env, in) {
 		return nil, nil
 	}
-	return encodeJSON(hookOutput{Hook: &hookSpecific{
-		EventName:                "PreToolUse",
+	h := &hookSpecific{
+		EventName:                eventOf(in),
 		PermissionDecision:       "allow",
 		PermissionDecisionReason: "paraplane CLI",
-	}})
+	}
+	if env.Agent != Codex {
+		h.UpdatedInput = absoluteInput(in)
+	}
+	return encodeJSON(hookOutput{Hook: h})
+}
+
+// absoluteInput is tool_input with its command "paraplane …" rewritten to
+// "<CLAUDE_PLUGIN_ROOT>/bin/paraplane …"; the other fields stay. It is nil
+// when the plugin root is unset or unsafe to paste into a shell
+// (pluginRootOK): the bare name is approved then, as before.
+func absoluteInput(in Input) map[string]any {
+	root := os.Getenv("CLAUDE_PLUGIN_ROOT")
+	if !pluginRootOK(root) {
+		return nil
+	}
+	var m map[string]any
+	if json.Unmarshal(in.ToolInput, &m) != nil {
+		return nil
+	}
+	cmd, _ := m["command"].(string)
+	rest, ok := strings.CutPrefix(cmd, "paraplane ")
+	if !ok {
+		return nil
+	}
+	m["command"] = path.Join(root, "bin", "paraplane") + " " + rest
+	return m
 }
 
 // bashApprovable reports whether the tool call is a Bash run of the plugin's

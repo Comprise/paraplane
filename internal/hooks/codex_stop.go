@@ -38,8 +38,10 @@ func Stop(env Env, in Input) ([]byte, error) {
 	if !env.Config.Enabled {
 		return nil, nil
 	}
+	env, in, done := begin(env, in, "Stop")
+	defer done()
 	if env.Agent != Codex {
-		return flushPending(env)
+		return flushPending(env, in)
 	}
 	if in.StopHookActive {
 		return nil, nil
@@ -71,7 +73,7 @@ func Stop(env Env, in Input) ([]byte, error) {
 		return nil, nil
 	}
 	reason := "paraplane: the proposed plan is not ready for parallel execution. Fix these and propose the revised plan again:\n" +
-		planFindings(env.Agent, r.Findings) + env.Agent.text("\nFormat and rules: skill paraplane:rules.")
+		planFindings(env.Agent, r.Findings) + env.Agent.text("\nFormat and rules: skill paraplane:rules.") + "\n" + quoteNote
 	if env.Config.Mode == "warn" {
 		return encodeJSON(hookOutput{SystemMessage: reason})
 	}

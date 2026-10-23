@@ -13,6 +13,8 @@ func PreToolUse(env Env, in Input) ([]byte, error) {
 	if !env.Config.Enabled {
 		return nil, nil
 	}
+	env, in, done := begin(env, in, "PreToolUse")
+	defer done()
 	switch in.ToolName {
 	case "ExitPlanMode":
 		return exitPlan(env, in)
@@ -35,17 +37,17 @@ func exitPlan(env Env, in Input) ([]byte, error) {
 	switch {
 	case r.Errors() > 0:
 		text := "paraplane: the plan is not ready for parallel execution. Fix these and call ExitPlanMode again:\n" +
-			planFindings(env.Agent, r.Findings) + env.Agent.text("\nFormat and rules: skill paraplane:rules.")
+			planFindings(env.Agent, r.Findings) + env.Agent.text("\nFormat and rules: skill paraplane:rules.") + "\n" + quoteNote
 		if env.Config.Mode == "warn" {
-			return contextOutput("PreToolUse", text)
+			return contextOutput(eventOf(in), text)
 		}
 		return encodeJSON(hookOutput{Hook: &hookSpecific{
-			EventName:                "PreToolUse",
+			EventName:                eventOf(in),
 			PermissionDecision:       "deny",
 			PermissionDecisionReason: text,
 		}})
 	case r.Warnings() > 0:
-		return contextOutput("PreToolUse", planWarnings(env.Agent, r))
+		return contextOutput(eventOf(in), planWarnings(env.Agent, r))
 	}
 	return nil, nil
 }

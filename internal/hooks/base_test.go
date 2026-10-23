@@ -13,11 +13,19 @@ import (
 	"paraplane/internal/config"
 )
 
-// golden compares got with testdata/<name>.golden.json (written by hand),
-// ignoring CRLF line endings and a trailing newline of the file.
+// golden compares got with testdata/<name>.golden.json, ignoring CRLF line
+// endings and a trailing newline of the file; with -update it writes got
+// there instead.
 func golden(t *testing.T, name string, got []byte) {
 	t.Helper()
-	want, err := os.ReadFile(filepath.Join("testdata", name+".golden.json"))
+	file := filepath.Join("testdata", name+".golden.json")
+	if *update {
+		if err := os.WriteFile(file, got, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,8 +60,16 @@ func TestSessionStart(t *testing.T) {
 	env := testEnv(t)
 	env.Config.Progress = "task"
 	out, err = SessionStart(env, Input{HookEventName: "SessionStart"})
-	if err != nil || !strings.Contains(string(out), "progress: task") || !strings.Contains(string(out), "After each closed task") {
+	if err != nil || !strings.Contains(string(out), "progress: task") || !strings.Contains(string(out), "after each task whose subagent ended") ||
+		!strings.Contains(string(out), "`paraplane progress --forget <ids> <plan>`") || strings.Contains(string(out), "Codex") {
 		t.Errorf("task mode: got %s, %v", out, err)
+	}
+	// Codex: its own rule, run by the coordinator.
+	env = codexEnv(t)
+	env.Config.Progress = "task"
+	out, err = SessionStart(env, Input{HookEventName: "SessionStart"})
+	if err != nil || !strings.Contains(string(out), "In Codex also: After each closed task") || strings.Contains(string(out), "a hook") {
+		t.Errorf("codex task mode: got %s, %v", out, err)
 	}
 }
 
@@ -61,14 +77,25 @@ func TestExecDigestMode(t *testing.T) {
 	in := toolInput(t, "Skill", map[string]any{"skill": "superpowers:executing-plans"})
 	env := testEnv(t)
 	out, err := PreToolUse(env, in)
-	if err != nil || !strings.Contains(string(out), "after each closed wave") || strings.Contains(string(out), "After each closed task") {
+	if err != nil || !strings.Contains(string(out), "shows the progress to the user by itself") ||
+		strings.Contains(string(out), "after each task whose subagent ended") || strings.Contains(string(out), "Codex") ||
+		!strings.Contains(string(out), "one commit per task") || !strings.Contains(string(out), "among the first 16 such lines") {
 		t.Errorf("wave: got %s, %v", out, err)
 	}
 	env.Config.Progress = "task"
 	out, err = PreToolUse(env, in)
-	if err != nil || !strings.Contains(string(out), "after each closed wave") ||
-		!strings.Contains(string(out), "After each closed task (its subagent returned and its review passed) run `paraplane progress --done ") {
+	if err != nil || !strings.Contains(string(out), "after each task whose subagent ended") || strings.Contains(string(out), "Codex") {
 		t.Errorf("task: got %s, %v", out, err)
+	}
+	// Codex shows the progress itself; its texts never mention the hook.
+	t.Setenv("CLAUDE_PLUGIN_ROOT", "")
+	env = codexEnv(t)
+	for mode, want := range map[string]string{"wave": "after each closed wave", "task": "In Codex also: After each closed task (its subagent returned and its review passed) run `paraplane progress --done "} {
+		env.Config.Progress = mode
+		out, err = PreToolUse(env, in)
+		if err != nil || !strings.Contains(string(out), want) || strings.Contains(string(out), "a hook") {
+			t.Errorf("codex %s: got %s, %v", mode, out, err)
+		}
 	}
 }
 
@@ -199,7 +226,7 @@ func TestBashAllow(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		golden(t, "base_bash_allow", out)
+		checkAllow(t, out, cmd)
 	}
 	for _, cmd := range deny {
 		out, err := bash(env, toolInput(t, "Bash", map[string]any{"command": cmd}))
@@ -221,6 +248,29 @@ func TestBashAllow(t *testing.T) {
 			t.Fatalf("got %s", out)
 		}
 	})
+}
+
+// checkAllow checks a Claude Bash approval of cmd: allow, and the command
+// rewritten to the plugin binary when the plugin root is safe.
+func checkAllow(t *testing.T, out []byte, cmd string) {
+	t.Helper()
+	var v struct {
+		Hook struct {
+			Event    string         `json:"hookEventName"`
+			Decision string         `json:"permissionDecision"`
+			Updated  map[string]any `json:"updatedInput"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(out, &v); err != nil || v.Hook.Event != "PreToolUse" || v.Hook.Decision != "allow" {
+		t.Fatalf("%q: got %s, %v", cmd, out, err)
+	}
+	want := cmd
+	if root := os.Getenv("CLAUDE_PLUGIN_ROOT"); pluginRootOK(root) {
+		want = root + "/bin/" + cmd
+	}
+	if got, _ := v.Hook.Updated["command"].(string); got != want && (v.Hook.Updated != nil || want != cmd) {
+		t.Errorf("%q: updatedInput command %q, want %q", cmd, got, want)
+	}
 }
 
 func fakeBin(t *testing.T, dir string) {
@@ -246,7 +296,7 @@ func TestBashAllowPathShadow(t *testing.T) {
 	t.Run("own binary first", func(t *testing.T) {
 		t.Setenv("PATH", filepath.Join(plugin, "bin"))
 		out, _ := bash(env, in)
-		golden(t, "base_bash_allow", out)
+		checkAllow(t, out, "paraplane version")
 	})
 	t.Run("shadowed", func(t *testing.T) {
 		other := filepath.Join(t.TempDir(), "bin")
@@ -259,7 +309,7 @@ func TestBashAllowPathShadow(t *testing.T) {
 	t.Run("not on PATH", func(t *testing.T) {
 		t.Setenv("PATH", t.TempDir())
 		out, _ := bash(env, in)
-		golden(t, "base_bash_allow", out)
+		checkAllow(t, out, "paraplane version")
 	})
 	t.Run("relative PATH entry", func(t *testing.T) {
 		// "." on PATH finds paraplane in the working directory (exec.ErrDot):

@@ -247,8 +247,8 @@ waves:
 - D-M4/D-M7/D-L4: digest and `sessionTask` texts: per-task commit scheme, when a `Paraplane-Task` line counts (path without spaces, a plan file of `plan_paths`, a plan without E errors, a valid id of the plan, at most 16 lines), that the record happens at the subagent's end, before review, and is undone by `paraplane progress --forget`; "In Codex also" only in Codex texts.
 - Q-M8/A-M2: progress code in `progress_hook.go`, agent protocols stay; the lexer is gone (R4).
 - T-M1: tests for Codex `mergeOutputs` with a block, the 8-plan and 16-line caps, forged state (`"head":""`, bad hash, `..` in pending), waiting-wave task commit through the hook; T-L1: `-update` flag for goldens; T-L5/T-M3: approval deny list with TAB, CR, NUL, non-ASCII, 33-rune ids, `FuzzBashApproval`; T-M4: Windows-capable markers via `testgit.MarkerProgram`.
-- [ ] **Step 1: Failing tests** `TestNoStateWithoutPlans`, `TestStopAnswerShape`, `TestHookEventNameMatches` (all handlers × events), `TestBudget7s` (slow fake git → answer within 7.5 s), `TestLastHeadOnFailure`, `TestPendingNotLostConcurrent`, `TestShownMonotonic`, `TestForgetUndone`, `TestQuotedPlanText`, `TestUpdatedInputAbsolute`, plus the T-M1/T-L5 cases above.
-- [ ] **Step 2–4:** FAIL → implement → PASS.
+- [x] **Step 1: Failing tests** `TestNoStateWithoutPlans`, `TestStopAnswerShape`, `TestHookEventNameMatches` (all handlers × events), `TestBudget7s` (slow fake git → answer within 7.5 s), `TestLastHeadOnFailure`, `TestPendingNotLostConcurrent`, `TestShownMonotonic`, `TestForgetUndone`, `TestQuotedPlanText`, `TestUpdatedInputAbsolute`, plus the T-M1/T-L5 cases above.
+- [x] **Step 2–4:** FAIL → implement → PASS.
 
 ### Task R11: cmd
 

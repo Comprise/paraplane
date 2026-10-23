@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"paraplane/internal/layout"
 	"paraplane/internal/plan"
 	"paraplane/internal/rules"
 	"paraplane/internal/textx"
@@ -27,6 +26,8 @@ func PostToolUse(env Env, in Input) ([]byte, error) {
 	if !env.Config.Enabled {
 		return nil, nil
 	}
+	env, in, done := begin(env, in, "PostToolUse")
+	defer done()
 	switch {
 	case env.Agent == Codex && in.ToolName == "Bash":
 		out, err := codexPost(env, in)
@@ -63,9 +64,9 @@ func PostToolUse(env Env, in Input) ([]byte, error) {
 		if !editTouchesPlan(md, oldS, newS) {
 			return nil, nil
 		}
-		return postVerdict(env, Options(env), rel, md, postEdit, false)
+		return postVerdict(env, eventOf(in), Options(env), rel, md, postEdit, false)
 	}
-	return postVerdict(env, Options(env), rel, md, postWrite, false)
+	return postVerdict(env, eventOf(in), Options(env), rel, md, postWrite, false)
 }
 
 // postKind is how a tool call touched a plan file; a larger kind wins when
@@ -86,35 +87,37 @@ const (
 // with files checked before, so a deadline E0 is not this plan's own: it
 // says the plan was not checked (a block, context in mode warn) instead of
 // calling the plan too complex. paraplane's own strings go through
-// env.Agent.text; the plan path and plan text do not.
-func postVerdict(env Env, o rules.Options, rel string, md []byte, k postKind, shared bool) ([]byte, error) {
+// env.Agent.text; the plan path and plan text do not, and plan text is
+// quoted (quoteNote). event is the event answered.
+func postVerdict(env Env, event string, o rules.Options, rel string, md []byte, k postKind, shared bool) ([]byte, error) {
 	r := rules.Check(md, o)
 	if k == postRead && (r.Errors() == 0 || r.Findings[0].Code == "E0") {
 		return nil, nil
 	}
 	name := textx.Line(rel, maxPath)
 	text := env.Agent.text
-	if shared && len(r.Findings) > 0 && r.Findings[0].Code == "E0" && r.Findings[0].Msg == layout.ErrDeadline.Error() {
+	if shared && r.TimedOut {
 		reason := "paraplane: " + name + " was not checked: the check time ran out on other plan files of this command" +
 			text("; run `paraplane check ") + name + "` before the plan is final."
 		if env.Config.Mode == "warn" {
-			return contextOutput("PostToolUse", reason)
+			return contextOutput(event, reason)
 		}
 		return encodeJSON(hookOutput{Decision: "block", Reason: reason})
 	}
 	switch {
-	case len(r.Findings) > 0 && r.Findings[0].Code == "E0" && r.Findings[0].Msg != layout.ErrDeadline.Error():
-		return contextOutput("PostToolUse", "paraplane: "+name+" has no valid ```paraplane block yet ("+
-			textx.Line(r.Findings[0].Msg, maxE0)+text("); add the block before the plan is final. Format: skill paraplane:rules."))
+	case len(r.Findings) > 0 && r.Findings[0].Code == "E0" && !r.TimedOut:
+		return contextOutput(event, "paraplane: "+name+" has no valid ```paraplane block yet:\n"+
+			quote(textx.Line(r.Findings[0].Msg, maxE0))+
+			text("\nAdd the block before the plan is final. Format: skill paraplane:rules.")+"\n"+quoteNote)
 	case r.Errors() > 0:
 		reason := "paraplane: " + name + " is not ready for parallel execution (fix it before the plan is final):\n" +
-			planFindings(env.Agent, r.Findings) + text("\nFormat and rules: skill paraplane:rules.")
+			planFindings(env.Agent, r.Findings) + text("\nFormat and rules: skill paraplane:rules.") + "\n" + quoteNote
 		if env.Config.Mode == "warn" || k == postRead {
-			return contextOutput("PostToolUse", reason)
+			return contextOutput(event, reason)
 		}
 		return encodeJSON(hookOutput{Decision: "block", Reason: reason})
 	case r.Warnings() > 0 && k == postWrite:
-		return contextOutput("PostToolUse", planWarnings(env.Agent, r))
+		return contextOutput(event, planWarnings(env.Agent, r))
 	}
 	return nil, nil
 }
